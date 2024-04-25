@@ -124,7 +124,6 @@ class AgentQ:
 
     # write down expected equation from sindy for q update with forgetting:
     # q_k+1 = (1 - alpha) * q_k + alpha * r_k * c
-    # 
     
   @property
   def q(self):
