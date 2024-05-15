@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.functional as F
 
+from typing import Optional, Tuple
+
 class RNN(nn.Module):
     def __init__(
         self, 
@@ -99,16 +101,19 @@ class RNN(nn.Module):
         
         return next_habit, next_state
     
-    def forward(self, inputs: torch.Tensor, prev_state: torch.Tensor):
+    def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
         
         Args:
             inputs (torch.Tensor): input tensor
-            prev_state (torch.Tensor): previous hidden state
+            prev_state (torch.Tensor): previous state of form (h_state, v_state, habit, value)
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: updated Q-Values and hidden state
         """
+        
+        if prev_state is None:
+            prev_state = self.get_state()
         
         h_state, v_state, habit, value = prev_state
         action = inputs[:, :, :-1]
@@ -120,10 +125,14 @@ class RNN(nn.Module):
         
         # compute the updates
         value, v_state = self.value_network(v_state, value, action, reward)
-        habit, h_state = self.habit_network(h_state, habit, action)
+        if self._w_h > 0:
+            habit, h_state = self.habit_network(h_state, habit, action)
         
         # combine value and habit
         logits = self._w_v * value + self._w_h * habit
+        
+        # set state
+        self.set_state((h_state, v_state, habit, value))
         
         return logits, (h_state, v_state, habit, value)
     
@@ -136,10 +145,31 @@ class RNN(nn.Module):
         Returns:
             Tuple[torch.Tensor]: initial hidden state
         """
-        
-        return (
+        init_state = (
             torch.zeros([batch_size, self._hidden_size]),
             torch.zeros([batch_size, self._hidden_size]),
             torch.zeros([batch_size, self._n_actions]),
             self.init_value + torch.zeros([batch_size, self._n_actions]),
             )
+        
+        self.set_state(init_state)
+        
+        return self.get_state()
+        
+    def set_state(self, state):
+        """this method sets the hidden state
+        
+        Args:
+            state (Tuple[torch.Tensor]): hidden state
+        """
+        
+        self._state = state
+        
+    def get_state(self):
+        """this method returns the hidden state
+        
+        Returns:
+            Tuple[torch.Tensor]: hidden state
+        """
+        
+        return self._state

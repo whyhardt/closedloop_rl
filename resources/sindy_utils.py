@@ -1,9 +1,9 @@
 import numpy as np
 from typing import Union, Iterable
 
-from . import bandits
+from . import bandits_haiku
 
-def get_q(experiment: bandits.BanditSession, agent: Union[bandits.AgentQ, bandits.AgentNetwork, bandits.AgentSindy]):
+def get_q(experiment: bandits_haiku.BanditSession, agent: Union[bandits_haiku.AgentQ, bandits_haiku.AgentNetwork, bandits_haiku.AgentSindy]):
   """Compute Q-Values of a specific agent for a specific experiment.
 
   Args:
@@ -48,7 +48,7 @@ def parse_equation_for_sympy(eq):
   
 def make_sindy_data(
     dataset,
-    agent: bandits.AgentQ,
+    agent: bandits_haiku.AgentQ,
     sessions=-1,
     get_choices=True,
     # keep_sessions=False,

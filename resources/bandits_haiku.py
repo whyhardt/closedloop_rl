@@ -2,15 +2,23 @@
 # pylint: disable=line-too-long
 from typing import Callable, NamedTuple, Tuple, Union, Optional, List
 
+import haiku as hk
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 import torch
 from torch import nn
 import torch.utils
+from torch.utils.data import Dataset
 
-from rnn import RNN
-from rnn_utils import DatasetRNN
+from . import rnn_utils_haiku
+from . import rnn_utils_pytorch
+
+
+DatasetRNN = rnn_utils_haiku.DatasetRNN
+
 
 # Setup so that plots will look nice
 small = 15
@@ -194,6 +202,94 @@ class AgentSindy(AgentQ):
 
 
 class AgentNetwork:
+  """A class that allows running a pretrained RNN as an agent.
+
+  Attributes:
+    make_network: A Haiku function that returns an RNN architecture
+    params: A set of Haiku parameters suitable for that architecture
+  """
+
+  def __init__(self,
+               make_network: Callable[[], hk.RNNCore],
+               params: hk.Params,
+               n_actions: int = 2,
+               state_to_numpy: bool = False):
+    """Initialize the agent network.
+    
+    Args: 
+      make_network: function that instantiates a callable haiku network object
+      params: parameters for the network
+      n_actions: number of permitted actions (default = 2)
+    """
+    self._state_to_numpy = state_to_numpy
+    self._q_init = 0.5
+
+    def _step_network(xs: np.ndarray,
+                      state: hk.State) -> Tuple[np.ndarray, hk.State]:
+      """Apply one step of the network.
+      
+      Args:
+        xs: array containing network inputs
+        state: previous state of the hidden units of the RNN model.
+        
+      Returns:
+        y_hat: output of RNN
+        new_state: state of the hidden units of the RNN model
+      """
+      core = make_network()
+      y_hat, new_state = core(xs, state)
+      return y_hat, new_state
+
+    def _get_initial_state() -> hk.State:
+      """Get the initial state of the hidden units of RNN model."""
+      core = make_network()
+      state = core.initial_state(1)
+      return state
+
+    key = jax.random.PRNGKey(0)
+    model = hk.transform(_step_network)
+    state = hk.transform(_get_initial_state)
+
+    self._initial_state = state.apply(params, key)
+    self._model_fun = jax.jit(
+        lambda xs, state: model.apply(params, key, xs, state))
+    self._xs = np.zeros((1, 2))
+    self._n_actions = n_actions
+    self.new_sess()
+
+  def new_sess(self):
+    """Reset the network for the beginning of a new session."""
+    self._state = self._initial_state
+
+  def get_choice_probs(self) -> np.ndarray:
+    """Predict the choice probabilities as a softmax over output logits."""
+    output_logits, _ = self._model_fun(self._xs, self._state)
+    output_logits = np.array(output_logits)
+    output_logits = output_logits[0][:self._n_actions]
+    # choice_probs = np.exp(output_logits) / np.sum(np.exp(output_logits))
+    # choice_probs = 1 / (1 + np.exp(output_logits[1] - output_logits[0]))
+    choice_probs = jax.nn.softmax(output_logits)
+    return np.array(choice_probs)
+
+  def get_choice(self):
+    """Sample choice."""
+    choice_probs = self.get_choice_probs()
+    choice = np.random.choice(self._n_actions, p=choice_probs)
+    return choice
+
+  def update(self, choice: float, reward: float):
+    # try:
+    self._xs = np.array([[choice, reward]])
+    _, new_state = self._model_fun(self._xs, self._state)
+    if self._state_to_numpy:
+      self._state = np.array(new_state)
+    else:
+      self._state = new_state
+    # except:
+    #   import pdb; pdb.set_trace()
+
+
+class AgentNetwork_pytorch:
     """A class that allows running a pretrained RNN as an agent.
 
     Attributes:
@@ -201,7 +297,7 @@ class AgentNetwork:
     """
 
     def __init__(self,
-                 model: RNN,
+                 model: nn.Module,
                  n_actions: int = 2,
                  state_to_numpy: bool = False):
         """Initialize the agent network.
@@ -219,13 +315,15 @@ class AgentNetwork:
 
     def new_sess(self):
         """Reset the network for the beginning of a new session."""
-        self._state = self._model.initial_state()
+        self._state = self._model.init_state()
 
     def get_choice_probs(self) -> np.ndarray:
         """Predict the choice probabilities as a softmax over output logits."""
         output_logits, _ = self._model(self._xs, self._state)
-        choice_probs = torch.nn.functional.softmax(output_logits.detach(), dim=-1)
-        return choice_probs.cpu().numpy()
+        output_logits = output_logits.detach().numpy()
+        output_logits = output_logits[0][:self._n_actions]
+        choice_probs = torch.nn.functional.softmax(torch.tensor(output_logits), dim=-1)
+        return choice_probs.numpy()
 
     def get_choice(self):
         """Sample choice."""
@@ -242,7 +340,7 @@ class AgentNetwork:
             self._state = new_state
 
 
-class AgentNetwork_VisibleState(AgentNetwork):
+class AgentNetwork_VisibleState_pytorch(AgentNetwork_pytorch):
 
   def __init__(self,
                model: nn.Module,
@@ -473,7 +571,7 @@ def create_dataset(agent: Agent,
       batch_size defaults to n_sessions
 
   Returns:
-    A torch.utils.data.Dataset object suitable for training the RNN object.
+    A DatasetRNN object suitable for training RNNs.
     An experliment_list with the results of (simulated) experiments
   """
   xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 1))
@@ -491,8 +589,6 @@ def create_dataset(agent: Agent,
     xs[:, sess_i] = np.concatenate((prev_choices, prev_rewards.reshape(-1, 1)), axis=-1)
     ys[:, sess_i] = choices
 
-  # dataset = DatasetRNN(xs, ys, batch_size)
-  # use Dataset class instead
   dataset = DatasetRNN(xs, ys, batch_size)
   return dataset, experiment_list
 
@@ -667,3 +763,57 @@ def show_total_reward_rate(experiment_list):
 
   reward_rate = 100*rewards/trials
   print(f'Total Reward Rate is: {reward_rate:0.3f}%')
+
+
+################################
+# FITTING FUNCTIONS FOR AGENTS #
+################################
+
+
+class HkAgentQ(hk.RNNCore):
+  """Vanilla Q-Learning model, expressed in Haiku.
+
+  Updates value of chosen action using a delta rule with step-size param alpha. 
+  Does not update value of the unchosen action.
+  Selects actions using a softmax decision rule with parameter Beta.
+  """
+
+  def __init__(self, n_cs=4):
+    super(HkAgentQ, self).__init__()
+
+    # Haiku parameters
+    alpha_unsigmoid = hk.get_parameter(
+        'alpha_unsigmoid', (1,),
+        init=hk.initializers.RandomUniform(minval=-1, maxval=1),
+    )
+    beta = hk.get_parameter(
+        'beta', (1,), init=hk.initializers.RandomUniform(minval=0, maxval=2)
+    )
+
+    # Local parameters
+    self.alpha = jax.nn.sigmoid(alpha_unsigmoid)
+    self.beta = beta
+    self._q_init = 0.5
+
+  def __call__(self, inputs: jnp.array, prev_state: jnp.array):
+    prev_qs = prev_state
+
+    choice = inputs[:, 0]  # shape: (batch_size, 1)
+    reward = inputs[:, 1]  # shape: (batch_size, 1)
+
+    choice_onehot = jax.nn.one_hot(choice, num_classes=2)  # shape: (batch_size, 2)
+    chosen_value = jnp.sum(prev_qs * choice_onehot, axis=1)  # shape: (batch_size)
+    deltas = reward - chosen_value  # shape: (batch_size)
+    new_qs = prev_qs + self.alpha * choice_onehot * jnp.expand_dims(deltas, -1)
+
+    # Compute output logits
+    choice_logits = self.beta * new_qs
+
+    return choice_logits, new_qs
+
+  def initial_state(self, batch_size):
+    values = self._q_init * jnp.ones([batch_size, 2])  # shape: (batch_size, n_actions)
+    return values
+
+
+
