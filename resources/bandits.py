@@ -8,9 +8,16 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
+import torch
+from torch import nn
+import torch.utils
+import torch.utils.data
 
 from . import rnn_utils
-DatasetRNN = rnn_utils.DatasetRNN
+from . import rnn_utils_pytorch
+
+
+DatasetRNN = rnn_utils_pytorch.DatasetRNN
 
 
 # Setup so that plots will look nice
@@ -134,6 +141,66 @@ class AgentQ:
     return self._q.copy()
 
 
+class AgentQuadQ(AgentQ):
+  
+  def __init__(
+      self,
+      alpha: float=0.2,
+      beta: float=3.,
+      n_actions: int=2,
+      forgetting_rate: float=0.,
+      perseveration_bias: float=0.,
+      ):
+    super().__init__(alpha, beta, n_actions, forgetting_rate, perseveration_bias)
+  
+  def update(self,
+            choice: int,
+            reward: float):
+    """Update the agent after one step of the task.
+
+    Args:
+      choice: The choice made by the agent. 0 or 1
+      reward: The reward received by the agent. 0 or 1
+    """
+    
+    # Decay q-values toward the initial value.
+    self._q = (1-self._forgetting_rate) * self._q + self._forgetting_rate * self._q_init
+
+    # Update chosen q for chosen action with observed reward.
+    self._q[choice] = self._q[choice] - self._alpha * self._q[choice]**2 + self._alpha * reward
+
+
+class AgentSindy(AgentQ):
+
+  def __init__(
+      self,
+      alpha: float=0.2,
+      beta: float=3.,
+      n_actions: int=2,
+      forgetting_rate: float=0.,
+      perservation_bias: float=0.,):
+    super().__init__(alpha, beta, n_actions, forgetting_rate, perservation_bias)
+
+    self._update_rule = lambda q, choice, reward: (1 - self._alpha) * q[choice] + self._alpha * reward
+    self._update_rule_formula = None
+
+  def set_update_rule(self, update_rule: callable, update_rule_formula: str=None):
+    self._update_rule=update_rule
+    self._update_rule_formula=update_rule_formula
+
+  @property
+  def update_rule(self):
+    if self._update_rule_formula is not None:
+      return self._update_rule_formula
+    else:
+      return f'{self._update_rule}'
+
+  def update(self, choice: int, reward: int):
+
+    for c in range(self._n_actions):
+      self._q[c] = self._update_rule(self._q[c], int(c==choice), reward)
+
+
 class AgentNetwork:
   """A class that allows running a pretrained RNN as an agent.
 
@@ -220,7 +287,76 @@ class AgentNetwork:
       self._state = new_state
     # except:
     #   import pdb; pdb.set_trace()
-    
+
+
+class AgentNetwork_pytorch:
+    """A class that allows running a pretrained RNN as an agent.
+
+    Attributes:
+        model: A PyTorch module representing the RNN architecture
+    """
+
+    def __init__(self,
+                 model: nn.Module,
+                 n_actions: int = 2,
+                 state_to_numpy: bool = False):
+        """Initialize the agent network.
+
+        Args:
+            model: A PyTorch module representing the RNN architecture
+            n_actions: number of permitted actions (default = 2)
+        """
+        self._state_to_numpy = state_to_numpy
+        self._q_init = 0.5
+        self._model = model
+        self._xs = torch.zeros((1, 2))
+        self._n_actions = n_actions
+        self.new_sess()
+
+    def new_sess(self):
+        """Reset the network for the beginning of a new session."""
+        self._state = self._model.init_state()
+
+    def get_choice_probs(self) -> np.ndarray:
+        """Predict the choice probabilities as a softmax over output logits."""
+        output_logits, _ = self._model(self._xs, self._state)
+        output_logits = output_logits.detach().numpy()
+        output_logits = output_logits[0][:self._n_actions]
+        choice_probs = torch.nn.functional.softmax(torch.tensor(output_logits), dim=-1)
+        return choice_probs.numpy()
+
+    def get_choice(self):
+        """Sample choice."""
+        choice_probs = self.get_choice_probs()
+        choice = np.random.choice(self._n_actions, p=choice_probs)
+        return choice
+
+    def update(self, choice: float, reward: float):
+        self._xs = torch.tensor([[choice, reward]])
+        _, new_state = self._model(self._xs, self._state)
+        if self._state_to_numpy:
+            self._state = new_state.detach().numpy()
+        else:
+            self._state = new_state
+
+
+class AgentNetwork_VisibleState_pytorch(AgentNetwork_pytorch):
+
+  def __init__(self,
+               model: nn.Module,
+               n_actions: int = 2,
+               state_to_numpy: bool = False,
+               habit=False):
+    super().__init__(model=model, n_actions=n_actions, state_to_numpy=state_to_numpy)
+    self.habit = habit
+
+  @property
+  def q(self):
+    if self.habit:
+      return self._state[2], self._state[3]
+    else:
+      return self._state[3].reshape(-1)
+
 
 ################
 # ENVIRONMENTS #
@@ -456,7 +592,6 @@ def create_dataset(agent: Agent,
   dataset = DatasetRNN(xs, ys, batch_size)
   return dataset, experiment_list
 
-
 ###############
 # DIAGNOSTICS #
 ###############
@@ -468,10 +603,12 @@ def plot_session(
   timeseries: List[np.ndarray],
   timeseries_name: str,
   labels: Optional[List[str]] = None,
+  title: str = '',
   fig_ax = None,
   compare=False,
   color=None,
   binary=False,
+  axis_info=True,
   ):
   """Plot data from a single behavioral session of the bandit task.
 
@@ -570,13 +707,16 @@ def plot_session(
         color='red',
         marker='|')
 
-  ax.set_xticks(np.linspace(1, len(choices), 6))
-  ax.set_xticklabels(['']*6)
-  ax.set_yticks(np.linspace(0, 1, 5))
-  ax.set_yticklabels(['']*5)
-  # ax.set_xlabel('Trial')
-  ax.set_ylabel(timeseries_name)
-
+  if axis_info:
+    ax.set_xlabel('Trial')
+    ax.set_ylabel(timeseries_name)
+    ax.set_title(title)
+  else:
+    ax.set_xticks(np.linspace(1, len(choices), 6))
+    ax.set_xticklabels(['']*6)
+    ax.set_yticks(np.linspace(0, 1, 5))
+    ax.set_yticklabels(['']*5)
+    
 
 def show_valuemetric(experiment_list, label=None):
   """Plot value metric over time from data in experiment_list."""
