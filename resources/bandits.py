@@ -5,12 +5,13 @@ from typing import Callable, NamedTuple, Tuple, Union, Optional, List
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
+from copy import copy
 import torch
 from torch import nn
 import torch.utils
 
 from rnn import RNN
-from rnn_utils import DatasetRNN
+from rnn_training import DatasetRNN
 
 # Setup so that plots will look nice
 small = 15
@@ -203,7 +204,8 @@ class AgentNetwork:
     def __init__(self,
                  model: RNN,
                  n_actions: int = 2,
-                 state_to_numpy: bool = False):
+                 state_to_numpy: bool = False,
+                 habit=False):
         """Initialize the agent network.
 
         Args:
@@ -212,20 +214,23 @@ class AgentNetwork:
         """
         self._state_to_numpy = state_to_numpy
         self._q_init = 0.5
-        self._model = model
+        self._model = model.to(torch.device('cpu'))
         self._xs = torch.zeros((1, 2))
         self._n_actions = n_actions
+        self.habit = habit
         self.new_sess()
 
     def new_sess(self):
         """Reset the network for the beginning of a new session."""
-        self._state = self._model.initial_state()
-
+        state = self._model.initial_state(batch_size=1, device=torch.device('cpu'))
+        self._state = tuple([tensor.numpy() for tensor in state])
+        
     def get_choice_probs(self) -> np.ndarray:
         """Predict the choice probabilities as a softmax over output logits."""
-        output_logits, _ = self._model(self._xs, self._state)
-        choice_probs = torch.nn.functional.softmax(output_logits.detach(), dim=-1)
-        return choice_probs.cpu().numpy()
+        with torch.no_grad():
+          output_logits, _ = self._model(self._xs, self._model.get_state())
+        choice_probs = torch.nn.functional.softmax(output_logits, dim=-1).view(-1)
+        return choice_probs.numpy()
 
     def get_choice(self):
         """Sample choice."""
@@ -235,29 +240,19 @@ class AgentNetwork:
 
     def update(self, choice: float, reward: float):
         self._xs = torch.tensor([[choice, reward]])
-        _, new_state = self._model(self._xs, self._state)
+        with torch.no_grad():
+          _, new_state = self._model(self._xs, self._model.get_state())
         if self._state_to_numpy:
             self._state = new_state.detach().numpy()
         else:
-            self._state = new_state
-
-
-class AgentNetwork_VisibleState(AgentNetwork):
-
-  def __init__(self,
-               model: nn.Module,
-               n_actions: int = 2,
-               state_to_numpy: bool = False,
-               habit=False):
-    super().__init__(model=model, n_actions=n_actions, state_to_numpy=state_to_numpy)
-    self.habit = habit
-
-  @property
-  def q(self):
-    if self.habit:
-      return self._state[2], self._state[3]
-    else:
-      return self._state[3].reshape(-1)
+            self._state = tuple([tensor.numpy() for tensor in new_state])
+            
+    @property
+    def q(self):
+      if self.habit:
+        return self._state[2], self._state[3]
+      else:
+        return copy(self._state[3].reshape(-1))
 
 
 ################
@@ -425,6 +420,7 @@ def run_experiment(agent: Agent,
   Returns:
     experiment: A BanditSession holding choices and rewards from the session
   """
+  
   choices = np.zeros(n_trials)
   rewards = np.zeros(n_trials)
   qs = np.zeros((n_trials, environment.n_actions))

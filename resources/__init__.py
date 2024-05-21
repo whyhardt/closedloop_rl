@@ -1,5 +1,5 @@
 """Initialize."""
-from . import bandits_haiku
+from . import bandits
 from . import disrnn
 from . import hybrnn
 from . import plotting 

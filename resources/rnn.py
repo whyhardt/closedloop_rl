@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 
 from typing import Optional, Tuple
 
 class RNN(nn.Module):
     def __init__(
-        self, 
+        self,
         n_actions, 
         hidden_size,
         init_value=0.5,
@@ -21,10 +21,11 @@ class RNN(nn.Module):
         self._vs, self._hs, self._vo, self._ho = last_state, last_state, last_output, last_output
         
         # define general network parameters
-        self.init_value = 0.5
+        self.init_value = init_value
         self._n_actions = n_actions
         self._w_h = 0 if not use_habit else nn.Parameter(torch.randn(1))
         self._w_v = 1
+        # self.beta = 1 # nn.Parameter(torch.tensor(1.))
         
         # define layer parameters
         self._hidden_size = hidden_size
@@ -36,12 +37,18 @@ class RNN(nn.Module):
         
         # define layers
         # activation functions
-        self.activation = nn.Tanh()
+        self.tanh = nn.Tanh()
+        self.sigmoid = nn.Sigmoid()
         
         # value network
+        # reward_blind_update = [
+        #     nn.Linear(n_actions, hidden_size),
+        #     nn.Linear(hidden_size, n_actions)
+        # ]
+        # self.reward_blind_update = nn.Sequential(*reward_blind_update)
         self.reward_blind_update = nn.Linear(n_actions, n_actions)
         self.hidden_layer = nn.Linear(input_size, hidden_size)
-        self.reward_based_update = nn.Linear(hidden_size, 1)
+        self.reward_based_update = nn.Linear(hidden_size, n_actions)
         
         # habit network
         self.hidden_layer = nn.Linear(input_size, hidden_size)
@@ -64,18 +71,17 @@ class RNN(nn.Module):
         # first action-reward-blind mechanism (forgetting) for all elements
         blind_update = self.reward_blind_update(value)
         
-        # now update of only the chosen element
-        inputs = torch.cat([blind_update * action, reward], dim=-1)
+        # now reward-based update for the chosen element
+        inputs = torch.cat([action, reward], dim=-1).float()
         if self._vo:
             inputs = torch.cat([inputs, value], dim=-1)
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.activation(self.hidden_layer(inputs))
+        next_state = self.tanh(self.hidden_layer(inputs))
         reward_update = self.reward_based_update(next_state)
         
         next_value = action * reward_update + (1-action) * blind_update
-        
         return next_value, next_state
     
     def habit_network(self, state, habit, action):
@@ -96,47 +102,66 @@ class RNN(nn.Module):
         if self._hs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.activation(self.hidden_layer(inputs))
+        next_state = self.tanh(self.hidden_layer(inputs))
         next_habit = self.habit_layer(next_state)
         
         return next_habit, next_state
     
-    def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None):
+    def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
         
         Args:
-            inputs (torch.Tensor): input tensor
-            prev_state (torch.Tensor): previous state of form (h_state, v_state, habit, value)
+            inputs (torch.Tensor): input tensor of form (seq_len, batch_size, n_actions + 1) or (batch_size, seq_len, n_actions + 1) if batch_first
+            prev_state (Tuple[torch.Tensor]): tuple of previous state of form (habit state, value state, habit, value)
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: updated Q-Values and hidden state
+            torch.Tensor: updated Q-Values
+            Tuple[torch.Tensor]: updated habit state, value state, habit, value
         """
         
-        if prev_state is None:
-            prev_state = self.get_state()
+        if len(inputs.shape) == 2:
+            inputs = inputs.unsqueeze(1)
         
-        h_state, v_state, habit, value = prev_state
-        action = inputs[:, :, :-1]
-        reward = inputs[:, :, -1]
+        if batch_first:
+            inputs = inputs.permute(1, 0, 2)
+        
+        action = inputs[:, :, :-1].float()
+        reward = inputs[:, :, -1].unsqueeze(-1).float()
+        index = torch.arange(inputs.shape[0])
+        logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=inputs.device)
         
         # check if action is one-hot encoded
-        if action.shape[-1] != self._n_actions:
-            action = F.one_hot(action[:, 0], self._n_actions).float()
+        if action.shape[-1] == 1:
+            action = F.one_hot(action.squeeze(1).long(), num_classes=self._n_actions).float()
+            
+        if prev_state is not None:
+            self.set_state(*prev_state)
+        else:
+            self.initial_state(batch_size=inputs.shape[1], device=inputs.device)
+        h_state, v_state, habit, value = self.get_state()
         
-        # compute the updates
-        value, v_state = self.value_network(v_state, value, action, reward)
-        if self._w_h > 0:
-            habit, h_state = self.habit_network(h_state, habit, action)
+        for i, a, r in zip(index, action, reward):            
+            # compute the updates
+            value, v_state = self.value_network(v_state, value, a, r)
+            if self._w_h > 0:
+                habit, h_state = self.habit_network(h_state, habit, action)
+            
+            # combine value and habit
+            logit = self._w_v * value 
+            if self._w_h > 0:
+                logit += self._w_h * habit
+                
+            logits[i, :, :] = logit
         
-        # combine value and habit
-        logits = self._w_v * value + self._w_h * habit
+        # set state 
+        self.set_state(h_state, v_state, habit, value)
         
-        # set state
-        self.set_state((h_state, v_state, habit, value))
-        
-        return logits, (h_state, v_state, habit, value)
+        if batch_first:
+            logits = logits.permute(1, 0, 2)
+            
+        return logits, self.get_state()
     
-    def initital_state(self, batch_size=1):
+    def initial_state(self, batch_size=1, device=None):
         """this method initializes the hidden state
         
         Args:
@@ -145,31 +170,33 @@ class RNN(nn.Module):
         Returns:
             Tuple[torch.Tensor]: initial hidden state
         """
-        init_state = (
-            torch.zeros([batch_size, self._hidden_size]),
-            torch.zeros([batch_size, self._hidden_size]),
-            torch.zeros([batch_size, self._n_actions]),
-            self.init_value + torch.zeros([batch_size, self._n_actions]),
-            )
         
-        self.set_state(init_state)
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        self.set_state(
+            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(device),
+            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(device),
+            torch.zeros([batch_size, self._n_actions], dtype=torch.float).to(device),
+            (self.init_value + torch.zeros([batch_size, self._n_actions], dtype=torch.float)).to(device)
+            )
         
         return self.get_state()
         
-    def set_state(self, state):
+    def set_state(self, habit_state: torch.Tensor, value_state: torch.Tensor, habit: torch.Tensor, value: torch.Tensor):
         """this method sets the hidden state
         
         Args:
             state (Tuple[torch.Tensor]): hidden state
         """
         
-        self._state = state
+        self._state = tuple([habit_state, value_state, habit, value])
         
     def get_state(self):
         """this method returns the hidden state
         
         Returns:
-            Tuple[torch.Tensor]: hidden state
+            Tuple[torch.Tensor]: tuple of habit state, value state, habit, value
         """
         
         return self._state

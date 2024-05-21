@@ -8,13 +8,8 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-import torch
-from torch import nn
-import torch.utils
-from torch.utils.data import Dataset
 
 from . import rnn_utils_haiku
-from . import rnn_utils_pytorch
 
 
 DatasetRNN = rnn_utils_haiku.DatasetRNN
@@ -287,75 +282,6 @@ class AgentNetwork:
       self._state = new_state
     # except:
     #   import pdb; pdb.set_trace()
-
-
-class AgentNetwork_pytorch:
-    """A class that allows running a pretrained RNN as an agent.
-
-    Attributes:
-        model: A PyTorch module representing the RNN architecture
-    """
-
-    def __init__(self,
-                 model: nn.Module,
-                 n_actions: int = 2,
-                 state_to_numpy: bool = False):
-        """Initialize the agent network.
-
-        Args:
-            model: A PyTorch module representing the RNN architecture
-            n_actions: number of permitted actions (default = 2)
-        """
-        self._state_to_numpy = state_to_numpy
-        self._q_init = 0.5
-        self._model = model
-        self._xs = torch.zeros((1, 2))
-        self._n_actions = n_actions
-        self.new_sess()
-
-    def new_sess(self):
-        """Reset the network for the beginning of a new session."""
-        self._state = self._model.init_state()
-
-    def get_choice_probs(self) -> np.ndarray:
-        """Predict the choice probabilities as a softmax over output logits."""
-        output_logits, _ = self._model(self._xs, self._state)
-        output_logits = output_logits.detach().numpy()
-        output_logits = output_logits[0][:self._n_actions]
-        choice_probs = torch.nn.functional.softmax(torch.tensor(output_logits), dim=-1)
-        return choice_probs.numpy()
-
-    def get_choice(self):
-        """Sample choice."""
-        choice_probs = self.get_choice_probs()
-        choice = np.random.choice(self._n_actions, p=choice_probs)
-        return choice
-
-    def update(self, choice: float, reward: float):
-        self._xs = torch.tensor([[choice, reward]])
-        _, new_state = self._model(self._xs, self._state)
-        if self._state_to_numpy:
-            self._state = new_state.detach().numpy()
-        else:
-            self._state = new_state
-
-
-class AgentNetwork_VisibleState_pytorch(AgentNetwork_pytorch):
-
-  def __init__(self,
-               model: nn.Module,
-               n_actions: int = 2,
-               state_to_numpy: bool = False,
-               habit=False):
-    super().__init__(model=model, n_actions=n_actions, state_to_numpy=state_to_numpy)
-    self.habit = habit
-
-  @property
-  def q(self):
-    if self.habit:
-      return self._state[2], self._state[3]
-    else:
-      return self._state[3].reshape(-1)
 
 
 ################
