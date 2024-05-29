@@ -27,7 +27,7 @@ def find_session_end(x):
   return trial_end
 
 
-class DatasetRNN():
+class DatasetRNN:
   """Holds a dataset for training an RNN, consisting of inputs and targets.
 
      Both inputs and targets are stored as [timestep, episode, feature]
@@ -62,7 +62,7 @@ class DatasetRNN():
 
     # Do xs and ys have the same number of episodes?
     if xs.shape[1] != ys.shape[1]:
-      msg = ('number of timesteps in xs {} must be equal to number of timesteps'
+      msg = ('number of episodes in xs {} must be equal to number of episodes'
              ' in ys {}.')
       raise ValueError(msg.format(xs.shape[0], ys.shape[0]))
 

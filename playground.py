@@ -1,9 +1,4 @@
-import numpy as np
+import torch
 
-values = []
-for i in range(100):
-    value = np.abs(np.random.normal(scale=0.1))
-    print(value)
-    values.append(value)
-print(np.max(values))
+print(f"CUDA Version: {torch.version.cuda}")
     
