@@ -255,6 +255,7 @@ class AgentNetwork:
   def new_sess(self):
     """Reset the network for the beginning of a new session."""
     self._state = self._initial_state
+    self._xs = np.zeros((1, 2))
 
   def get_choice_probs(self) -> np.ndarray:
     """Predict the choice probabilities as a softmax over output logits."""

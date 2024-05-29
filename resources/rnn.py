@@ -25,30 +25,25 @@ class RNN(nn.Module):
         self._n_actions = n_actions
         self._w_h = 0 if not use_habit else nn.Parameter(torch.randn(1))
         self._w_v = 1
-        # self.beta = 1 # nn.Parameter(torch.tensor(1.))
-        
-        # define layer parameters
+        self.beta = 3#nn.Parameter(torch.tensor(1., dtype=torch.float32).reshape((1, 1)))
         self._hidden_size = hidden_size
-        input_size = self._n_actions + 1
+        
+        # define input size according to arguments (network configuration)
+        input_size = 2
         if self._vo:
             input_size += self._n_actions
         if self._vs:
             input_size += self._hidden_size
-        
+            
         # define layers
         # activation functions
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
         
         # value network
-        # reward_blind_update = [
-        #     nn.Linear(n_actions, hidden_size),
-        #     nn.Linear(hidden_size, n_actions)
-        # ]
-        # self.reward_blind_update = nn.Sequential(*reward_blind_update)
         self.reward_blind_update = nn.Linear(n_actions, n_actions)
         self.hidden_layer = nn.Linear(input_size, hidden_size)
-        self.reward_based_update = nn.Linear(hidden_size, n_actions)
+        self.reward_based_update = nn.Linear(hidden_size, 1)
         
         # habit network
         self.hidden_layer = nn.Linear(input_size, hidden_size)
@@ -61,20 +56,24 @@ class RNN(nn.Module):
         Args:
             state (torch.Tensor): last hidden state
             value (torch.Tensor): last Q-Values
-            action (torch.Tensor): chosen action
+            action (torch.Tensor): chosen action (one-hot encoded)
             reward (torch.Tensor): received reward
 
         Returns:
             torch.Tensor: updated Q-Values
         """
-        
-        # first action-reward-blind mechanism (forgetting) for all elements
+
+        # first reward-blind mechanism (forgetting) for all elements
         blind_update = self.reward_blind_update(value)
         
-        # now reward-based update for the chosen element
-        inputs = torch.cat([action, reward], dim=-1).float()
+        # now reward-based update for the chosen element        
+        # get the value of the chosen action
+        chosen_value = torch.sum(blind_update * action, dim=-1).view(-1, 1)
+        inputs = torch.cat([chosen_value, reward], dim=-1).float()
+        
         if self._vo:
-            inputs = torch.cat([inputs, value], dim=-1)
+            inputs = torch.cat([inputs, blind_update], dim=-1).float()
+            
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
@@ -82,6 +81,7 @@ class RNN(nn.Module):
         reward_update = self.reward_based_update(next_state)
         
         next_value = action * reward_update + (1-action) * blind_update
+
         return next_value, next_state
     
     def habit_network(self, state, habit, action):
@@ -127,7 +127,7 @@ class RNN(nn.Module):
         
         action = inputs[:, :, :-1].float()
         reward = inputs[:, :, -1].unsqueeze(-1).float()
-        index = torch.arange(inputs.shape[0])
+        timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=inputs.device)
         
         # check if action is one-hot encoded
@@ -140,7 +140,7 @@ class RNN(nn.Module):
             self.initial_state(batch_size=inputs.shape[1], device=inputs.device)
         h_state, v_state, habit, value = self.get_state()
         
-        for i, a, r in zip(index, action, reward):            
+        for t, a, r in zip(timesteps, action, reward):            
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
             if self._w_h > 0:
@@ -151,9 +151,12 @@ class RNN(nn.Module):
             if self._w_h > 0:
                 logit += self._w_h * habit
                 
-            logits[i, :, :] = logit
+            logits[t, :, :] = logit
         
-        # set state 
+        # set state
+        if isinstance(v_state, tuple):
+            # in case of LSTM only the hidden state is returned; not the cell state
+            v_state = v_state[0]
         self.set_state(h_state, v_state, habit, value)
         
         if batch_first:

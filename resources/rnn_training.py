@@ -13,6 +13,16 @@ from rnn import RNN
 
 class DatasetRNN(Dataset):
     def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=None):
+        """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
+        Actions can be either one-hot encoded or indexes.
+
+        Args:
+            xs (torch.Tensor): Actions and rewards in the shape (n_sessions, n_timesteps, n_features)
+            ys (torch.Tensor): Next action
+            batch_size (Optional[int], optional): Sets batch size if desired else uses n_samples as batch size.
+            device (torch.Device, optional): Torch device. If None, uses cuda if available else cpu.
+        """
+        
         if device is None:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # check for type of xs and ys
@@ -26,20 +36,24 @@ class DatasetRNN(Dataset):
         self.batch_size = batch_size if batch_size is not None else len(xs)
        
     def __len__(self):
-        return self.xs.shape[1]
+        return self.xs.shape[0]
     
     def __getitem__(self, idx):
-        return self.xs[:, idx], self.ys[:, idx]
+        return self.xs[idx, :], self.ys[idx, :]
 
 
-def categorical_log_likelihood(logits: torch.Tensor, target: torch.Tensor):
-    # Mask any errors for which label is negative
-    mask = torch.logical_not(target < 0)
-    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-    log_liks = target * log_probs
-    masked_log_liks = torch.multiply(log_liks, mask)
-    loss = -torch.nansum(masked_log_liks)/torch.prod(torch.tensor(masked_log_liks.shape[:-1]))
-    return loss
+class categorical_log_likelihood(nn.modules.loss._Loss):
+    def __init__(self, size_average=None, reduce=None, reduction: str = 'mean') -> None:
+        super().__init__(size_average, reduce, reduction)
+    
+    def forward(logits: torch.Tensor, target: torch.Tensor):
+        # Mask any errors for which label is negative
+        mask = torch.logical_not(target < 0)
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+        log_liks = target * log_probs
+        masked_log_liks = torch.multiply(log_liks, mask)
+        loss = -torch.nansum(masked_log_liks)/torch.prod(torch.tensor(masked_log_liks.shape[:-1]))
+        return loss
 
 
 def train_step(
@@ -47,7 +61,7 @@ def train_step(
     x: torch.Tensor,
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
-    loss_fn: torch.nn.Module,
+    loss_fn: nn.modules.loss._Loss,
     ):
     
     # predict y
@@ -56,12 +70,14 @@ def train_step(
     # y_pred = torch.nn.functional.softmax(y_pred, dim=1)
     
     loss = 0
-    for i in range(y.shape[1]):
-        loss += loss_fn(y_pred[:, i], y[:, i])
-    loss /= y.shape[1]
-    # if y_pred.dim() == 3 and y.dim() == 2:
-    #     y = y.unsqueeze(1)
-    # loss = loss_fn(y_pred, y)
+    if loss_fn.__class__ == nn.CrossEntropyLoss().__class__:
+        for i in range(y.shape[1]):
+            loss += loss_fn(y_pred[:, i], y[:, i])
+        loss /= y.shape[1]
+    elif loss_fn.__class__ == categorical_log_likelihood.__class__:
+        loss = loss_fn(y_pred, y)
+    else:
+        raise NotImplementedError('Loss function not implemented.')
     
     # backpropagation
     optimizer.zero_grad()
@@ -76,8 +92,7 @@ def batch_train(
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
-    # n_steps: int = 1000,
-    loss_fn: torch.nn.Module = torch.nn.CrossEntropyLoss(),
+    loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     ):
 
     """
@@ -106,7 +121,6 @@ def fit_model(
     rnn_state_dict: Optional[Dict[str, Any]] = None,
     optimizer_state_dict: Optional[Dict[str, Any]] = None,
     convergence_threshold: float = 1e-5,
-    # n_steps_per_call: int = -1,
     epochs: int = 10,
     batch_size: int = None,
 ):
@@ -142,7 +156,12 @@ def fit_model(
     
     model_backup = model
     optimizer_backup = optimizer
-        
+    
+    len_last_losses = 20
+    last_losses = torch.ones((len_last_losses,))
+    weights_losses = torch.linspace(0, 1, len_last_losses-1)
+    sum_weights_losses = torch.sum(weights_losses)
+    
     # start training
     while continue_training:
         try:
@@ -164,10 +183,21 @@ def fit_model(
             # update training state
             n_calls_to_train_model += 1
             
+            # update last losses according fifo principle
+            last_losses[:-1] = last_losses[1:].clone()
+            last_losses[-1] = loss_new.item()
+            
             # check for convergence
-            convergence_value = torch.abs(loss - loss_new) / loss
-            converged = convergence_value < convergence_threshold
-            continue_training = not converged and n_calls_to_train_model < epochs
+            # convergence_value = torch.abs(loss - loss_new) / loss
+            # compute convergence value based on weighted mean of last 100 losses with weight encoding the position in the list
+            if n_calls_to_train_model < len_last_losses-1:
+                convergence_value = (torch.sum(torch.abs(torch.diff(last_losses)[-n_calls_to_train_model:]) * weights_losses[-n_calls_to_train_model:]) / torch.sum(weights_losses[-n_calls_to_train_model:])).item()
+                converged = False
+                continue_training = True
+            else:
+                convergence_value = (torch.sum(torch.abs(torch.diff(last_losses)) * weights_losses) / sum_weights_losses).item()
+                converged = convergence_value < convergence_threshold #and loss_new.item() < convergence_threshold*2
+                continue_training = not converged and n_calls_to_train_model < epochs
             
             if converged:
                 msg = '\nModel converged!'
@@ -176,7 +206,7 @@ def fit_model(
                 if not converged:
                     msg += '\nModel did not converge yet.'
             else:
-                msg = f'\nSteps {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e} --- Continue training...'
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e} --- Continue training...'
                 
             loss = loss_new
         except KeyboardInterrupt:

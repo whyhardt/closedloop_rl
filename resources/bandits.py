@@ -215,7 +215,7 @@ class AgentNetwork:
         self._state_to_numpy = state_to_numpy
         self._q_init = 0.5
         self._model = model.to(torch.device('cpu'))
-        self._xs = torch.zeros((1, 2))
+        self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
         self.habit = habit
         self.new_sess()
@@ -224,12 +224,17 @@ class AgentNetwork:
         """Reset the network for the beginning of a new session."""
         state = self._model.initial_state(batch_size=1, device=torch.device('cpu'))
         self._state = tuple([tensor.numpy() for tensor in state])
+        self._xs = torch.zeros((1, 2))-1
         
     def get_choice_probs(self) -> np.ndarray:
         """Predict the choice probabilities as a softmax over output logits."""
-        with torch.no_grad():
-          output_logits, _ = self._model(self._xs, self._model.get_state())
-        choice_probs = torch.nn.functional.softmax(output_logits, dim=-1).view(-1)
+        # if all(self._xs[0] != -1):
+        #   # not initial action selection
+        #   with torch.no_grad():
+        #     output_logits, _ = self._model(self._xs, self._model.get_state())
+        # else:
+        # output_logits = self._model.get_state()[-1]
+        choice_probs = torch.nn.functional.softmax(self._model.get_state()[-1], dim=-1).view(-1)
         return choice_probs.numpy()
 
     def get_choice(self):
@@ -243,7 +248,7 @@ class AgentNetwork:
         with torch.no_grad():
           _, new_state = self._model(self._xs, self._model.get_state())
         if self._state_to_numpy:
-            self._state = new_state.detach().numpy()
+            self._state = np.concatenate([tensor.numpy().reshape(-1) for tensor in new_state], axis=0)
         else:
             self._state = tuple([tensor.numpy() for tensor in new_state])
             
@@ -324,7 +329,7 @@ class EnvironmentBanditsDrift:
       self,
       sigma: float,
       n_actions: int = 2,
-      non_binary_rewards = False,
+      non_binary_rewards: bool = False,
       ):
     """Initialize the environment."""
     # Check inputs
@@ -489,7 +494,7 @@ def create_dataset(agent: Agent,
 
   # dataset = DatasetRNN(xs, ys, batch_size)
   # use Dataset class instead
-  dataset = DatasetRNN(xs, ys, batch_size)
+  dataset = DatasetRNN(np.swapaxes(xs, 0, 1), np.swapaxes(ys, 0, 1), batch_size)
   return dataset, experiment_list
 
 ###############
