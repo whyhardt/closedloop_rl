@@ -7,8 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from typing import Any, Dict, Optional
 import time
 
-# sys.path.append('.')
-from rnn import RNN
+from rnn import HybRNN
 
 
 class DatasetRNN(Dataset):
@@ -57,7 +56,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
 
 
 def train_step(
-    model: RNN,
+    model: HybRNN,
     x: torch.Tensor,
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
@@ -88,7 +87,7 @@ def train_step(
 
 
 def batch_train(
-    model: RNN,
+    model: HybRNN,
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
@@ -115,7 +114,7 @@ def batch_train(
     
 
 def fit_model(
-    model: RNN,
+    model: HybRNN,
     dataset: DatasetRNN,
     optimizer: torch.optim.Optimizer = None,
     rnn_state_dict: Optional[Dict[str, Any]] = None,

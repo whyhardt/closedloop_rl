@@ -10,7 +10,7 @@ import torch
 from torch import nn
 import torch.utils
 
-from rnn import RNN
+from rnn import HybRNN
 from rnn_training import DatasetRNN
 
 # Setup so that plots will look nice
@@ -57,7 +57,7 @@ class AgentQ:
       alpha: float = 0.2,
       beta: float = 3.,
       n_actions: int = 2,
-      forgetting_rate: float = 0.,
+      forget_rate: float = 0.,
       perseveration_bias: float = 0.):
     """Update the agent after one step of the task.
 
@@ -72,13 +72,13 @@ class AgentQ:
     self._alpha = alpha
     self._beta = beta
     self._n_actions = n_actions
-    self._forgetting_rate = forgetting_rate
+    self._forget_rate = forget_rate
     self._perseveration_bias = perseveration_bias
     self._q_init = 0.5
     self.new_sess()
 
     _check_in_0_1_range(alpha, 'alpha')
-    _check_in_0_1_range(forgetting_rate, 'forgetting_rate')
+    _check_in_0_1_range(forget_rate, 'forget_rate')
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
@@ -87,8 +87,6 @@ class AgentQ:
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
     decision_variable = self._beta * self._q
-    if self._prev_choice is not None:
-      decision_variable[self._prev_choice] += self._perseveration_bias
     choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
     return choice_probs
 
@@ -96,6 +94,8 @@ class AgentQ:
     """Sample a choice, given the agent's current internal state."""
     choice_probs = self.get_choice_probs()
     choice = np.random.choice(self._n_actions, p=choice_probs)
+    if self._perseveration_bias > 0:
+      self._prev_choice = choice
     return choice
 
   def update(self,
@@ -108,9 +108,13 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
-    # Decay q-values toward the initial value.
-    self._q = (1-self._forgetting_rate) * self._q + self._forgetting_rate * self._q_init
+    # Restore q-values toward the initial value
+    self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
 
+    # Apply perseveration
+    if self._prev_choice is not None:
+      self._q[self._prev_choice] += self._perseveration_bias
+    
     # self._prev_choice = choice
     # Apply perseveration and anti-perseveration of chosen action.
     # onehot_choice = np.eye(self._n_actions)[choice]
@@ -121,9 +125,6 @@ class AgentQ:
 
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
-
-    # write down expected equation from sindy for q update with forgetting:
-    # q_k+1 = (1 - alpha) * q_k + alpha * r_k * c
     
   @property
   def q(self):
@@ -157,7 +158,7 @@ class AgentQuadQ(AgentQ):
     """
     
     # Decay q-values toward the initial value.
-    self._q = (1-self._forgetting_rate) * self._q + self._forgetting_rate * self._q_init
+    self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
 
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = self._q[choice] - self._alpha * self._q[choice]**2 + self._alpha * reward
@@ -202,7 +203,7 @@ class AgentNetwork:
     """
 
     def __init__(self,
-                 model: RNN,
+                 model: HybRNN,
                  n_actions: int = 2,
                  state_to_numpy: bool = False,
                  habit=False):
@@ -225,7 +226,14 @@ class AgentNetwork:
         state = self._model.initial_state(batch_size=1, device=torch.device('cpu'))
         self._state = tuple([tensor.numpy() for tensor in state])
         self._xs = torch.zeros((1, 2))-1
-        
+      
+    def get_value(self):
+        """Return the value of the agent's current state."""
+        if self.habit:
+            return self._state[2].reshape(-1) + self._state[3].reshape(-1)
+        else:
+          return self._state[3].reshape(-1)  
+      
     def get_choice_probs(self) -> np.ndarray:
         """Predict the choice probabilities as a softmax over output logits."""
         # if all(self._xs[0] != -1):
@@ -234,8 +242,10 @@ class AgentNetwork:
         #     output_logits, _ = self._model(self._xs, self._model.get_state())
         # else:
         # output_logits = self._model.get_state()[-1]
-        choice_probs = torch.nn.functional.softmax(self._model.get_state()[-1], dim=-1).view(-1)
-        return choice_probs.numpy()
+        
+        # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
+        choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
+        return choice_probs
 
     def get_choice(self):
         """Sample choice."""
@@ -254,10 +264,7 @@ class AgentNetwork:
             
     @property
     def q(self):
-      if self.habit:
-        return self._state[2], self._state[3]
-      else:
-        return copy(self._state[3].reshape(-1))
+      return copy(self.get_value())
 
 
 ################

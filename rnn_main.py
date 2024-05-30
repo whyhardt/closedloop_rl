@@ -19,16 +19,19 @@ train = True
 checkpoint = False
 data = False
 
+use_lstm = False
+
 path_data = 'data/dataset_train.pkl'
-params_path = 'params/params_rnn_forget_f01_b3.pkl'
+params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets adapted to the ground truth model)
 
 # rnn and training parameters
 hidden_size = 16
 last_output = False
-last_state = False
+last_state = True
+use_habit = True
 epochs = 2000
 learning_rate = 1e-2
-convergence_threshold = 1e-6
+convergence_threshold = 1e-7
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -37,8 +40,8 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forgetting_rate = 0.1 #@param
-  perseveration_bias = 0  #@param
+  forget_rate = 0. #@param
+  perseveration_bias = 0.1  #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -50,7 +53,7 @@ if not data:
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)
-  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forgetting_rate, perseveration_bias)  
+  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseveration_bias)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -63,20 +66,48 @@ if not data:
       environment=environment,
       n_trials_per_session=n_trials_per_session,
       n_sessions=n_sessions)
+  
+  # create name for corresponding rnn
+  params_path = 'params/params'
+  if use_lstm:
+    params_path += '_lstm'
+  else:
+    params_path += '_rnn'
+    
+  params_path += f'_b' + str(gen_beta).replace('.', '')
+  
+  if forget_rate > 0:
+    params_path += f'_f' + str(forget_rate).replace('.', '')
+    
+  if perseveration_bias > 0:
+    params_path += f'_p' + str(perseveration_bias).replace('.', '')
+  
+  if non_binary_reward:
+    params_path += '_nonbinary'
+    
+  params_path += '.pkl'
+  
 else:
   # load data
   with open(path_data, 'rb') as f:
       dataset_train = pickle.load(f)
 
 # define model
-model = rnn.RNN(
-    n_actions=n_actions, 
-    hidden_size=hidden_size, 
-    init_value=0.5,
-    last_output=last_output,
-    last_state=last_state,
-    use_habit=False,
-    ).to(device)
+if use_lstm:
+  model = rnn.LSTM(
+      n_actions=n_actions, 
+      hidden_size=hidden_size, 
+      init_value=0.5,
+      ).to(device)
+else:
+  model = rnn.HybRNN(
+      n_actions=n_actions, 
+      hidden_size=hidden_size, 
+      init_value=0.5,
+      last_output=last_output,
+      last_state=last_state,
+      use_habit=use_habit,
+      ).to(device)
 
 optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -112,8 +143,7 @@ if train:
 
 else:
   # load trained parameters
-  state_dict = torch.load(params_path)
-  model.load_state_dict(state_dict['model'])
+  model.load_state_dict(torch.load(params_path)['model'])
   print(f'Loaded parameters from file {params_path}.')
 
 if hasattr(model, 'beta'):
@@ -121,7 +151,7 @@ if hasattr(model, 'beta'):
 
 # Synthesize a dataset using the fitted network
 environment = bandits.EnvironmentBanditsDrift(0.1)
-rnn_agent = bandits.AgentNetwork(model, n_actions=2, habit=False)
+rnn_agent = bandits.AgentNetwork(model, n_actions=2, habit=use_habit)
 # dataset_rnn, experiment_list_rnn = bandits.create_dataset(rnn_agent, environment, 220, 10)
 
 # Analysis
