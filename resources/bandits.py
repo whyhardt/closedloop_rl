@@ -1,6 +1,6 @@
 """Environments + agents for 2-armed bandit task."""
 # pylint: disable=line-too-long
-from typing import Callable, NamedTuple, Tuple, Union, Optional, List
+from typing import NamedTuple, Union, Optional, List
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
