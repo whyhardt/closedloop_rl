@@ -87,6 +87,8 @@ class AgentQ:
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
     decision_variable = self._beta * self._q
+    if self._prev_choice is not None:
+      self._q[self._prev_choice] += self._perseveration_bias
     choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
     return choice_probs
 
@@ -94,8 +96,6 @@ class AgentQ:
     """Sample a choice, given the agent's current internal state."""
     choice_probs = self.get_choice_probs()
     choice = np.random.choice(self._n_actions, p=choice_probs)
-    if self._perseveration_bias > 0:
-      self._prev_choice = choice
     return choice
 
   def update(self,
@@ -111,17 +111,8 @@ class AgentQ:
     # Restore q-values toward the initial value
     self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
 
-    # Apply perseveration
-    if self._prev_choice is not None:
-      self._q[self._prev_choice] += self._perseveration_bias
-    
-    # self._prev_choice = choice
-    # Apply perseveration and anti-perseveration of chosen action.
-    # onehot_choice = np.eye(self._n_actions)[choice]
-    # self._q = 0.5 * (
-    #     (2-self._perseveration_rate-self._anti_perseveration_rate) * self._q +
-    #     self._perseveration_rate * onehot_choice + 
-    #     self._anti_perseveration_rate * (1-onehot_choice))
+    # Memorize previous choice for perseveration
+    self._prev_choice = choice
 
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
@@ -206,13 +197,14 @@ class AgentNetwork:
                  model: HybRNN,
                  n_actions: int = 2,
                  state_to_numpy: bool = False,
-                 habit=False):
+                 habit: bool = False):
         """Initialize the agent network.
 
         Args:
             model: A PyTorch module representing the RNN architecture
             n_actions: number of permitted actions (default = 2)
         """
+        
         self._state_to_numpy = state_to_numpy
         self._q_init = 0.5
         self._model = model.to(torch.device('cpu'))
@@ -230,19 +222,14 @@ class AgentNetwork:
     def get_value(self):
         """Return the value of the agent's current state."""
         if self.habit:
-            return self._state[2].reshape(-1) + self._state[3].reshape(-1)
+            # habit + value
+            return self._state[-2].reshape(-1) + self._state[-1].reshape(-1)
         else:
-          return self._state[3].reshape(-1)  
+          # only value
+          return self._state[-1].reshape(-1)
       
     def get_choice_probs(self) -> np.ndarray:
         """Predict the choice probabilities as a softmax over output logits."""
-        # if all(self._xs[0] != -1):
-        #   # not initial action selection
-        #   with torch.no_grad():
-        #     output_logits, _ = self._model(self._xs, self._model.get_state())
-        # else:
-        # output_logits = self._model.get_state()[-1]
-        
         # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
         choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
         return choice_probs

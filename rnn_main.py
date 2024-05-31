@@ -31,7 +31,7 @@ last_state = True
 use_habit = True
 epochs = 2000
 learning_rate = 1e-2
-convergence_threshold = 1e-7
+convergence_threshold = 1e-6
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -69,11 +69,25 @@ if not data:
   
   # create name for corresponding rnn
   params_path = 'params/params'
+  
+  # r
   if use_lstm:
     params_path += '_lstm'
   else:
     params_path += '_rnn'
+  
+  if any([last_output, last_state, use_habit]):
+    params_path += '_'
+  
+  if last_output:
+    params_path += 'o'
     
+  if last_state:
+    params_path += 's'
+    
+  if use_habit:
+    params_path += 'h'
+  
   params_path += f'_b' + str(gen_beta).replace('.', '')
   
   if forget_rate > 0:
@@ -86,6 +100,8 @@ if not data:
     params_path += '_nonbinary'
     
   params_path += '.pkl'
+  
+  print(f'Automatically generated name for model parameter file: {params_path}.')
   
 else:
   # load data
