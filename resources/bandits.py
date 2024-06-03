@@ -1,6 +1,6 @@
 """Environments + agents for 2-armed bandit task."""
 # pylint: disable=line-too-long
-from typing import NamedTuple, Union, Optional, List
+from typing import NamedTuple, Union, Optional, List, Dict
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -162,12 +162,9 @@ class AgentSindy(AgentQ):
 
   def __init__(
       self,
-      alpha: float=0.2,
-      beta: float=3.,
       n_actions: int=2,
-      forgetting_rate: float=0.,
-      perservation_bias: float=0.,):
-    super().__init__(alpha, beta, n_actions, forgetting_rate, perservation_bias)
+      ):
+    super().__init__(1, 1, n_actions, 0, 0)
 
     self._update_rule = lambda q, choice, reward: (1 - self._alpha) * q[choice] + self._alpha * reward
     self._update_rule_formula = None
@@ -184,9 +181,14 @@ class AgentSindy(AgentQ):
       return f'{self._update_rule}'
 
   def update(self, choice: int, reward: int):
-
     for c in range(self._n_actions):
-      self._q[c] = self._update_rule(self._q[c], int(c==choice), reward)
+      self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
+      
+  def new_sess(self):
+    """Reset the agent for the beginning of a new session."""
+    self._qf = self._q_init + np.zeros(self._n_actions)
+    self._qr = self._q_init + np.zeros(self._n_actions)
+    self._h = np.zeros(self._n_actions)
 
 
 class AgentNetwork:
@@ -390,9 +392,9 @@ class BanditSession(NamedTuple):
   choices: np.ndarray
   rewards: np.ndarray
   timeseries: np.ndarray
-  q: np.ndarray
-  # q_f: np.ndarray
+  q: Union[np.ndarray, Dict[str, np.ndarray]]
   n_trials: int
+  
 
 Agent = Union[AgentQ, AgentNetwork]
 Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift]
@@ -440,6 +442,12 @@ def run_experiment(agent: Agent,
     # Finally agent learns
     agent.update(choice, reward)
 
+  if isinstance(agent, AgentNetwork):
+    if hasattr(agent._model, 'extracted_state'):
+      qs = {}
+      for key in agent._model.extracted_state.keys():
+        qs[key] = np.concatenate(agent._model.extracted_state[key])
+      
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices.astype(int),
                              rewards=rewards,

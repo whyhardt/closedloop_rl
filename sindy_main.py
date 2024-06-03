@@ -20,17 +20,16 @@ threshold = 0.015
 polynomial_degree = 2
 ensemble = False
 library_ensemble = False
-get_choices = True
 
-# dataset parameters
+# training dataset parameters
 n_trials_per_session = 200
 n_sessions = 16
 
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
-perseverance_bias = 0.25
+forget_rate = 0.
+perseverance_bias = 0.
 
 # environment parameters
 non_binary_reward = False
@@ -56,8 +55,8 @@ rnn.load_state_dict(torch.load(params_path, map_location=torch.device('cpu'))['m
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
-dataset_hybrnn, experiment_list_rnn = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
-x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent, get_choices=get_choices)
+dataset_rnn, experiment_list_rnn = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
+x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
 
 # set up sindy agent
 library = ps.PolynomialLibrary(degree=polynomial_degree)
@@ -69,13 +68,14 @@ sindy = ps.SINDy(
     )
 sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_ensemble, multiple_trajectories=True)
 sindy.print()
-if not get_choices:
-    update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q[choice], t=2, u=np.array(reward).reshape(1, 1))[-1]
-else:
-    update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
+# update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
+
+def update_rule_sindy(qr, qf, h, choice, reward):
+    h, qr, qf = sindy.simulate(np.array([h, qr, qf]).reshape(1, -1), t=2, u=np.array([choice, reward]).reshape(1, -1))[-1]
+    return 
 
 agent_sindy = AgentSindy(alpha=0, beta=1, n_actions=n_actions)
-agent_sindy.set_update_rule(update_rule_rnnsindy)
+agent_sindy.set_update_rule(update_rule_sindy)
 
 # Analysis
 labels = ['Ground Truth', 'RNN', 'SINDy']
@@ -97,9 +97,9 @@ list_probs.append(np.expand_dims(probs_rnn, 0))
 list_qs.append(np.expand_dims(qs_rnn, 0))
 
 # get q-values from trained sindy
-qs_rnn, probs_rnn = get_q(experiment_test, agent_sindy)
-list_probs.append(np.expand_dims(probs_rnn, 0))
-list_qs.append(np.expand_dims(qs_rnn, 0))
+qs_sindy, probs_sindy = get_q(experiment_test, agent_sindy)
+list_probs.append(np.expand_dims(probs_sindy, 0))
+list_qs.append(np.expand_dims(qs_sindy, 0))
 
 colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 

@@ -19,6 +19,10 @@ class baseRNN(nn.Module):
         self.sigmoid = nn.Sigmoid()
         
         self.prev_action = torch.zeros((1, n_actions), dtype=torch.float)
+        
+        self.extracted_state = {
+            'value': [],
+        }
     
     def forward(self, *args):
         raise NotImplementedError('This method is not implemented.')
@@ -34,6 +38,9 @@ class baseRNN(nn.Module):
         """
         
         self.prev_action = torch.zeros((batch_size, self._n_actions), dtype=torch.float).to(self.device)
+        
+        for key in self.extracted_state.keys():
+            self.extracted_state[key] = []
         
         self.set_state(
             torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
@@ -65,7 +72,7 @@ class baseRNN(nn.Module):
     def set_device(self, device): 
         self.device = device
     
-    
+
 class HybRNN(baseRNN):
     def __init__(
         self,
@@ -113,10 +120,15 @@ class HybRNN(baseRNN):
         self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
         self.habit_layer = nn.Linear(hidden_size, n_actions)
         
+        self.extracted_state = {
+            'H': [],
+            'Qr': [],
+            'Qf': [],
+        }
+        
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
         
-
         Args:
             state (torch.Tensor): last hidden state
             value (torch.Tensor): last Q-Values
@@ -145,6 +157,10 @@ class HybRNN(baseRNN):
         
         next_value = action * reward_update + (1-action) * blind_update
 
+        # add extracted values
+        self.extracted_state['Qr'].append(next_value.detach().cpu().numpy())
+        self.extracted_state['Qf'].append(blind_update.detach().cpu().numpy())
+        
         return next_value, next_state
     
     def habit_network(self, state, habit, prev_action):
@@ -167,6 +183,9 @@ class HybRNN(baseRNN):
         
         next_state = self.tanh(self.hidden_layer_habit(inputs))
         next_habit = self.habit_layer(next_state)
+        
+        # add extracted values
+        self.extracted_state['H'].append(next_habit.detach().cpu().numpy())
         
         return next_habit, next_state
     
@@ -217,6 +236,10 @@ class HybRNN(baseRNN):
             
         # set state
         self.set_state(h_state, v_state, habit, value)
+        
+        # transform values of self.extracted_state to torch.tensor
+        # for key in self.extracted_state.keys():
+        #     self.extracted_state[key] = torch.stack(self.extracted_state[key], dim=1)
         
         if batch_first:
             logits = logits.permute(1, 0, 2)
