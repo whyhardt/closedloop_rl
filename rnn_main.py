@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, sindy_utils
+from resources import rnn, rnn_training, bandits, sindy_utils, rnn_utils
 
 # train model
 train = False
@@ -40,14 +40,14 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0.1 #@param
-  perseverance_bias = 0.25 #@param
+  forget_rate = 0. #@param
+  perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
   sigma = .1  #@param
 
-  # experiement parameters
+  # dataset parameters
   n_trials_per_session = 200  #@param
   n_sessions = 256  #@param
 
@@ -68,41 +68,18 @@ if not data:
       n_trials_per_session=n_trials_per_session,
       n_sessions=n_sessions)
   
-  # create name for corresponding rnn
-  params_path = 'params/params'
-  
-  # r
-  if use_lstm:
-    params_path += '_lstm'
-  else:
-    params_path += '_rnn'
-  
-  if any([last_output, last_state, use_habit]):
-    params_path += '_'
-  
-  if last_output:
-    params_path += 'o'
-    
-  if last_state:
-    params_path += 's'
-    
-  if use_habit:
-    params_path += 'h'
-  
-  params_path += f'_b' + str(gen_beta).replace('.', '')
-  
-  if forget_rate > 0:
-    params_path += f'_f' + str(forget_rate).replace('.', '')
-    
-  if perseverance_bias > 0:
-    params_path += f'_p' + str(perseverance_bias).replace('.', '')
-  
-  if non_binary_reward:
-    params_path += '_nonbinary'
-    
-  params_path += '.pkl'
-  
-  print(f'Automatically generated name for model parameter file: {params_path}.')
+  params_path = rnn_utils.parameter_file_naming(
+      'params/params',
+      use_lstm,
+      last_output,
+      last_state,
+      use_habit,
+      gen_beta,
+      forget_rate,
+      perseverance_bias,
+      non_binary_reward,
+      verbose=True,
+  )
   
 else:
   # load data
@@ -165,8 +142,8 @@ else:
   model.load_state_dict(torch.load(params_path)['model'])
   print(f'Loaded parameters from file {params_path}.')
 
-if hasattr(model, 'beta'):
-  print(f'beta: {model.beta}')
+# if hasattr(model, 'beta'):
+#   print(f'beta: {model.beta}')
 
 # Synthesize a dataset using the fitted network
 environment = bandits.EnvironmentBanditsDrift(0.1)
@@ -225,6 +202,7 @@ bandits.plot_session(
     timeseries=probs[:, :, 0],
     timeseries_name='Choice Probs',
     color=colors,
+    labels=['Ground Truth', 'RNN'],
     binary=not non_binary_reward,
     fig_ax=(fig, axs[1]),
     )
