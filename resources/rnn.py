@@ -98,11 +98,11 @@ class HybRNN(baseRNN):
         
         # value network
         self.reward_blind_update = nn.Linear(n_actions, n_actions)
-        self.hidden_layer = nn.Linear(input_size, hidden_size)
+        self.hidden_layer_value = nn.Linear(input_size, hidden_size)
         self.reward_based_update = nn.Linear(hidden_size, 1)
         
         # habit network
-        self.hidden_layer = nn.Linear(input_size, hidden_size)
+        self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
         self.habit_layer = nn.Linear(hidden_size, n_actions)
         
     def value_network(self, state, value, action, reward):
@@ -133,7 +133,7 @@ class HybRNN(baseRNN):
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.tanh(self.hidden_layer(inputs))
+        next_state = self.tanh(self.hidden_layer_value(inputs))
         reward_update = self.reward_based_update(next_state)
         
         next_value = action * reward_update + (1-action) * blind_update
@@ -158,7 +158,7 @@ class HybRNN(baseRNN):
         if self._hs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.tanh(self.hidden_layer(inputs))
+        next_state = self.tanh(self.hidden_layer_habit(inputs))
         next_habit = self.habit_layer(next_state)
         
         return next_habit, next_state

@@ -28,10 +28,10 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets 
 hidden_size = 16
 last_output = False
 last_state = True
-use_habit = True
+use_habit = False
 epochs = 2000
 learning_rate = 1e-2
-convergence_threshold = 1e-6
+convergence_threshold = 1e-7
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -40,8 +40,8 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0. #@param
-  perseveration_bias = 0.1  #@param
+  forget_rate = 0.1 #@param
+  perseveration_bias = 0.  #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
