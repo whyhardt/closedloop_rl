@@ -27,7 +27,7 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets 
 # rnn and training parameters
 hidden_size = 16
 last_output = False
-last_state = True
+last_state = False
 use_habit = False
 epochs = 2000
 learning_rate = 1e-2
