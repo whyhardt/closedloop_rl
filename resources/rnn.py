@@ -6,8 +6,10 @@ from typing import Optional, Tuple
 
 
 class baseRNN(nn.Module):
-    def __init__(self, n_actions, hidden_size, init_value=0.5):
+    def __init__(self, n_actions, hidden_size, init_value=0.5, device=torch.device('cpu')):
         super(baseRNN, self).__init__()
+        
+        self.device = device
         
         self.init_value = init_value
         self._n_actions = n_actions
@@ -15,11 +17,13 @@ class baseRNN(nn.Module):
                
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
+        
+        self.prev_action = torch.zeros((1, n_actions), dtype=torch.float)
     
     def forward(self, *args):
         raise NotImplementedError('This method is not implemented.')
     
-    def initial_state(self, batch_size=1, device=None):
+    def initial_state(self, batch_size=1):
         """this method initializes the hidden state
         
         Args:
@@ -29,14 +33,13 @@ class baseRNN(nn.Module):
             Tuple[torch.Tensor]: initial hidden state
         """
         
-        if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.prev_action = torch.zeros((batch_size, self._n_actions), dtype=torch.float).to(self.device)
         
         self.set_state(
-            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(device),
-            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(device),
-            torch.zeros([batch_size, self._n_actions], dtype=torch.float).to(device),
-            (self.init_value + torch.zeros([batch_size, self._n_actions], dtype=torch.float)).to(device)
+            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
+            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
+            torch.zeros([batch_size, self._n_actions], dtype=torch.float).to(self.device),
+            (self.init_value + torch.zeros([batch_size, self._n_actions], dtype=torch.float)).to(self.device)
             )
         
         return self.get_state()
@@ -49,7 +52,7 @@ class baseRNN(nn.Module):
         """
         
         self._state = tuple([habit_state, value_state, habit, value])
-        
+      
     def get_state(self):
         """this method returns the hidden state
         
@@ -58,6 +61,9 @@ class baseRNN(nn.Module):
         """
         
         return self._state
+    
+    def set_device(self, device): 
+        self.device = device
     
     
 class HybRNN(baseRNN):
@@ -69,9 +75,10 @@ class HybRNN(baseRNN):
         use_habit=False,
         last_output=False,
         last_state=False,
+        device=torch.device('cpu')
         ):
         
-        super(HybRNN, self).__init__(n_actions, hidden_size, init_value)
+        super(HybRNN, self).__init__(n_actions, hidden_size, init_value, device)
         
         # define level of recurrence
         self._vs, self._hs, self._vo, self._ho, self._wh = last_state, last_state, last_output, last_output, use_habit
@@ -97,6 +104,7 @@ class HybRNN(baseRNN):
         self.sigmoid = nn.Sigmoid()
         
         # value network
+        self.habit_update = nn.Linear(n_actions, n_actions)
         self.reward_blind_update = nn.Linear(n_actions, n_actions)
         self.hidden_layer_value = nn.Linear(input_size, hidden_size)
         self.reward_based_update = nn.Linear(hidden_size, 1)
@@ -129,7 +137,6 @@ class HybRNN(baseRNN):
         
         if self._vo:
             inputs = torch.cat([inputs, blind_update], dim=-1).float()
-            
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
@@ -140,7 +147,7 @@ class HybRNN(baseRNN):
 
         return next_value, next_state
     
-    def habit_network(self, state, habit, action):
+    def habit_network(self, state, habit, prev_action):
         """this method computes the action-based updates for the Q-Values without considering the reward
         
         Args:
@@ -152,7 +159,7 @@ class HybRNN(baseRNN):
             torch.Tensor: updated habit
         """
         
-        inputs = action
+        inputs = prev_action
         if self._ho:
             inputs = torch.cat([inputs, habit], dim=-1)
         if self._hs:
@@ -184,7 +191,7 @@ class HybRNN(baseRNN):
         action = inputs[:, :, :-1].float()
         reward = inputs[:, :, -1].unsqueeze(-1).float()
         timesteps = torch.arange(inputs.shape[0])
-        logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=inputs.device)
+        logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
         
         # check if action is one-hot encoded
         if action.shape[-1] == 1:
@@ -193,7 +200,7 @@ class HybRNN(baseRNN):
         if prev_state is not None:
             self.set_state(*prev_state)
         else:
-            self.initial_state(batch_size=inputs.shape[1], device=inputs.device)
+            self.initial_state(batch_size=inputs.shape[1], device=self.device)
         h_state, v_state, habit, value = self.get_state()
         
         for t, a, r in zip(timesteps, action, reward):            
@@ -201,11 +208,13 @@ class HybRNN(baseRNN):
             value, v_state = self.value_network(v_state, value, a, r)
             logit = value
             if self._wh:
-                habit, h_state = self.habit_network(h_state, habit, a)
+                habit, h_state = self.habit_network(h_state, habit, self.prev_action)
                 logit += habit
-                
+            
+            self.prev_action = a
+            
             logits[t, :, :] = logit.clone()
-        
+            
         # set state
         self.set_state(h_state, v_state, habit, value)
         
@@ -248,14 +257,14 @@ class LSTM(baseRNN):
         if prev_state is not None:
             self.set_state(*prev_state)
         else:
-            self.initial_state(batch_size=inputs.shape[1], device=inputs.device)
+            self.initial_state(batch_size=inputs.shape[1], device=self.device)
         c0, h0, _, _ = self.get_state()
         
         # forward pass
         lstm_out, (c, h) = self.lstm(torch.concat((action, reward), dim=-1), (c0.unsqueeze(0), h0.unsqueeze(0)))
         logits = self.output_layer(lstm_out)
         
-        self.set_state(c.squeeze(0), h.squeeze(0), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(inputs.device), logits)
+        self.set_state(c.squeeze(0), h.squeeze(0), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(self.device), logits)
         
         if batch_first:
             logits = logits.permute(1, 0, 2)

@@ -11,7 +11,7 @@ from rnn import HybRNN
 
 
 class DatasetRNN(Dataset):
-    def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=None):
+    def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=torch.device('cpu')):
         """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
         Actions can be either one-hot encoded or indexes.
 
@@ -22,8 +22,6 @@ class DatasetRNN(Dataset):
             device (torch.Device, optional): Torch device. If None, uses cuda if available else cpu.
         """
         
-        if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # check for type of xs and ys
         if not isinstance(xs, torch.Tensor):
             xs = torch.tensor(xs, dtype=torch.float32)
@@ -64,7 +62,7 @@ def train_step(
     ):
     
     # predict y
-    model.initial_state(batch_size=len(x), device=x.device)
+    model.initial_state(batch_size=len(x))
     y_pred, _ = model(x, model.get_state(), batch_first=True)
     # y_pred = torch.nn.functional.softmax(y_pred, dim=1)
     
@@ -106,7 +104,7 @@ def batch_train(
     # training_loss = []
     # loss = 0
     # t_start = time.time()
-    model.initial_state(batch_size=len(xs), device=xs.device)
+    model.initial_state(batch_size=len(xs))
     # for step in range(1, n_steps):
     model, optimizer, loss = train_step(model, xs, ys, optimizer, loss_fn)
             

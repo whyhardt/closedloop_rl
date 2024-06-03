@@ -58,7 +58,7 @@ class AgentQ:
       beta: float = 3.,
       n_actions: int = 2,
       forget_rate: float = 0.,
-      perseveration_bias: float = 0.):
+      perseverance_bias: float = 0.):
     """Update the agent after one step of the task.
 
     Args:
@@ -73,7 +73,7 @@ class AgentQ:
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
-    self._perseveration_bias = perseveration_bias
+    self._perseverance_bias = perseverance_bias
     self._q_init = 0.5
     self.new_sess()
 
@@ -88,7 +88,7 @@ class AgentQ:
     """Compute the choice probabilities as softmax over q."""
     decision_variable = self._beta * self._q
     if self._prev_choice is not None:
-      self._q[self._prev_choice] += self._perseveration_bias
+      decision_variable[self._prev_choice] += self._perseverance_bias
     choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
     return choice_probs
 
@@ -123,7 +123,10 @@ class AgentQ:
     # For agent = AgentQ(...), you can view the q values with agent.q; however,
     # you will not be able to modify them directly because you will be viewing
     # a copy.
-    return self._q.copy()
+    q = self._q.copy() * self._beta
+    if self._prev_choice is not None:
+      q[self._prev_choice] += self._perseverance_bias
+    return q
 
 
 class AgentQuadQ(AgentQ):
@@ -196,7 +199,6 @@ class AgentNetwork:
     def __init__(self,
                  model: HybRNN,
                  n_actions: int = 2,
-                 state_to_numpy: bool = False,
                  habit: bool = False):
         """Initialize the agent network.
 
@@ -205,7 +207,6 @@ class AgentNetwork:
             n_actions: number of permitted actions (default = 2)
         """
         
-        self._state_to_numpy = state_to_numpy
         self._q_init = 0.5
         self._model = model.to(torch.device('cpu'))
         self._xs = torch.zeros((1, 2))-1
@@ -215,7 +216,7 @@ class AgentNetwork:
 
     def new_sess(self):
         """Reset the network for the beginning of a new session."""
-        state = self._model.initial_state(batch_size=1, device=torch.device('cpu'))
+        state = self._model.initial_state(batch_size=1)
         self._state = tuple([tensor.numpy() for tensor in state])
         self._xs = torch.zeros((1, 2))-1
       
@@ -244,10 +245,7 @@ class AgentNetwork:
         self._xs = torch.tensor([[choice, reward]])
         with torch.no_grad():
           _, new_state = self._model(self._xs, self._model.get_state())
-        if self._state_to_numpy:
-            self._state = np.concatenate([tensor.numpy().reshape(-1) for tensor in new_state], axis=0)
-        else:
-            self._state = tuple([tensor.numpy() for tensor in new_state])
+        self._state = tuple([tensor.numpy() for tensor in new_state])
             
     @property
     def q(self):
@@ -455,7 +453,9 @@ def create_dataset(agent: Agent,
                    n_trials_per_session: int,
                    n_sessions: int,
                    batch_size: int = None,
-                   init_state=False):
+                   init_state=False,
+                   device=torch.device('cpu'),
+                   ):
   """Generates a behavioral dataset from a given agent and environment.
 
   Args:
@@ -488,7 +488,7 @@ def create_dataset(agent: Agent,
 
   # dataset = DatasetRNN(xs, ys, batch_size)
   # use Dataset class instead
-  dataset = DatasetRNN(np.swapaxes(xs, 0, 1), np.swapaxes(ys, 0, 1), batch_size)
+  dataset = DatasetRNN(np.swapaxes(xs, 0, 1), np.swapaxes(ys, 0, 1), batch_size, device)
   return dataset, experiment_list
 
 ###############

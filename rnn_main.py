@@ -15,7 +15,7 @@ sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, sindy_utils
 
 # train model
-train = True
+train = False
 checkpoint = False
 data = False
 
@@ -25,10 +25,10 @@ path_data = 'data/dataset_train.pkl'
 params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets adapted to the ground truth model)
 
 # rnn and training parameters
-hidden_size = 16
+hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
+use_habit = True
 epochs = 2000
 learning_rate = 1e-2
 convergence_threshold = 1e-7
@@ -41,7 +41,7 @@ if not data:
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
   forget_rate = 0.1 #@param
-  perseveration_bias = 0.  #@param
+  perseverance_bias = 0.25 #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -49,17 +49,18 @@ if not data:
 
   # experiement parameters
   n_trials_per_session = 200  #@param
-  n_sessions = 220  #@param
+  n_sessions = 256  #@param
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)
-  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseveration_bias)  
+  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
       environment=environment,
       n_trials_per_session=n_trials_per_session,
-      n_sessions=n_sessions)
+      n_sessions=n_sessions,
+      device=device)
 
   dataset_test, experiment_list_test = bandits.create_dataset(
       agent=agent,
@@ -93,8 +94,8 @@ if not data:
   if forget_rate > 0:
     params_path += f'_f' + str(forget_rate).replace('.', '')
     
-  if perseveration_bias > 0:
-    params_path += f'_p' + str(perseveration_bias).replace('.', '')
+  if perseverance_bias > 0:
+    params_path += f'_p' + str(perseverance_bias).replace('.', '')
   
   if non_binary_reward:
     params_path += '_nonbinary'
@@ -114,6 +115,7 @@ if use_lstm:
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
+      device=device,
       ).to(device)
 else:
   model = rnn.HybRNN(
@@ -123,6 +125,7 @@ else:
       last_output=last_output,
       last_state=last_state,
       use_habit=use_habit,
+      device=device,
       ).to(device)
 
 optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -167,6 +170,8 @@ if hasattr(model, 'beta'):
 
 # Synthesize a dataset using the fitted network
 environment = bandits.EnvironmentBanditsDrift(0.1)
+model.set_device(torch.device('cpu'))
+model.to(torch.device('cpu'))
 rnn_agent = bandits.AgentNetwork(model, n_actions=2, habit=use_habit)
 # dataset_rnn, experiment_list_rnn = bandits.create_dataset(rnn_agent, environment, 220, 10)
 
@@ -198,17 +203,31 @@ qs = np.concatenate(list_qs, axis=0)
 # normalize q-values
 qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
+fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+
+reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
+bandits.plot_session(
+    compare=True,
+    choices=choices,
+    rewards=rewards,
+    timeseries=reward_probs,
+    timeseries_name='Reward Probs',
+    labels=[f'Arm {a}' for a in range(n_actions)],
+    color=['tab:purple', 'tab:cyan'],
+    binary=not non_binary_reward,
+    fig_ax=(fig, axs[0]),
+    )
+
 bandits.plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
     timeseries=probs[:, :, 0],
-    timeseries_name='Choice Probabilities',
-    # labels=labels,
+    timeseries_name='Choice Probs',
     color=colors,
     binary=not non_binary_reward,
+    fig_ax=(fig, axs[1]),
     )
-plt.show()
 
 bandits.plot_session(
     compare=True,
@@ -216,23 +235,22 @@ bandits.plot_session(
     rewards=rewards,
     timeseries=qs[:, :, 0],
     timeseries_name='Q-Values',
-    # labels=labels,
-    title='Left arm',
     color=colors,
     binary=not non_binary_reward,
+    fig_ax=(fig, axs[2]),
     )
+
+dqs_arms = np.diff(qs, axis=2)
+
+bandits.plot_session(
+    compare=True,
+    choices=choices,
+    rewards=rewards,
+    timeseries=dqs_arms[:, :, 0],
+    timeseries_name='dQ/dActions',
+    color=colors,
+    binary=not non_binary_reward,
+    fig_ax=(fig, axs[3]),
+    )
+
 plt.show()
-
-# bandits.plot_session(
-#     compare=True,
-#     choices=choices,
-#     rewards=rewards,
-#     timeseries=qs[:, :, 1],
-#     timeseries_name='Q-Values',
-#     # labels=labels,
-#     title='Right arm',
-#     color=colors,
-#     binary=not non_binary_reward,
-#     )
-# plt.show()
-
