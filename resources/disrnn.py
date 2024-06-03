@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import warnings
 
-from . import rnn_utils_haiku
+from . import rnn_utils
 
 warnings.filterwarnings("ignore")
 
@@ -252,7 +252,7 @@ def plot_update_rules(params, make_network):
   key = jax.random.PRNGKey(0)
   step_hk = jax.jit(step_hk)
 
-  initial_state = np.array(rnn_utils_haiku.get_initial_state(make_network))
+  initial_state = np.array(rnn_utils.get_initial_state(make_network))
   reference_state = np.zeros(initial_state.shape)
 
   def plot_update_1d(params, unit_i, observations, titles):

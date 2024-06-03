@@ -52,14 +52,8 @@ class BiRNN(hk.RNNCore):
     if self._vs:  # "s" = state -> feed previous hidden state back in
       inputs = jnp.concatenate([inputs, state], axis=-1)
 
-    # next_state = jax.nn.tanh(hk.Linear(self._hidden_size)(inputs))
-    next_state = hk.Linear(self._hidden_size)(inputs)
-
-    update = jax.nn.tanh(hk.Linear(self._n_actions)(next_state))
-    # next_value = hk.Linear(self._n_actions)(next_state)
-
-    # next_value = value + update # maybe add old values to input and concat value, action and reward; but this equation is easier to present
-    # next_value = hk.Linear(self._n_actions)(jnp.concatenate([value, update], axis=-1))
+    next_state = jax.nn.tanh(hk.Linear(self._hidden_size)(inputs))
+    next_value = hk.Linear(self._n_actions)(next_state)
     
     return next_value, next_state
 

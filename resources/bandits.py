@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
 
-from . import rnn_utils_haiku
+from . import rnn_utils
 
 
-DatasetRNN = rnn_utils_haiku.DatasetRNN
+DatasetRNN = rnn_utils.DatasetRNN
 
 
 # Setup so that plots will look nice
