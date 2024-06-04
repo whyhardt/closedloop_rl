@@ -9,8 +9,8 @@ import pysindy as ps
 
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import HybRNN
-from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, create_dataset as create_dataset_bandits
-from resources.sindy_utils import get_q, make_sindy_data, custom_library_ps, create_dataset
+from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
+from resources.sindy_utils import create_dataset
 from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
@@ -59,15 +59,15 @@ x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trial
 # x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
 
 # get only one training signal for testing
-# train_signal = 2
-# x_train = [x[:, train_signal] for x in x_train]
-# feature_names = [feature_names[train_signal]] + feature_names[3:]
+train_signal = 1
+feature_names = [feature_names[train_signal]] + feature_names[x_train[0].shape[-1]:]
+x_train = [x_session[:, train_signal].reshape(-1) for x_session in x_train]
 
 # set up sindy agent
-library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=False)
+library = ps.PolynomialLibrary(degree=polynomial_degree)
 # library = custom_library_ps
 sindy = ps.SINDy(
-        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=1),
+        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=.1),
         feature_library=library,
         discrete_time=True,
         feature_names=feature_names,
@@ -76,11 +76,10 @@ sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_e
 sindy.print()
 # update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
-def update_rule_sindy(qr, qf, h, choice, reward):
-    h, qr, qf = sindy.simulate(np.array([h, qr, qf]).reshape(1, -1), t=2, u=np.array([choice, reward]).reshape(1, -1))[-1]
-    return 
+def update_rule_sindy(q, choice, reward):
+    return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, -1))[-1]
 
-agent_sindy = AgentSindy(alpha=0, beta=1, n_actions=n_actions)
+agent_sindy = AgentSindy(n_actions)
 agent_sindy.set_update_rule(update_rule_sindy)
 
 # Analysis
@@ -93,17 +92,17 @@ list_probs = []
 list_qs = []
 
 # get q-values from groundtruth
-qs_test, probs_test = get_q(experiment_test, agent)
+qs_test, probs_test = get_update_dynamics(experiment_test, agent)
 list_probs.append(np.expand_dims(probs_test, 0))
 list_qs.append(np.expand_dims(qs_test, 0))
 
 # get q-values from trained rnn
-qs_rnn, probs_rnn = get_q(experiment_test, agent_rnn)
+qs_rnn, probs_rnn = get_update_dynamics(experiment_test, agent_rnn)
 list_probs.append(np.expand_dims(probs_rnn, 0))
 list_qs.append(np.expand_dims(qs_rnn, 0))
 
 # get q-values from trained sindy
-qs_sindy, probs_sindy = get_q(experiment_test, agent_sindy)
+qs_sindy, probs_sindy = get_update_dynamics(experiment_test, agent_sindy)
 list_probs.append(np.expand_dims(probs_sindy, 0))
 list_qs.append(np.expand_dims(qs_sindy, 0))
 

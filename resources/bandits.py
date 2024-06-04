@@ -183,13 +183,15 @@ class AgentSindy(AgentQ):
 
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
-      self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
+      # self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
+      self._q[c] = self._update_rule(self._q[c], int(c==choice), reward)
       
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
-    self._qf = self._q_init + np.zeros(self._n_actions)
-    self._qr = self._q_init + np.zeros(self._n_actions)
-    self._h = np.zeros(self._n_actions)
+    # self._qf = self._q_init + np.zeros(self._n_actions)
+    # self._qr = self._q_init + np.zeros(self._n_actions)
+    # self._h = np.zeros(self._n_actions)
+    self._q = self._q_init + np.zeros(self._n_actions)
 
 
 class AgentNetwork:
@@ -503,6 +505,33 @@ def create_dataset(
   # use Dataset class instead
   dataset = DatasetRNN(np.swapaxes(xs, 0, 1), np.swapaxes(ys, 0, 1), batch_size, device)
   return dataset, experiment_list
+
+
+def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNetwork, AgentSindy]):
+  """Compute Q-Values of a specific agent for a specific experiment sequence with given actions and rewards.
+
+  Args:
+      experiment (BanditSession): _description_
+      agent (_type_): _description_
+
+  Returns:
+      _type_: _description_
+  """
+  
+  choices = np.expand_dims(experiment.choices, 1)
+  rewards = np.expand_dims(experiment.rewards, 1)
+  qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  
+  agent.new_sess()
+  
+  for trial in range(experiment.choices.shape[0]):
+    qs[trial] = agent.q
+    choice_probs[trial] = agent.get_choice_probs()
+    agent.update(int(choices[trial]), float(rewards[trial]))
+    
+  return qs, choice_probs
+
 
 ###############
 # DIAGNOSTICS #

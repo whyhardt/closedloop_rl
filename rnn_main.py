@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, sindy_utils, rnn_utils
+from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
 train = False
@@ -162,12 +162,12 @@ list_probs = []
 list_qs = []
 
 # get q-values from groundtruth
-qs_test, probs_test = sindy_utils.get_q(experiment_list_test[session_id], agent)
+qs_test, probs_test = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
 list_probs.append(np.expand_dims(probs_test, 0))
 list_qs.append(np.expand_dims(qs_test, 0))
 
 # get q-values from trained rnn
-qs_rnn, probs_rnn = sindy_utils.get_q(experiment_list_test[session_id], rnn_agent)
+qs_rnn, probs_rnn = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
 list_probs.append(np.expand_dims(probs_rnn, 0))
 list_qs.append(np.expand_dims(qs_rnn, 0))
 
