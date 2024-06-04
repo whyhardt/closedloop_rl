@@ -159,17 +159,20 @@ class AgentQuadQ(AgentQ):
     self._q[choice] = self._q[choice] - self._alpha * self._q[choice]**2 + self._alpha * reward
 
 
-class AgentSindy(AgentQ):
+class AgentSindy:
 
   def __init__(
       self,
       n_actions: int=2,
       ):
-    super().__init__(1, 1, n_actions, 0, 0)
 
-    self._update_rule = lambda q, choice, reward: (1 - self._alpha) * q[choice] + self._alpha * reward
+    self._q_init = 0.5
+    self._n_actions = n_actions
+    self._prev_choice = None
+        
+    self._update_rule = lambda q, choice, reward: q[choice] + reward
     self._update_rule_formula = None
-
+    
   def set_update_rule(self, update_rule: callable, update_rule_formula: str=None):
     self._update_rule=update_rule
     self._update_rule_formula=update_rule_formula
@@ -184,14 +187,32 @@ class AgentSindy(AgentQ):
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
       # self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
-      self._q[c] = self._update_rule(self._q[c], int(c==choice), reward)
-      
+      self._q[c] = self._update_rule(self._q[c], choice, self._prev_choice, reward)
+    self._prev_choice = choice
+    
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     # self._qf = self._q_init + np.zeros(self._n_actions)
     # self._qr = self._q_init + np.zeros(self._n_actions)
     # self._h = np.zeros(self._n_actions)
     self._q = self._q_init + np.zeros(self._n_actions)
+    self._prev_choice = 0
+    
+  def get_choice_probs(self) -> np.ndarray:
+    """Compute the choice probabilities as softmax over q."""
+    choice_probs = np.exp(self._q) / np.sum(np.exp(self._q))
+    return choice_probs
+
+  def get_choice(self) -> int:
+    """Sample a choice, given the agent's current internal state."""
+    choice_probs = self.get_choice_probs()
+    choice = np.random.choice(self._n_actions, p=choice_probs)
+    return choice
+  
+  @property
+  def q(self):
+    return self._q.copy()
+    
 
 
 class AgentNetwork:

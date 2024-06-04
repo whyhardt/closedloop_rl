@@ -61,7 +61,7 @@ x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trial
 # get only one training signal for testing
 train_signal = 1
 feature_names = [feature_names[train_signal]] + feature_names[x_train[0].shape[-1]:]
-x_train = [x_session[:, train_signal].reshape(-1) for x_session in x_train]
+x_train = [x_session[:, train_signal].reshape(-1, 1) for x_session in x_train]
 
 # set up sindy agent
 library = ps.PolynomialLibrary(degree=polynomial_degree)
@@ -76,8 +76,8 @@ sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_e
 sindy.print()
 # update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
-def update_rule_sindy(q, choice, reward):
-    return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, -1))[-1]
+def update_rule_sindy(q, choice, prev_choice, reward):
+    return sindy.simulate(q, t=2, u=np.array([choice, prev_choice, reward]).reshape(1, 3))[-1]
 
 agent_sindy = AgentSindy(n_actions)
 agent_sindy.set_update_rule(update_rule_sindy)

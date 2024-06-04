@@ -130,6 +130,16 @@ class HybRNN(baseRNN):
             'cr': [],
         }
         
+    def initial_state(self, batch_size=1):
+        super().initial_state(batch_size)
+    
+        # reset history appropiately
+        self.history['xH'] = [self._state[2].detach().cpu().numpy()]
+        self.history['xQr'] = [self._state[3].detach().cpu().numpy()]
+        self.history['xQf'] = [self._state[3].detach().cpu().numpy()]
+        
+        return self.get_state()
+        
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
         
@@ -251,7 +261,7 @@ class HybRNN(baseRNN):
         if batch_first:
             logits = logits.permute(1, 0, 2)
             
-        return logits, self.get_state()
+        return logits, self.get_state()        
     
     
 class LSTM(baseRNN):

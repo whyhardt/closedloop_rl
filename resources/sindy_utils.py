@@ -45,6 +45,50 @@ custom_library_ps = ps.CustomLibrary(
     include_bias=True,
 )
 
+# TODO:) Change the signal shape to (n_sessions*n_actions*timesteps, 2, n_features)
+# def create_dataset(
+#   agent: Agent,
+#   environment: Environment,
+#   n_trials_per_session: int,
+#   n_sessions: int,
+#   ):
+  
+#   x_train = []
+#   control = []
+  
+#   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
+#   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
+#   feature_names = keys_x + keys_c
+
+#   x_train = np.zeros((n_sessions*agent._n_actions, n_trials_per_session, len(keys_x)))
+#   control = np.zeros((n_sessions*agent._n_actions, n_trials_per_session, len(keys_c)))
+  
+#   for session in range(n_sessions):
+#     agent.new_sess()
+    
+#     for trial in range(n_trials_per_session):
+#       choice = agent.get_choice()
+#       reward = environment.step(choice)
+#       agent.update(choice, reward)
+
+#       # after each trial sort the collected history either into x_train or control signals
+#       for key in agent._model.history.keys():
+#         signal = agent._model.history[key][trial].reshape(-1)
+#         if key in keys_x:
+#           # get index of key in keys_x
+#           i_key = keys_x.index(key)
+#           x_train[2*session:2*session+2, trial, i_key] = signal
+#         elif key in keys_c:
+#           i_key = keys_c.index(key)
+#           control[2*session:2*session+2, trial, i_key] = signal
+#         else:
+#           raise ValueError(f'Cannot sort key {key} into x_train (must start with x) or control signals (must start with c).')  
+  
+#   # transform signals to lists
+#   x_train = [x for x in x_train]
+#   control = [c for c in control]
+  
+#   return x_train, control, feature_names
 
 def create_dataset(
   agent: Agent,
@@ -59,12 +103,11 @@ def create_dataset(
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   feature_names = keys_x + keys_c
+
+  x_train = np.zeros((n_sessions*(n_trials_per_session-1)*agent._n_actions, 2, len(keys_x)))
+  control = np.zeros((n_sessions*(n_trials_per_session-1)*agent._n_actions, 2, len(keys_x)))
   
-  # x_train_signals = {key: [] for key in keys_x}
-  # control_signals = {key: [] for key in keys_c}
-  x_train = np.zeros((n_sessions*agent._n_actions, n_trials_per_session, len(keys_x)))
-  control = np.zeros((n_sessions*agent._n_actions, n_trials_per_session, len(keys_c)))
-  
+  i = 0
   for session in range(n_sessions):
     agent.new_sess()
     
@@ -72,20 +115,28 @@ def create_dataset(
       choice = agent.get_choice()
       reward = environment.step(choice)
       agent.update(choice, reward)
-    
-      # after each trial sort the collected history either into x_train or control signals
-      for key in agent._model.history.keys():
-        signal = agent._model.history[key][trial].reshape(-1)
-        if key in keys_x:
-          # get index of key in keys_x
-          i_key = keys_x.index(key)
-          x_train[2*session:2*session+2, trial, i_key] = signal
-        elif key in keys_c:
-          i_key = keys_c.index(key)
-          control[2*session:2*session+2, trial, i_key] = signal
-        else:
-          raise ValueError(f'Cannot sort key {key} into x_train (must start with x) or control signals (must start with c).')  
-  
+      
+      # useful data begins from the second trial
+      if trial > 2:
+        # after each trial sort the collected history either into x_train or control signals
+        x_train_trial = np.zeros((2, 2, len(keys_x)))
+        control_trial = np.zeros((2, 2, len(keys_c)))
+        for key in agent._model.history.keys():
+          signal = np.concatenate(agent._model.history[key][trial-1:trial+1]).swapaxes(0, 1)  # signal shape out: (actions, timesteps)
+          if key in keys_x:
+            i_key = keys_x.index(key)
+            x_train_trial[:, :, i_key] = signal
+          elif key in keys_c:
+            i_key = keys_c.index(key)
+            control_trial[:, :, i_key] = signal
+          else:
+            raise ValueError(f'Cannot sort key {key} into x_train (must start with x) or control signals (must start with c).')  
+
+        x_train[i:i+2] = x_train_trial
+        control[i:i+2] = control_trial
+        
+        i = i + 2
+        
   # transform signals to lists
   x_train = [x for x in x_train]
   control = [c for c in control]

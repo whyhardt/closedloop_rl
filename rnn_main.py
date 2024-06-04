@@ -15,7 +15,7 @@ sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
-train = False
+train = True
 checkpoint = False
 data = False
 
