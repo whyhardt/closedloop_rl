@@ -58,7 +58,8 @@ class AgentQ:
       beta: float = 3.,
       n_actions: int = 2,
       forget_rate: float = 0.,
-      perseverance_bias: float = 0.):
+      perseverance_bias: float = 0.,
+      ):
     """Update the agent after one step of the task.
 
     Args:
@@ -198,10 +199,11 @@ class AgentNetwork:
         model: A PyTorch module representing the RNN architecture
     """
 
-    def __init__(self,
-                 model: HybRNN,
-                 n_actions: int = 2,
-                 habit: bool = False):
+    def __init__(
+      self,
+      model: HybRNN,
+      n_actions: int = 2,
+      habit: bool = False):
         """Initialize the agent network.
 
         Args:
@@ -405,10 +407,12 @@ Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift]
 ###############
 
 
-def run_experiment(agent: Agent,
-                   environment: Environment,
-                   n_trials: int,
-                   init_state=False) -> BanditSession:
+def run_experiment(
+  agent: Agent,
+  environment: Environment,
+  n_trials: int,
+  init_state=False,
+  ) -> BanditSession:
   """Runs a behavioral session from a given agent and environment.
 
   Args:
@@ -445,8 +449,8 @@ def run_experiment(agent: Agent,
   if isinstance(agent, AgentNetwork):
     if hasattr(agent._model, 'extracted_state'):
       qs = {}
-      for key in agent._model.extracted_state.keys():
-        qs[key] = np.concatenate(agent._model.extracted_state[key])
+      for key in agent._model.history.keys():
+        qs[key] = np.concatenate(agent._model.history[key])
       
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices.astype(int),
@@ -456,14 +460,15 @@ def run_experiment(agent: Agent,
   return experiment
 
 
-def create_dataset(agent: Agent,
-                   environment: Environment,
-                   n_trials_per_session: int,
-                   n_sessions: int,
-                   batch_size: int = None,
-                   init_state=False,
-                   device=torch.device('cpu'),
-                   ):
+def create_dataset(
+  agent: Agent,
+  environment: Environment,
+  n_trials_per_session: int,
+  n_sessions: int,
+  batch_size: int = None,
+  init_state=False,
+  device=torch.device('cpu'),
+  ):
   """Generates a behavioral dataset from a given agent and environment.
 
   Args:

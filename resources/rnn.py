@@ -120,10 +120,14 @@ class HybRNN(baseRNN):
         self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
         self.habit_layer = nn.Linear(hidden_size, n_actions)
         
-        self.extracted_state = {
-            'H': [],
-            'Qr': [],
-            'Qf': [],
+        # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
+        self.history = {
+            'xH': [],
+            'xQr': [],
+            'xQf': [],
+            'ca': [],
+            'ca[k-1]': [],
+            'cr': [],
         }
         
     def value_network(self, state, value, action, reward):
@@ -158,8 +162,11 @@ class HybRNN(baseRNN):
         next_value = action * reward_update + (1-action) * blind_update
 
         # add extracted values
-        self.extracted_state['Qr'].append(next_value.detach().cpu().numpy())
-        self.extracted_state['Qf'].append(blind_update.detach().cpu().numpy())
+        self.history['xQr'].append(next_value.detach().cpu().numpy())
+        self.history['xQf'].append(blind_update.detach().cpu().numpy())
+        self.history['ca'].append(action.detach().cpu().numpy())
+        self.history['cr'].append(reward.detach().cpu().numpy())
+        self.history['ca[k-1]'].append(self.prev_action.detach().cpu().numpy())
         
         return next_value, next_state
     
@@ -185,7 +192,7 @@ class HybRNN(baseRNN):
         next_habit = self.habit_layer(next_state)
         
         # add extracted values
-        self.extracted_state['H'].append(next_habit.detach().cpu().numpy())
+        self.history['xH'].append(next_habit.detach().cpu().numpy())
         
         return next_habit, next_state
     

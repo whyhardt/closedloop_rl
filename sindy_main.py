@@ -9,14 +9,14 @@ import pysindy as ps
 
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import HybRNN
-from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, create_dataset, plot_session
-from resources.sindy_utils import get_q, make_sindy_data
+from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, create_dataset as create_dataset_bandits
+from resources.sindy_utils import get_q, make_sindy_data, custom_library_ps, create_dataset
 from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
 
 # sindy parameters
-threshold = 0.015
+threshold = 0.1
 polynomial_degree = 2
 ensemble = False
 library_ensemble = False
@@ -46,7 +46,7 @@ use_lstm = False
 # set up ground truth agent and environment
 environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)
 agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias)
-dataset_test, experiment_list_test = create_dataset(agent, environment, n_trials_per_session, 1)
+dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent
 params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
@@ -55,13 +55,19 @@ rnn.load_state_dict(torch.load(params_path, map_location=torch.device('cpu'))['m
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
-dataset_rnn, experiment_list_rnn = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
-x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
+x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
+# x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
+
+# get only one training signal for testing
+# train_signal = 2
+# x_train = [x[:, train_signal] for x in x_train]
+# feature_names = [feature_names[train_signal]] + feature_names[3:]
 
 # set up sindy agent
-library = ps.PolynomialLibrary(degree=polynomial_degree)
+library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=False)
+# library = custom_library_ps
 sindy = ps.SINDy(
-        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=0.1),
+        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=1),
         feature_library=library,
         discrete_time=True,
         feature_names=feature_names,
