@@ -140,7 +140,7 @@ def fit_model(
     # initialize dataloader
     if batch_size is None:
         batch_size = len(dataset)
-    dataloader = DataLoader(dataset, batch_size=batch_size)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # initialize training
     continue_training = True

@@ -28,9 +28,10 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets 
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
-epochs = 100
+use_habit = True
+epochs = 1000
 n_steps_per_call = 10
+batch_size = 32
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -41,8 +42,8 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0. #@param
-  perseverance_bias = 0. #@param
+  forget_rate = 0.1 #@param
+  perseverance_bias = 0.25 #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -127,7 +128,7 @@ if train:
       convergence_threshold=convergence_threshold,
       epochs=epochs,
       n_steps_per_call = n_steps_per_call,
-      batch_size=None,
+      batch_size=batch_size,
   )
 
   print(f'Training took {time.time() - start_time:.2f} seconds.')

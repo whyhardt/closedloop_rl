@@ -98,7 +98,7 @@ class HybRNN(baseRNN):
         self._n_actions = n_actions
         # self._w_h = 0 if not use_habit else 1#nn.Parameter(torch.randn(1))
         # self._w_v = 1
-        # self.beta = 3#nn.Parameter(torch.tensor(1., dtype=torch.float32).reshape((1, 1)))
+        self.beta = 3#nn.Parameter(torch.tensor(1., dtype=torch.float32).reshape((1, 1)))
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
@@ -158,7 +158,7 @@ class HybRNN(baseRNN):
 
         # first reward-blind mechanism (forgetting) for all elements
         blind_update = self.reward_blind_update(value)
-        
+                
         # now reward-based update for the chosen element        
         # get the value of the chosen action
         chosen_value = torch.sum(blind_update * action, dim=-1).view(-1, 1)
@@ -172,7 +172,7 @@ class HybRNN(baseRNN):
         next_state = self.tanh(self.hidden_layer_value(inputs))
         reward_update = self.reward_based_update(next_state)
         
-        next_value = action * reward_update + (1-action) * blind_update
+        next_value = action * reward_update + blind_update * (1 - action)
 
         # add extracted values
         self.history['xQr'].append(next_value.detach().cpu().numpy())
