@@ -187,7 +187,8 @@ class AgentSindy:
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
       # self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
-      self._q[c] = self._update_rule(self._q[c], choice, self._prev_choice, reward)
+      # self._q[c] = self._update_rule(self._q[c], choice, self._prev_choice, reward)
+      self._q[c] = self._update_rule(self._q[c], int(choice==c), reward)
     self._prev_choice = choice
     
   def new_sess(self):
@@ -417,7 +418,7 @@ class BanditSession(NamedTuple):
   choices: np.ndarray
   rewards: np.ndarray
   timeseries: np.ndarray
-  q: Union[np.ndarray, Dict[str, np.ndarray]]
+  q: np.ndarray
   n_trials: int
   
 
@@ -463,18 +464,9 @@ def run_experiment(
     # Log choice and reward
     choices[trial] = choice
     rewards[trial] = reward
-    # set hidden state to initial hidden state if necessary -> necessary for e.g. comparison of general Q-Update w.r.t reward
-    if isinstance(agent, AgentNetwork) and init_state:
-      agent._state = agent._initial_state[:2] + agent._state[-2:]
-    # Finally agent learns
+    # Agent learns
     agent.update(choice, reward)
-
-  if isinstance(agent, AgentNetwork):
-    if hasattr(agent._model, 'extracted_state'):
-      qs = {}
-      for key in agent._model.history.keys():
-        qs[key] = np.concatenate(agent._model.history[key])
-      
+    
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices.astype(int),
                              rewards=rewards,

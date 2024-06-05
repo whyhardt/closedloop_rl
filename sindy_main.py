@@ -10,7 +10,7 @@ import pysindy as ps
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import HybRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset
+from resources.sindy_utils import create_dataset, make_sindy_data
 from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.1
 polynomial_degree = 2
+regularization = 0.1
 ensemble = False
 library_ensemble = False
 
@@ -28,7 +29,7 @@ n_sessions = 16
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.
+forget_rate = 0.1
 perseverance_bias = 0.
 
 # environment parameters
@@ -40,7 +41,7 @@ sigma = .1
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = True
+use_habit = False
 use_lstm = False
 
 # set up ground truth agent and environment
@@ -56,18 +57,26 @@ agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
 x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
-# x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
 
 # get only one training signal for testing
+# remove prev_choice as control input for now
+control = [c_sample[:, [True, False, True]].reshape(-1, 2) for c_sample in control]
+feature_names.remove('ca[k-1]')
+
+# only keep one training value for now
 train_signal = 1
 feature_names = [feature_names[train_signal]] + feature_names[x_train[0].shape[-1]:]
-x_train = [x_session[:, train_signal].reshape(-1, 1) for x_session in x_train]
+x_train = [x_sample[:, train_signal].reshape(-1, 1) for x_sample in x_train]
+
+# classic way to generate sindy training data
+# dataset_rnn, experiment_list_rnn = create_dataset_bandits(agent_rnn, environment, n_trials_per_session, n_sessions)
+# x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
 
 # set up sindy agent
 library = ps.PolynomialLibrary(degree=polynomial_degree)
 # library = custom_library_ps
 sindy = ps.SINDy(
-        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=.1),
+        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=regularization),
         feature_library=library,
         discrete_time=True,
         feature_names=feature_names,
@@ -76,11 +85,16 @@ sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_e
 sindy.print()
 # update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
-def update_rule_sindy(q, choice, prev_choice, reward):
-    return sindy.simulate(q, t=2, u=np.array([choice, prev_choice, reward]).reshape(1, 3))[-1]
+# def update_rule_sindy(q, choice, prev_choice, reward):
+    # return sindy.simulate(q, t=2, u=np.array([choice, prev_choice, reward]).reshape(1, 3))[-1]
+def update_rule_sindy(q, choice, reward):
+    return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
 agent_sindy = AgentSindy(n_actions)
 agent_sindy.set_update_rule(update_rule_sindy)
+
+# test sindy agent
+dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
 # Analysis
 labels = ['Ground Truth', 'RNN', 'SINDy']
@@ -110,10 +124,10 @@ colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 
 # concatenate all choice probs and q-values
 probs = np.concatenate(list_probs, axis=0)
-qs = np.concatenate(list_qs, axis=0)
+qs_left = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+qs_left = (qs_left - np.min(qs_left, axis=1, keepdims=True)) / (np.max(qs_left, axis=1, keepdims=True) - np.min(qs_left, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -146,14 +160,14 @@ plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
-    timeseries=qs[:, :, 0],
+    timeseries=qs_left[:, :, 0],
     timeseries_name='Q-Values',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = np.diff(qs, axis=2)
+dqs_arms = np.diff(qs_left, axis=2)
 
 plot_session(
     compare=True,

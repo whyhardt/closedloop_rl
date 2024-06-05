@@ -20,7 +20,7 @@ class baseRNN(nn.Module):
         
         self.prev_action = torch.zeros((1, n_actions), dtype=torch.float)
         
-        self.extracted_state = {
+        self.history = {
             'value': [],
         }
     
@@ -39,8 +39,8 @@ class baseRNN(nn.Module):
         
         self.prev_action = torch.zeros((batch_size, self._n_actions), dtype=torch.float).to(self.device)
         
-        for key in self.extracted_state.keys():
-            self.extracted_state[key] = []
+        for key in self.history.keys():
+            self.history[key] = []
         
         self.set_state(
             torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
@@ -157,29 +157,26 @@ class HybRNN(baseRNN):
         """
 
         # first reward-blind mechanism (forgetting) for all elements
-        blind_update = self.reward_blind_update(value)
-                
+        next_value = self.reward_blind_update(value)        
+        self.history['xQf'].append(next_value.detach().cpu().numpy())
+        
         # now reward-based update for the chosen element        
         # get the value of the chosen action
-        chosen_value = torch.sum(blind_update * action, dim=-1).view(-1, 1)
+        chosen_value = torch.sum(next_value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
         if self._vo:
-            inputs = torch.cat([inputs, blind_update], dim=-1).float()
+            inputs = torch.cat([inputs, value], dim=-1).float()
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
         next_state = self.tanh(self.hidden_layer_value(inputs))
         reward_update = self.reward_based_update(next_state)
         
-        next_value = action * reward_update + blind_update * (1 - action)
+        next_value = next_value + action * reward_update
 
-        # add extracted values
         self.history['xQr'].append(next_value.detach().cpu().numpy())
-        self.history['xQf'].append(blind_update.detach().cpu().numpy())
-        self.history['ca'].append(action.detach().cpu().numpy())
-        self.history['cr'].append(reward.detach().cpu().numpy())
-        self.history['ca[k-1]'].append(self.prev_action.detach().cpu().numpy())
+        
         
         return next_value, next_state
     
@@ -243,6 +240,10 @@ class HybRNN(baseRNN):
         h_state, v_state, habit, value = self.get_state()
         
         for t, a, r in zip(timesteps, action, reward):            
+            self.history['ca'].append(a.detach().cpu().numpy())
+            self.history['cr'].append(r.detach().cpu().numpy())
+            self.history['ca[k-1]'].append(self.prev_action.detach().cpu().numpy())
+            
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
             logit = value
