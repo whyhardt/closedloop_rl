@@ -28,10 +28,11 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets 
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = True
-epochs = 2000
+use_habit = False
+epochs = 100
+n_steps_per_call = 10
 learning_rate = 1e-2
-convergence_threshold = 1e-7
+convergence_threshold = 1e-6
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -125,6 +126,7 @@ if train:
       optimizer=optimizer_rnn,
       convergence_threshold=convergence_threshold,
       epochs=epochs,
+      n_steps_per_call = n_steps_per_call,
       batch_size=None,
   )
 

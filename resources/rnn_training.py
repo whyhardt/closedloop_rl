@@ -59,27 +59,25 @@ def train_step(
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
     loss_fn: nn.modules.loss._Loss,
+    n_steps: int = 10,
     ):
     
     # predict y
     model.initial_state(batch_size=len(x))
-    y_pred, _ = model(x, model.get_state(), batch_first=True)
-    # y_pred = torch.nn.functional.softmax(y_pred, dim=1)
-    
-    loss = 0
-    if loss_fn.__class__ == nn.CrossEntropyLoss().__class__:
-        for i in range(y.shape[1]):
-            loss += loss_fn(y_pred[:, i], y[:, i])
-        loss /= y.shape[1]
-    elif loss_fn.__class__ == categorical_log_likelihood.__class__:
-        loss = loss_fn(y_pred, y)
-    else:
-        raise NotImplementedError('Loss function not implemented.')
-    
-    # backpropagation
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    for i in range(0, x.shape[1]-n_steps, n_steps):
+        y_pred, _ = model(x[:, i:i+n_steps], model.get_state(detach=True), batch_first=True)
+        
+        y_target = y[:, i:i+n_steps]
+        
+        loss = 0
+        for t in range(n_steps):
+            loss += loss_fn(y_pred[:, t], y_target[:, t])
+        loss /= n_steps
+        
+        # backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
     
     return model, optimizer, loss
 
@@ -90,6 +88,7 @@ def batch_train(
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
+    n_steps_per_call: int = None,
     ):
 
     """
@@ -101,13 +100,10 @@ def batch_train(
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     
     # start training
-    # training_loss = []
-    # loss = 0
-    # t_start = time.time()
     model.initial_state(batch_size=len(xs))
-    # for step in range(1, n_steps):
-    model, optimizer, loss = train_step(model, xs, ys, optimizer, loss_fn)
-            
+    n_steps = n_steps_per_call if n_steps_per_call is not None else xs.shape[1]-1
+    model, optimizer, loss = train_step(model, xs, ys, optimizer, loss_fn, n_steps)
+
     return model, optimizer, loss
     
 
@@ -119,6 +115,7 @@ def fit_model(
     optimizer_state_dict: Optional[Dict[str, Any]] = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 10,
+    n_steps_per_call: int = None,
     batch_size: int = None,
 ):
     
@@ -154,7 +151,7 @@ def fit_model(
     model_backup = model
     optimizer_backup = optimizer
     
-    len_last_losses = 20
+    len_last_losses = min([20, epochs])
     last_losses = torch.ones((len_last_losses,))
     weights_losses = torch.linspace(0, 1, len_last_losses-1)
     sum_weights_losses = torch.sum(weights_losses)
@@ -171,6 +168,7 @@ def fit_model(
                 xs=xs,
                 ys=ys,
                 optimizer=optimizer,
+                n_steps_per_call=n_steps_per_call,
                 # loss_fn = categorical_log_likelihood
             )
             

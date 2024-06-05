@@ -60,12 +60,15 @@ class baseRNN(nn.Module):
         
         self._state = tuple([habit_state, value_state, habit, value])
       
-    def get_state(self):
+    def get_state(self, detach=False):
         """this method returns the hidden state
         
         Returns:
             Tuple[torch.Tensor]: tuple of habit state, value state, habit, value
         """
+        
+        if detach:
+            return tuple([s.detach() for s in self._state])
         
         return self._state
     
@@ -261,7 +264,7 @@ class HybRNN(baseRNN):
         if batch_first:
             logits = logits.permute(1, 0, 2)
             
-        return logits, self.get_state()        
+        return logits, self.get_state()
     
     
 class LSTM(baseRNN):
