@@ -99,7 +99,8 @@ class HybRNN(baseRNN):
         use_habit=False,
         last_output=False,
         last_state=False,
-        device=torch.device('cpu')
+        list_sindy_signals=['xH', 'xQf', 'xQr', 'ca', 'ca[k-1]', 'cr'],#, 'cQ'],
+        device=torch.device('cpu'),
         ):
         
         super(HybRNN, self).__init__(n_actions, hidden_size, init_value, device)
@@ -136,22 +137,16 @@ class HybRNN(baseRNN):
         self.habit_layer = nn.Linear(hidden_size, n_actions)
         
         # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
-        self.history = {
-            'xH': [],
-            'xQr': [],
-            'xQf': [],
-            'ca': [],
-            'ca[k-1]': [],
-            'cr': [],
-        }
+        self.history = {key: [] for key in list_sindy_signals}
         
     def initial_state(self, batch_size=1):
         super().initial_state(batch_size)
     
         # reset history appropiately
-        self.history['xH'] = [self._state[2].detach().cpu().numpy()]
-        self.history['xQr'] = [self._state[3].detach().cpu().numpy()]
-        self.history['xQf'] = [self._state[3].detach().cpu().numpy()]
+        self.append_timestep_sample('xH', self._state[2], self._state[2])
+        self.append_timestep_sample('xQf', self._state[3], self._state[3])
+        self.append_timestep_sample('xQr', self._state[3], self._state[3])
+        # self.append_timestep_sample('cQ', self._state[3], self._state[3])
         
         return self.get_state()
         
@@ -189,6 +184,8 @@ class HybRNN(baseRNN):
         self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
         
         next_value = action * reward_update + (1-action) * blind_update        
+        
+        # self.append_timestep_sample('cQ', value, next_value)
         
         return next_value, next_state
     
@@ -272,10 +269,6 @@ class HybRNN(baseRNN):
             
         # set state
         self.set_state(h_state, v_state, habit, value)
-        
-        # transform values of self.extracted_state to torch.tensor
-        # for key in self.extracted_state.keys():
-        #     self.extracted_state[key] = torch.stack(self.extracted_state[key], dim=1)
         
         if batch_first:
             logits = logits.permute(1, 0, 2)

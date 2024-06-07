@@ -116,6 +116,7 @@ def create_dataset(
   environment: Environment,
   n_trials_per_session: int,
   n_sessions: int,
+  normalize: bool = False,
   ):
   
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
@@ -145,6 +146,10 @@ def create_dataset(
         if key in keys_x:
           # add values of interest of one session as trajectory
           i_key = keys_x.index(key)
+          value_min = np.min(values)
+          value_max = np.max(values)
+          if normalize:
+            values = (values - value_min) / (value_max - value_min)
           for i_action in range(agent._n_actions):
             # x_train[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             x_train[key] += [v for v in values[:, :, i_action]]

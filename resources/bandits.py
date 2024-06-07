@@ -186,7 +186,6 @@ class AgentSindy:
 
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
-      # self._h[c], self._qr[c], self._qf[c] = self._update_rule(self._h[c], self._qr[c], self._qf[c], int(c==choice), reward)
       # self._q[c] = self._update_rule(self._q[c], choice, self._prev_choice, reward)
       self._q[c] = self._update_rule(self._q[c], int(choice==c), reward)
     self._prev_choice = choice
