@@ -100,8 +100,8 @@ sindy = ps.SINDy(
 sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_ensemble, multiple_trajectories=True)
 sindy.print()
 
-def update_rule_sindy(q, choice, reward):
-    return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
+# def update_rule_sindy(q, choice, reward):
+#     return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
 agent_sindy = AgentSindy(n_actions)
 agent_sindy.set_update_rule(update_rule_sindy)

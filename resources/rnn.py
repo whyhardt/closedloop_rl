@@ -169,12 +169,13 @@ class HybRNN(baseRNN):
         """
 
         # first reward-blind mechanism (forgetting) for all elements
+        chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
         blind_update = self.reward_blind_update(value)
-        self.append_timestep_sample(key='xQf', old_value=value, new_value=blind_update) 
+        self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
         
         # now reward-based update for the chosen element        
         # get the value of the chosen action
-        chosen_value = torch.sum(blind_update * action, dim=-1).view(-1, 1)
+        chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
         if self._vo:
@@ -186,7 +187,7 @@ class HybRNN(baseRNN):
         
         reward_update = self.reward_based_update(next_state)
         next_value = action * reward_update + (1-action) * blind_update
-        self.append_timestep_sample('xQr', blind_update, next_value)        
+        self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)        
         
         return next_value, next_state
     
@@ -240,8 +241,11 @@ class HybRNN(baseRNN):
         logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
         
         # check if action is one-hot encoded
+        action_oh = torch.zeros((inputs.shape[0], inputs.shape[1], self._n_actions), dtype=torch.float, device=self.device)
         if action.shape[-1] == 1:
-            action = F.one_hot(action.squeeze(1).long(), num_classes=self._n_actions).float()
+            for i in range(inputs.shape[1]):
+                action_oh[:, i, :] = torch.eye(self._n_actions)[action[:, i, 0].int()]
+            action = action_oh
             
         if prev_state is not None:
             self.set_state(*prev_state)
