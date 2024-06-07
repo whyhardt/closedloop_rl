@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numpy as np
 from typing import Optional, Tuple
 
 
@@ -74,6 +75,19 @@ class baseRNN(nn.Module):
     
     def set_device(self, device): 
         self.device = device
+        
+    def append_timestep_sample(self, key, old_value, new_value):
+        """appends a new timestep sample to the history. A timestep sample consists of the value at timestep t-1 and the value at timestep t
+
+        Args:
+            key (str): history key to which append the sample to
+            old_value (_type_): value at timestep t-1 of shape (batch_size, feature_dim)
+            new_value (_type_): value at timestep t of shape (batch_size, feature_dim)
+        """
+        old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
+        new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
+        sample = np.concatenate([old_value, new_value], axis=1)
+        self.history[key].append(sample)
     
 
 class HybRNN(baseRNN):
@@ -96,8 +110,6 @@ class HybRNN(baseRNN):
         # define general network parameters
         self.init_value = init_value
         self._n_actions = n_actions
-        # self._w_h = 0 if not use_habit else 1#nn.Parameter(torch.randn(1))
-        # self._w_v = 1
         self.beta = 3#nn.Parameter(torch.tensor(1., dtype=torch.float32).reshape((1, 1)))
         self._hidden_size = hidden_size
         
@@ -157,12 +169,12 @@ class HybRNN(baseRNN):
         """
 
         # first reward-blind mechanism (forgetting) for all elements
-        next_value = self.reward_blind_update(value)        
-        self.history['xQf'].append(next_value.detach().cpu().numpy())
+        blind_update = self.reward_blind_update(value)
+        self.append_timestep_sample(key='xQf', old_value=value, new_value=blind_update) 
         
         # now reward-based update for the chosen element        
         # get the value of the chosen action
-        chosen_value = torch.sum(next_value * action, dim=-1).view(-1, 1)
+        chosen_value = torch.sum(blind_update * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
         if self._vo:
@@ -171,12 +183,10 @@ class HybRNN(baseRNN):
             inputs = torch.cat([inputs, state], dim=-1)
         
         next_state = self.tanh(self.hidden_layer_value(inputs))
+        
         reward_update = self.reward_based_update(next_state)
-        
-        next_value = next_value + action * reward_update
-
-        self.history['xQr'].append(next_value.detach().cpu().numpy())
-        
+        next_value = action * reward_update + (1-action) * blind_update
+        self.append_timestep_sample('xQr', blind_update, next_value)        
         
         return next_value, next_state
     
@@ -202,7 +212,7 @@ class HybRNN(baseRNN):
         next_habit = self.habit_layer(next_state)
         
         # add extracted values
-        self.history['xH'].append(next_habit.detach().cpu().numpy())
+        self.append_timestep_sample('xH', habit, next_habit)
         
         return next_habit, next_state
     
@@ -239,10 +249,10 @@ class HybRNN(baseRNN):
             self.initial_state(batch_size=inputs.shape[1], device=self.device)
         h_state, v_state, habit, value = self.get_state()
         
-        for t, a, r in zip(timesteps, action, reward):            
-            self.history['ca'].append(a.detach().cpu().numpy())
-            self.history['cr'].append(r.detach().cpu().numpy())
-            self.history['ca[k-1]'].append(self.prev_action.detach().cpu().numpy())
+        for t, a, r in zip(timesteps, action, reward):
+            self.append_timestep_sample('ca', a, a)
+            self.append_timestep_sample('cr', r, r)
+            self.append_timestep_sample('ca[k-1]', self.prev_action, self.prev_action)
             
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)

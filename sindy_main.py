@@ -16,11 +16,12 @@ from resources.rnn_utils import parameter_file_naming
 warnings.filterwarnings("ignore")
 
 # sindy parameters
-threshold = 0.1
+threshold = 0.01
 polynomial_degree = 2
-regularization = 0.1
+regularization = 1e0
 ensemble = False
 library_ensemble = False
+library = ps.PolynomialLibrary(degree=polynomial_degree)
 
 # training dataset parameters
 n_trials_per_session = 200
@@ -29,7 +30,7 @@ n_sessions = 16
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
+forget_rate = 0.
 perseverance_bias = 0.
 
 # environment parameters
@@ -49,7 +50,7 @@ environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_bina
 agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias)
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
-# set up rnn agent
+# set up rnn agent and expose q-values to train sindy
 params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
 rnn = HybRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state)
 rnn.load_state_dict(torch.load(params_path, map_location=torch.device('cpu'))['model'])
@@ -57,24 +58,39 @@ agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
 x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions)
-
-# get only one training signal for testing
 # remove prev_choice as control input for now
 control = [c_sample[:, [True, False, True]].reshape(-1, 2) for c_sample in control]
 feature_names.remove('ca[k-1]')
+print(f'Feature names: {feature_names}')
 
-# only keep one training value for now
-train_signal = 1
-feature_names = [feature_names[train_signal]] + feature_names[x_train[0].shape[-1]:]
-x_train = [x_sample[:, train_signal].reshape(-1, 1) for x_sample in x_train]
+# train one sindy model per x_train variable instead of one sindy model for all
+sindy_models = []
+for i in range(x_train[0].shape[-1]):
+    if 'x' in feature_names[i]:
+        x_train_i = [x_sample[:, i].reshape(-1, 1) for x_sample in x_train]
+        feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
+        sindy_models.append(ps.SINDy(
+            optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=regularization),
+            feature_library=library,
+            discrete_time=True,
+            feature_names=feature_names_i,
+        ))
+        
+        sindy_models[-1].fit(x_train_i, u=control, t=1, multiple_trajectories=True, ensemble=ensemble, library_ensemble=library_ensemble)
+        sindy_models[-1].print()
+        
+# mimic behavior of rnn with sindy
+def update_rule_sindy(q, choice, reward):
+    # first, blind update
+    qf = sindy_models[1].simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
+    # now reward-based update
+    qr = sindy_models[0].simulate(qf, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
+    return qr
 
-# classic way to generate sindy training data
-# dataset_rnn, experiment_list_rnn = create_dataset_bandits(agent_rnn, environment, n_trials_per_session, n_sessions)
-# x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
+# classic way to generate data for sindy training and fit sindy
+dataset_rnn, experiment_list_rnn = create_dataset_bandits(agent_rnn, environment, n_trials_per_session, n_sessions)
+x_train, control, feature_names = make_sindy_data(experiment_list_rnn, agent_rnn)
 
-# set up sindy agent
-library = ps.PolynomialLibrary(degree=polynomial_degree)
-# library = custom_library_ps
 sindy = ps.SINDy(
         optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=regularization),
         feature_library=library,
@@ -83,10 +99,7 @@ sindy = ps.SINDy(
     )
 sindy.fit(x_train, t=1, u=control, ensemble=ensemble, library_ensemble=library_ensemble, multiple_trajectories=True)
 sindy.print()
-# update_rule_rnnsindy = lambda q, choice, reward: sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 
-# def update_rule_sindy(q, choice, prev_choice, reward):
-    # return sindy.simulate(q, t=2, u=np.array([choice, prev_choice, reward]).reshape(1, 3))[-1]
 def update_rule_sindy(q, choice, reward):
     return sindy.simulate(q, t=2, u=np.array([choice, reward]).reshape(1, 2))[-1]
 

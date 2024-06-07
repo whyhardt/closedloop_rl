@@ -29,9 +29,9 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_habit = False
-epochs = 100
-n_steps_per_call = 10
-batch_size = 32
+epochs = 1000
+n_steps_per_call = None
+batch_size = 256
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -42,7 +42,7 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0.1 #@param
+  forget_rate = 0. #@param
   perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
@@ -181,7 +181,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 

@@ -6,46 +6,6 @@ import pysindy as ps
 from bandits import *
 
 
-custom_library = {
-  'functions': [
-    # sub-library which is always included    
-    lambda q,c,r: q,
-    lambda q,c,r: r,
-    lambda q,c,r: np.power(q, 2),
-    lambda q,c,r: q*r,
-    lambda q,c,r: np.power(r, 2),
-    # sub-library if the possible action was chosen
-    # lambda q,c,r: c,
-    lambda q,c,r: c*q,
-    lambda q,c,r: c*r,
-    lambda q,c,r: c*np.power(q, 2),
-    lambda q,c,r: c*q*r,
-    lambda q,c,r: c*np.power(r, 2),
-],
-  'names': [
-    # part library which is always included
-    lambda q,c,r: f'{q}',
-    lambda q,c,r: f'{r}',
-    lambda q,c,r: f'{q}^2',
-    lambda q,c,r: f'{q}*{r}',
-    lambda q,c,r: f'{r}^2',
-    # part library if the possible action was chosen
-    # lambda q,c,r: f'{c}',
-    lambda q,c,r: f'{c}*{q}',
-    lambda q,c,r: f'{c}*{r}',
-    lambda q,c,r: f'{c}*{q}^2',
-    lambda q,c,r: f'{c}*{q}*{r}',
-    lambda q,c,r: f'{c}*{r}^2',
-],
-}
-
-custom_library_ps = ps.CustomLibrary(
-    library_functions=custom_library['functions'],
-    function_names=custom_library['names'],
-    include_bias=True,
-)
-
-
 def make_sindy_data(
     dataset,
     agent,
@@ -128,24 +88,89 @@ def create_dataset(
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
       if len(agent._model.history[key]) > 1:
+        values = np.concatenate(agent._model.history[key][1:])
+        if len(values) > n_trials_per_session-1:
+          values = values[:n_trials_per_session-1]
         if key in keys_x:
           # add values of interest of one session as trajectory
-          x_train_values = np.concatenate(agent._model.history[key][1:-1])
           i_key = keys_x.index(key)
           for i_action in range(agent._n_actions):
-            x_train[session+i_action, :, i_key] = x_train_values[:, i_action]
-
+            x_train[session+i_action, :, i_key] = values[:, i_action]
         if key in keys_c:
           # add control signals of one session as corresponding trajectory
-          control_values = np.concatenate(agent._model.history[key][1:])
           i_key = keys_c.index(key)
-          if control_values.shape[-1] == 1:
-            control_values = np.repeat(control_values, 2, -1)
+          if values.shape[-1] == 1:
+            values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
-            control[session+i_action, :, i_key] = control_values[:, i_action]
-        
+            control[session+i_action, :, i_key] = values[:, i_action]
+  
   x_train = [x_session for x_session in x_train]
   control = [c_session for c_session in control]
   feature_names = keys_x + keys_c
   
   return x_train, control, feature_names
+
+
+def create_dataset(
+  agent: AgentNetwork,
+  environment: Environment,
+  n_trials_per_session: int,
+  n_sessions: int,
+  ):
+  
+  keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
+  keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
+  
+  # x_train = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_x)))
+  # control = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_c)))
+  x_train = {key: [] for key in keys_x}
+  control = {key: [] for key in keys_c}
+  
+  index_x_train = 0
+  for session in range(0, n_sessions, agent._n_actions):
+    agent.new_sess()
+    
+    for trial in range(n_trials_per_session):
+      # generate trial data
+      choice = agent.get_choice()
+      reward = environment.step(choice)
+      agent.update(choice, reward)
+    
+    # sort the data of one session into the corresponding signals
+    for key in agent._model.history.keys():
+      if len(agent._model.history[key]) > 1:
+        values = np.concatenate(agent._model.history[key][1:])
+        if len(values) > n_trials_per_session-1:
+          values = values[:n_trials_per_session-1]
+        if key in keys_x:
+          # add values of interest of one session as trajectory
+          i_key = keys_x.index(key)
+          for i_action in range(agent._n_actions):
+            # x_train[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
+            x_train[key] += [v for v in values[:, :, i_action]]
+        if key in keys_c:
+          # add control signals of one session as corresponding trajectory
+          i_key = keys_c.index(key)
+          if values.shape[-1] == 1:
+            values = np.repeat(values, 2, -1)
+          for i_action in range(agent._n_actions):
+            # control[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
+            control[key] += [v for v in values[:, :, i_action]]
+            
+    index_x_train += n_trials_per_session-1
+  
+  # get all keys of x_train and control that have no values and remove them
+  keys_x = [key for key in keys_x if len(x_train[key]) > 0]
+  keys_c = [key for key in keys_c if len(control[key]) > 0]
+  x_train = {key: x_train[key] for key in keys_x}
+  control = {key: control[key] for key in keys_c}
+  feature_names = keys_x + keys_c
+  
+  # make x_train and control List[np.ndarray] with shape (n_trials_per_session-1, len(keys)) instead of dictionaries
+  x_train_list = []
+  control_list = []
+  for i in range(len(control[keys_c[0]])):
+    x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
+    control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
+  
+  return x_train_list, control_list, feature_names
