@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.01
 polynomial_degree = 2
-regularization = 1e0
+regularization = 1e-1
 ensemble = False
 library_ensemble = False
 library = ps.PolynomialLibrary(degree=polynomial_degree)
@@ -140,7 +140,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs_left = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs_left = (qs_left - np.min(qs_left, axis=1, keepdims=True)) / (np.max(qs_left, axis=1, keepdims=True) - np.min(qs_left, axis=1, keepdims=True))
+# qs_left = (qs_left - np.min(qs_left, axis=1, keepdims=True)) / (np.max(qs_left, axis=1, keepdims=True) - np.min(qs_left, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 

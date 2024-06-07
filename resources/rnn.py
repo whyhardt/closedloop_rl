@@ -127,7 +127,7 @@ class HybRNN(baseRNN):
         
         # value network
         self.habit_update = nn.Linear(n_actions, n_actions)
-        self.reward_blind_update = nn.Linear(n_actions, n_actions)
+        self.reward_blind_update = nn.Linear(n_actions-1, n_actions-1)
         self.hidden_layer_value = nn.Linear(input_size, hidden_size)
         self.reward_based_update = nn.Linear(hidden_size, 1)
         
@@ -169,8 +169,8 @@ class HybRNN(baseRNN):
         """
 
         # first reward-blind mechanism (forgetting) for all elements
-        chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        blind_update = self.reward_blind_update(value)
+        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        blind_update = self.reward_blind_update(not_chosen_value)
         self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
         
         # now reward-based update for the chosen element        
@@ -186,8 +186,9 @@ class HybRNN(baseRNN):
         next_state = self.tanh(self.hidden_layer_value(inputs))
         
         reward_update = self.reward_based_update(next_state)
-        next_value = action * reward_update + (1-action) * blind_update
-        self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)        
+        self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
+        
+        next_value = action * reward_update + (1-action) * blind_update        
         
         return next_value, next_state
     
