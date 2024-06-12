@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 
 class baseRNN(nn.Module):
@@ -321,3 +321,41 @@ class LSTM(baseRNN):
             logits = logits.permute(1, 0, 2)
         
         return logits, self.get_state()
+    
+    
+class EnsembleRNN:
+    
+    MEAN = 0
+    MEDIAN = 1
+    
+    def __init__(self, model_list: List[baseRNN], device=torch.device('cpu'), ensemble_type=0):
+        self.device = device
+        self.models = model_list
+        self.ensemble_type = ensemble_type
+        
+    def __call__(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
+        logits = torch.zeros(len(self.models), inputs.shape[0], inputs.shape[1], self.models[0]._n_actions, device=self.device)
+        if prev_state is None:
+            prev_state = [None for _ in range(len(self.models))]
+            for i, model in enumerate(self.models):
+                state = model.initial_state(batch_size=inputs.shape[1])
+                prev_state[i] = state
+            prev_state = torch.stack(state)
+        
+        for i, model in enumerate(self.models):
+            logits_model, state = model(inputs, prev_state[i], batch_first)
+            logits[i] = logits_model
+            prev_state[i] = state
+        state = torch.mean(prev_state, dim=0)
+        if self.ensemble_type == self.MEAN:
+            logits = torch.mean(logits, dim=0)
+        elif self.ensemble_type == self.MEDIAN:
+            logits = torch.median(logits, dim=0)[0]
+        
+        return logits, state
+    
+    def average_state(self, state_list: List[Tuple[torch.Tensor]]):
+        state = []
+        for i in range(len(state_list[0])):
+            state.append(torch.mean(torch.stack([s[i] for s in state_list]), dim=0))
+        return tuple(state)
