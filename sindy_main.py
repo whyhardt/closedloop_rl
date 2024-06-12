@@ -137,10 +137,10 @@ colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 
 # concatenate all choice probs and q-values
 probs = np.concatenate(list_probs, axis=0)
-qs_left = np.concatenate(list_qs, axis=0)
+qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-# qs_left = (qs_left - np.min(qs_left, axis=1, keepdims=True)) / (np.max(qs_left, axis=1, keepdims=True) - np.min(qs_left, axis=1, keepdims=True))
+qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -173,14 +173,14 @@ plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
-    timeseries=qs_left[:, :, 0],
+    timeseries=qs[:, :, 0],
     timeseries_name='Q-Values',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = np.diff(qs_left, axis=2)
+dqs_arms = np.diff(qs, axis=2)
 
 plot_session(
     compare=True,

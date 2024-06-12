@@ -144,7 +144,8 @@ class RLRNN(baseRNN):
         
         # habit network
         self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
-        self.habit_layer = nn.Linear(hidden_size, n_actions)
+        # self.habit_layer = nn.Linear(hidden_size, n_actions)
+        self.habit_layer = nn.Linear(n_actions, n_actions)
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -203,8 +204,10 @@ class RLRNN(baseRNN):
         if self._hs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.tanh(self.hidden_layer_habit(inputs))
-        next_habit = self.habit_layer(next_state)
+        # next_state = self.tanh(self.hidden_layer_habit(inputs))
+        # next_habit = self.habit_layer(next_state)
+        next_state = state
+        next_habit = self.habit_layer(inputs)
         
         # add extracted values
         self.append_timestep_sample('xH', habit, next_habit)
