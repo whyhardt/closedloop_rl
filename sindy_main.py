@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pysindy as ps
 
 sys.path.append('resources')  # add source directoy to path
-from resources.rnn import HybRNN
+from resources.rnn import RLRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
 from resources.sindy_utils import create_dataset, make_sindy_data
 from resources.rnn_utils import parameter_file_naming
@@ -25,7 +25,7 @@ library = ps.PolynomialLibrary(degree=polynomial_degree)
 
 # training dataset parameters
 n_trials_per_session = 200
-n_sessions = 1
+n_sessions = 10
 
 # ground truth parameters
 gen_alpha = .25
@@ -52,7 +52,7 @@ dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 
 
 # set up rnn agent and expose q-values to train sindy
 params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
-rnn = HybRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state)
+rnn = RLRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state)
 rnn.load_state_dict(torch.load(params_path, map_location=torch.device('cpu'))['model'])
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 

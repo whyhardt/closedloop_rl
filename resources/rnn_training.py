@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, Dataset
 from typing import Any, Dict, Optional
 import time
 
-from rnn import HybRNN
+from rnn import RLRNN
 
 
 class DatasetRNN(Dataset):
@@ -54,7 +54,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
 
 
 def train_step(
-    model: HybRNN,
+    model: RLRNN,
     x: torch.Tensor,
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
@@ -74,16 +74,17 @@ def train_step(
             loss += loss_fn(y_pred[:, t], y_target[:, t])
         loss /= n_steps
         
-        # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        if loss.requires_grad:
+            # backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
     
     return model, optimizer, loss
 
 
 def batch_train(
-    model: HybRNN,
+    model: RLRNN,
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
@@ -108,13 +109,13 @@ def batch_train(
     
 
 def fit_model(
-    model: HybRNN,
+    model: RLRNN,
     dataset: DatasetRNN,
     optimizer: torch.optim.Optimizer = None,
     rnn_state_dict: Optional[Dict[str, Any]] = None,
     optimizer_state_dict: Optional[Dict[str, Any]] = None,
     convergence_threshold: float = 1e-5,
-    epochs: int = 10,
+    epochs: int = 1,
     n_steps_per_call: int = None,
     batch_size: int = None,
 ):
@@ -153,7 +154,7 @@ def fit_model(
     
     len_last_losses = min([20, epochs])
     last_losses = torch.ones((len_last_losses,))
-    weights_losses = torch.linspace(0, 1, len_last_losses-1)
+    weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
     sum_weights_losses = torch.sum(weights_losses)
     
     # start training
@@ -181,7 +182,8 @@ def fit_model(
             # update last losses according fifo principle
             last_losses[:-1] = last_losses[1:].clone()
             last_losses[-1] = loss_new.item()
-            
+            loss = loss_new
+
             # check for convergence
             # convergence_value = torch.abs(loss - loss_new) / loss
             # compute convergence value based on weighted mean of last 100 losses with weight encoding the position in the list
@@ -194,16 +196,14 @@ def fit_model(
                 converged = convergence_value < convergence_threshold #and loss_new.item() < convergence_threshold*2
                 continue_training = not converged and n_calls_to_train_model < epochs
             
+            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e} --- Continue training...'
+            
             if converged:
-                msg = '\nModel converged!'
+                msg += '\nModel converged!'
             elif n_calls_to_train_model >= epochs:
-                msg = '\nMaximum number of training epochs reached.'
+                msg += '\nMaximum number of training epochs reached.'
                 if not converged:
                     msg += '\nModel did not converge yet.'
-            else:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e} --- Continue training...'
-                
-            loss = loss_new
         except KeyboardInterrupt:
             continue_training = False
             msg = 'Training interrupted. Continuing with further operations...'

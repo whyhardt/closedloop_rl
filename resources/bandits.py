@@ -10,7 +10,7 @@ import torch
 from torch import nn
 import torch.utils
 
-from rnn import HybRNN
+from rnn import RLRNN
 from rnn_training import DatasetRNN
 
 # Setup so that plots will look nice
@@ -224,7 +224,7 @@ class AgentNetwork:
 
     def __init__(
       self,
-      model: HybRNN,
+      model: RLRNN,
       n_actions: int = 2,
       habit: bool = False):
         """Initialize the agent network.

@@ -7,7 +7,14 @@ from typing import Optional, Tuple
 
 
 class baseRNN(nn.Module):
-    def __init__(self, n_actions, hidden_size, init_value=0.5, device=torch.device('cpu')):
+    def __init__(
+        self, 
+        n_actions, 
+        hidden_size, 
+        init_value=0.5, 
+        device=torch.device('cpu'),
+        list_sindy_signals=['xQr', 'ca', 'cr'],
+        ):
         super(baseRNN, self).__init__()
         
         self.device = device
@@ -21,9 +28,8 @@ class baseRNN(nn.Module):
         
         self.prev_action = torch.zeros((1, n_actions), dtype=torch.float)
         
-        self.history = {
-            'value': [],
-        }
+        # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
+        self.history = {key: [] for key in list_sindy_signals}
     
     def forward(self, *args):
         raise NotImplementedError('This method is not implemented.')
@@ -94,7 +100,7 @@ class baseRNN(nn.Module):
         self.history[key].append(sample)
     
 
-class HybRNN(baseRNN):
+class RLRNN(baseRNN):
     def __init__(
         self,
         n_actions, 
@@ -107,7 +113,7 @@ class HybRNN(baseRNN):
         device=torch.device('cpu'),
         ):
         
-        super(HybRNN, self).__init__(n_actions, hidden_size, init_value, device)
+        super(RLRNN, self).__init__(n_actions, hidden_size, init_value, device, list_sindy_signals)
         
         # define level of recurrence
         self._vs, self._hs, self._vo, self._ho, self._wh = last_state, last_state, last_output, last_output, use_habit
@@ -139,20 +145,6 @@ class HybRNN(baseRNN):
         # habit network
         self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
         self.habit_layer = nn.Linear(hidden_size, n_actions)
-        
-        # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
-        self.history = {key: [] for key in list_sindy_signals}
-        
-    # def initial_state(self, batch_size=1):
-    #     super().initial_state(batch_size)
-    
-    #     # reset history appropiately
-    #     self.append_timestep_sample('xH', self._state[2], self._state[2])
-    #     self.append_timestep_sample('xQf', self._state[3], self._state[3])
-    #     self.append_timestep_sample('xQr', self._state[3], self._state[3])
-    #     # self.append_timestep_sample('cQ', self._state[3], self._state[3])
-        
-    #     return self.get_state()
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)

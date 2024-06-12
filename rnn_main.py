@@ -22,16 +22,16 @@ data = False
 use_lstm = False
 
 path_data = 'data/dataset_train.pkl'
-params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (gets adapted to the ground truth model)
+params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapted to the ground truth model)
 
 # rnn and training parameters
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
-epochs = 1000
-n_steps_per_call = 10
-batch_size = 256
+use_habit = True
+epochs = 100
+n_steps_per_call = 10  # None for full sequence
+batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -68,7 +68,8 @@ if not data:
       agent=agent,
       environment=environment,
       n_trials_per_session=n_trials_per_session,
-      n_sessions=n_sessions)
+      n_sessions=1024,
+      device=device)
   
   params_path = rnn_utils.parameter_file_naming(
       'params/params',
@@ -97,7 +98,7 @@ if use_lstm:
       device=device,
       ).to(device)
 else:
-  model = rnn.HybRNN(
+  model = rnn.RLRNN(
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
@@ -119,7 +120,7 @@ if train:
   
   start_time = time.time()
   
-  #@title Fit the hybrid RNN
+  #Fit the hybrid RNN
   print('Training the hybrid RNN...')
   model, optimizer_rnn, _ = rnn_training.fit_model(
       model=model,
@@ -130,6 +131,14 @@ if train:
       n_steps_per_call = n_steps_per_call,
       batch_size=batch_size,
   )
+  
+  # validate model
+  print('\nValidating the trained hybrid RNN on a test dataset...')
+  with torch.no_grad():
+    rnn_training.fit_model(
+        model=model,
+        dataset=dataset_test,
+    )
 
   print(f'Training took {time.time() - start_time:.2f} seconds.')
   
