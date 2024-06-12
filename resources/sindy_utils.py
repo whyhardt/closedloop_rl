@@ -127,8 +127,7 @@ def create_dataset(
   x_train = {key: [] for key in keys_x}
   control = {key: [] for key in keys_c}
   
-  index_x_train = 0
-  for session in range(0, n_sessions, agent._n_actions):
+  for session in range(n_sessions):
     agent.new_sess()
     
     for trial in range(n_trials_per_session):
@@ -140,12 +139,11 @@ def create_dataset(
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
       if len(agent._model.history[key]) > 1:
-        values = np.concatenate(agent._model.history[key][1:])
-        if len(values) > n_trials_per_session-1:
-          values = values[:n_trials_per_session-1]
+        values = np.concatenate(agent._model.history[key])#[1:])  # skip first value because it is not usable
+        # if len(values) > n_trials_per_session-1:
+        #   values = values[:n_trials_per_session-1]  # state values (start with 'x') have one value more per session because they have to be initialized
         if key in keys_x:
           # add values of interest of one session as trajectory
-          i_key = keys_x.index(key)
           value_min = np.min(values)
           value_max = np.max(values)
           if normalize:
@@ -155,15 +153,12 @@ def create_dataset(
             x_train[key] += [v for v in values[:, :, i_action]]
         if key in keys_c:
           # add control signals of one session as corresponding trajectory
-          i_key = keys_c.index(key)
           if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
             # control[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             control[key] += [v for v in values[:, :, i_action]]
-            
-    index_x_train += n_trials_per_session-1
-  
+              
   # get all keys of x_train and control that have no values and remove them
   keys_x = [key for key in keys_x if len(x_train[key]) > 0]
   keys_c = [key for key in keys_c if len(control[key]) > 0]

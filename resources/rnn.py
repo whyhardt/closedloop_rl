@@ -76,7 +76,7 @@ class baseRNN(nn.Module):
     def set_device(self, device): 
         self.device = device
         
-    def append_timestep_sample(self, key, old_value, new_value):
+    def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None):
         """appends a new timestep sample to the history. A timestep sample consists of the value at timestep t-1 and the value at timestep t
 
         Args:
@@ -84,6 +84,10 @@ class baseRNN(nn.Module):
             old_value (_type_): value at timestep t-1 of shape (batch_size, feature_dim)
             new_value (_type_): value at timestep t of shape (batch_size, feature_dim)
         """
+        
+        if new_value is None:
+            new_value = torch.zeros(old_value.shape) - 1
+        
         old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
         new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
         sample = np.concatenate([old_value, new_value], axis=1)
@@ -139,16 +143,16 @@ class HybRNN(baseRNN):
         # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
         self.history = {key: [] for key in list_sindy_signals}
         
-    def initial_state(self, batch_size=1):
-        super().initial_state(batch_size)
+    # def initial_state(self, batch_size=1):
+    #     super().initial_state(batch_size)
     
-        # reset history appropiately
-        self.append_timestep_sample('xH', self._state[2], self._state[2])
-        self.append_timestep_sample('xQf', self._state[3], self._state[3])
-        self.append_timestep_sample('xQr', self._state[3], self._state[3])
-        # self.append_timestep_sample('cQ', self._state[3], self._state[3])
+    #     # reset history appropiately
+    #     self.append_timestep_sample('xH', self._state[2], self._state[2])
+    #     self.append_timestep_sample('xQf', self._state[3], self._state[3])
+    #     self.append_timestep_sample('xQr', self._state[3], self._state[3])
+    #     # self.append_timestep_sample('cQ', self._state[3], self._state[3])
         
-        return self.get_state()
+    #     return self.get_state()
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -252,9 +256,9 @@ class HybRNN(baseRNN):
         h_state, v_state, habit, value = self.get_state()
         
         for t, a, r in zip(timesteps, action, reward):
-            self.append_timestep_sample('ca', a, a)
-            self.append_timestep_sample('cr', r, r)
-            self.append_timestep_sample('ca[k-1]', self.prev_action, self.prev_action)
+            self.append_timestep_sample('ca', a)
+            self.append_timestep_sample('cr', r)
+            self.append_timestep_sample('ca[k-1]', self.prev_action)
             
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
