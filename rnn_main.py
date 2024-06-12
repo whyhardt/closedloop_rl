@@ -14,7 +14,6 @@ warnings.filterwarnings("ignore")
 sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
 
-# torch.cuda.empty_cache()
 
 # train model
 train = True
