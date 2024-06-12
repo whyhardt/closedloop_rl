@@ -109,7 +109,7 @@ class RLRNN(baseRNN):
         use_habit=False,
         last_output=False,
         last_state=False,
-        list_sindy_signals=['xH', 'xQf', 'xQr', 'ca', 'ca[k-1]', 'cr'],#, 'cQ'],
+        list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],#, 'cQ'],
         device=torch.device('cpu'),
         ):
         

@@ -164,7 +164,7 @@ def fit_model(
             xs, ys = next(iter(dataloader))
             # train model
             t_start = time.time()
-            model, optimizer, loss_new = batch_train(
+            model, optimizer, loss = batch_train(
                 model=model,
                 xs=xs,
                 ys=ys,
@@ -181,8 +181,7 @@ def fit_model(
             
             # update last losses according fifo principle
             last_losses[:-1] = last_losses[1:].clone()
-            last_losses[-1] = loss_new.item()
-            loss = loss_new
+            last_losses[-1] = loss.item()
 
             # check for convergence
             # convergence_value = torch.abs(loss - loss_new) / loss
@@ -193,10 +192,10 @@ def fit_model(
                 continue_training = True
             else:
                 convergence_value = (torch.sum(torch.abs(torch.diff(last_losses)) * weights_losses) / sum_weights_losses).item()
-                converged = convergence_value < convergence_threshold #and loss_new.item() < convergence_threshold*2
+                converged = convergence_value < convergence_threshold
                 continue_training = not converged and n_calls_to_train_model < epochs
             
-            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e} --- Continue training...'
+            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e}'
             
             if converged:
                 msg += '\nModel converged!'

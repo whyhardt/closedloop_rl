@@ -144,9 +144,9 @@ def create_dataset(
         #   values = values[:n_trials_per_session-1]  # state values (start with 'x') have one value more per session because they have to be initialized
         if key in keys_x:
           # add values of interest of one session as trajectory
-          value_min = np.min(values)
-          value_max = np.max(values)
           if normalize:
+            value_min = np.min(values)
+            value_max = np.max(values)
             values = (values - value_min) / (value_max - value_min)
           for i_action in range(agent._n_actions):
             # x_train[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]

@@ -186,8 +186,10 @@ class AgentSindy:
 
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
-      # self._q[c] = self._update_rule(self._q[c], choice, self._prev_choice, reward)
-      self._q[c] = self._update_rule(self._q[c], int(choice==c), reward)
+      # self._q[c] = self._update_rule(self._q[c], int(choice==c), int(self._prev_choice==c), reward)
+      q, h = self._update_rule(self._q[c], self._h[c], int(choice==c), int(self._prev_choice==c), reward)
+      self._q[c] = q + h
+      self._h[c] = h
     self._prev_choice = choice
     
   def new_sess(self):
@@ -196,7 +198,8 @@ class AgentSindy:
     # self._qr = self._q_init + np.zeros(self._n_actions)
     # self._h = np.zeros(self._n_actions)
     self._q = self._q_init + np.zeros(self._n_actions)
-    self._prev_choice = 0
+    self._h = np.zeros(self._n_actions)
+    self._prev_choice = np.nan
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
@@ -434,7 +437,6 @@ def run_experiment(
   agent: Agent,
   environment: Environment,
   n_trials: int,
-  init_state=False,
   ) -> BanditSession:
   """Runs a behavioral session from a given agent and environment.
 
@@ -480,7 +482,6 @@ def create_dataset(
   n_trials_per_session: int,
   n_sessions: int,
   batch_size: int = None,
-  init_state=False,
   device=torch.device('cpu'),
   ):
   """Generates a behavioral dataset from a given agent and environment.
@@ -504,7 +505,7 @@ def create_dataset(
 
   for sess_i in np.arange(n_sessions):
     agent.new_sess()
-    experiment = run_experiment(agent, environment, n_trials_per_session, init_state)
+    experiment = run_experiment(agent, environment, n_trials_per_session)
     experiment_list.append(experiment)
     # one-hot encoding of choices
     choices = np.eye(agent._n_actions)[experiment.choices]
