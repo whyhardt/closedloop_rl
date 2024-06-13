@@ -6,7 +6,7 @@ import numpy as np
 from typing import Optional, Tuple, List
 
 
-class baseRNN(nn.Module):
+class BaseRNN(nn.Module):
     def __init__(
         self, 
         n_actions, 
@@ -15,7 +15,7 @@ class baseRNN(nn.Module):
         device=torch.device('cpu'),
         list_sindy_signals=['xQr', 'ca', 'cr'],
         ):
-        super(baseRNN, self).__init__()
+        super(BaseRNN, self).__init__()
         
         self.device = device
         
@@ -31,10 +31,10 @@ class baseRNN(nn.Module):
         # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
         self.history = {key: [] for key in list_sindy_signals}
     
-    def forward(self, *args):
+    def forward(self, inputs, prev_state, batch_first=False):
         raise NotImplementedError('This method is not implemented.')
     
-    def initial_state(self, batch_size=1):
+    def initial_state(self, batch_size=1, return_dict=False):
         """this method initializes the hidden state
         
         Args:
@@ -56,7 +56,7 @@ class baseRNN(nn.Module):
             (self.init_value + torch.zeros([batch_size, self._n_actions], dtype=torch.float)).to(self.device)
             )
         
-        return self.get_state()
+        return self.get_state(return_dict=return_dict)
         
     def set_state(self, habit_state: torch.Tensor, value_state: torch.Tensor, habit: torch.Tensor, value: torch.Tensor):
         """this method sets the hidden state
@@ -65,19 +65,25 @@ class baseRNN(nn.Module):
             state (Tuple[torch.Tensor]): hidden state
         """
         
+        # self._state = dict(hidden_habit=habit_state, hidden_value=value_state, habit=habit, value=value)
         self._state = tuple([habit_state, value_state, habit, value])
       
-    def get_state(self, detach=False):
+    def get_state(self, detach=False, return_dict=False):
         """this method returns the hidden state
         
         Returns:
             Tuple[torch.Tensor]: tuple of habit state, value state, habit, value
         """
         
+        state = self._state
         if detach:
-            return tuple([s.detach() for s in self._state])
+            state = [s.detach() for s in state]
+
+        if return_dict:
+            keys = ['hidden_habit', 'hidden_value', 'habit', 'value']
+            state = {keys[i]: state[i] for i in range(len(state))}
         
-        return self._state
+        return state
     
     def set_device(self, device): 
         self.device = device
@@ -98,9 +104,12 @@ class baseRNN(nn.Module):
         new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
         sample = np.concatenate([old_value, new_value], axis=1)
         self.history[key].append(sample)
+        
+    def get_history(self, key):
+        return self.history[key]
     
 
-class RLRNN(baseRNN):
+class RLRNN(BaseRNN):
     def __init__(
         self,
         n_actions, 
@@ -275,7 +284,7 @@ class RLRNN(baseRNN):
         return logits, self.get_state()
     
     
-class LSTM(baseRNN):
+class LSTM(BaseRNN):
     def __init__(self, n_actions, hidden_size, init_value=0.5):
         super(LSTM, self).__init__(n_actions, hidden_size, init_value)
         
@@ -328,34 +337,96 @@ class EnsembleRNN:
     MEAN = 0
     MEDIAN = 1
     
-    def __init__(self, model_list: List[baseRNN], device=torch.device('cpu'), ensemble_type=0):
+    def __init__(self, model_list: List[BaseRNN], device=torch.device('cpu'), ensemble_type=0):
         self.device = device
         self.models = model_list
         self.ensemble_type = ensemble_type
         
-    def __call__(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
-        logits = torch.zeros(len(self.models), inputs.shape[0], inputs.shape[1], self.models[0]._n_actions, device=self.device)
+    def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
+        if len(inputs.shape) == 2:
+            # unsqueeze time dimension
+            inputs = inputs.unsqueeze(1)
+            
         if prev_state is None:
-            prev_state = [None for _ in range(len(self.models))]
             for i, model in enumerate(self.models):
-                state = model.initial_state(batch_size=inputs.shape[1])
-                prev_state[i] = state
-            prev_state = torch.stack(state)
+                prev_state.append(model.initial_state(batch_size=inputs.shape[1]))
+        elif not isinstance(prev_state, list):
+            prev_state = [prev_state for _ in range(len(self.models))]
         
+        logits = []
+        states = []
         for i, model in enumerate(self.models):
-            logits_model, state = model(inputs, prev_state[i], batch_first)
-            logits[i] = logits_model
-            prev_state[i] = state
-        state = torch.mean(prev_state, dim=0)
-        if self.ensemble_type == self.MEAN:
-            logits = torch.mean(logits, dim=0)
-        elif self.ensemble_type == self.MEDIAN:
-            logits = torch.median(logits, dim=0)[0]
+            logits_i, state_i = model(inputs, prev_state[i], batch_first)
+            logits.append(logits_i)
+            states.append(state_i)
+        logits = self.vote(torch.stack(logits))
+        states = self.set_state(states)
         
-        return logits, state
+        return logits, states
     
-    def average_state(self, state_list: List[Tuple[torch.Tensor]]):
+    def __iter__(self):
+        return iter(self.models)
+    
+    def __getitem__(self, index):
+        return self.models[index]
+    
+    def __len__(self):
+        return len(self.models)
+    
+    def vote(self, values: torch.Tensor):
+        if self.ensemble_type == self.MEDIAN:
+            return torch.median(values, dim=0)[0]
+        elif self.ensemble_type == self.MEAN:
+            return torch.mean(values, dim=0)
+        else:
+            raise ValueError(f'Invalid ensemble type {self.ensemble_type}. Must be either {self.MEAN} (mean) or {self.MEDIAN} (median).')
+    
+    def set_state(self, states: List[Tuple[torch.Tensor]]):
+        # vote for all non-hidden states i.e. internal values (habit and value)
+        # identified by state[i].shape[-1] == self.models[0]._n_actions
+        voting_states = [True if state_i.shape[-1] == self.models[0]._n_actions else False for state_i in states[0]]
+        for i, voting in enumerate(voting_states):
+            if voting:
+                state_voted = self.vote(torch.stack([state[i] for state in states]))
+                for state in states:
+                    state[i] = state_voted.clone()
+        self._state = states
+    
+    def get_state(self, detach=False, return_dict=False):
         state = []
-        for i in range(len(state_list[0])):
-            state.append(torch.mean(torch.stack([s[i] for s in state_list]), dim=0))
-        return tuple(state)
+        
+        # put all states into a list with length len(states[0]) where one state is a stacked tensor of all models' states
+        for i in range(len(self._state[0])):
+            state_i = []
+            for state_model in self._state:
+                state_i.append(state_model[i].detach() if detach else state_model[i])
+            state_i = torch.stack(state_i)
+            state.append(state_i)
+        
+        if return_dict:
+            keys = ['hidden_habit', 'hidden_value', 'habit', 'value']
+            state = {keys[i]: state[i] for i in range(len(state))}
+        else:
+            state = tuple(state)
+                
+        return state
+    
+    def initial_state(self, batch_size=1, return_dict=False):
+        state = []
+        for model in self.models:
+            state.append(model.initial_state(batch_size=batch_size, return_dict=True))
+        keys = state[0].keys()
+        len_state = len(state[0])
+        # make tuple[torch.Tensor] with shape (n_models, *state_shape) and length len_state
+        state = tuple([torch.stack([s[key] for s in state]) for key in keys])
+        if return_dict:
+            state = {keys[i]: state[i] for i in range(len_state)}
+        return state
+    
+    def get_history(self, key):
+        if 'x' in key:
+            # vote for internal values e.g. habit, reward-blind update, reward-based update
+            return self.vote(torch.stack([model.get_history(key) for model in self.models]))
+        else:
+            # control signals are equal for all models. It's sufficient to get only the first model's value
+            return self.models[0].get_history(key)

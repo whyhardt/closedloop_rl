@@ -31,9 +31,9 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_habit = True
-epochs = 10
+epochs = 1
 n_steps_per_call = 10  # None for full sequence
-batch_size = 16  # None for one batch per epoch
+batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 n_submodels = 10
@@ -134,6 +134,7 @@ if train:
       n_steps_per_call = n_steps_per_call,
       batch_size=batch_size,
       n_submodels=n_submodels,
+      return_ensemble=False,
   )
   
   # validate model

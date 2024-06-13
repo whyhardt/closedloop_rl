@@ -6,10 +6,10 @@ from torch.utils.data import DataLoader, Dataset
 
 import time
 import copy
-from typing import Any, Dict, Optional
+from typing import Optional, Union
 
-from rnn import RLRNN, EnsembleRNN
-
+# from rnn import BaseRNN, EnsembleRNN
+from resources.rnn import BaseRNN, EnsembleRNN
 
 class DatasetRNN(Dataset):
     def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=torch.device('cpu')):
@@ -55,7 +55,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
 
 
 def train_step(
-    model: RLRNN,
+    model: BaseRNN,
     x: torch.Tensor,
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
@@ -85,7 +85,7 @@ def train_step(
 
 
 def batch_train(
-    model: RLRNN,
+    model: BaseRNN,
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
@@ -106,7 +106,7 @@ def batch_train(
     
 
 def fit_model(
-    model: RLRNN,
+    model: Union[BaseRNN, EnsembleRNN],
     dataset: DatasetRNN,
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
@@ -114,11 +114,16 @@ def fit_model(
     n_steps_per_call: int = None,
     batch_size: int = None,
     n_submodels: int = 1,
+    return_ensemble: bool = False,
 ):
     
     # initialize submodels
-    if not isinstance(model, EnsembleRNN):
+    if isinstance(model, BaseRNN):
         models = [model for _ in range(n_submodels)]
+    elif isinstance(model, EnsembleRNN):
+        models = model
+    else:
+        raise ValueError('Model must be either a BaseRNN (can be trained) or an EnsembleRNN (can only be tested).')
     
     # initialize optimizer
     optimizers = [torch.optim.Adam(submodel.parameters(), lr=1e-3) for submodel in models]
@@ -138,7 +143,7 @@ def fit_model(
     n_calls_to_train_model = 0
     
     model_backup = model
-    optimizer_backup = optimizer
+    optimizer_backup = optimizers[0]
     
     len_last_losses = min([20, epochs])
     last_losses = torch.ones((len_last_losses,))
@@ -154,6 +159,7 @@ def fit_model(
     # start training
     while continue_training:
         try:
+            t_start = time.time()
             loss = 0
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
@@ -161,12 +167,11 @@ def fit_model(
                     # get next batch
                     xs, ys = next(iter(dataloader))
                     # train model
-                    t_start = time.time()
                     _, _, loss = batch_train(
                         model=models,
                         xs=xs,
                         ys=ys,
-                        optimizer=optimizers[i],
+                        optimizer=optimizers[0],
                         n_steps_per_call=n_steps_per_call,
                     )
             else:
@@ -174,7 +179,6 @@ def fit_model(
                     # get next batch
                     xs, ys = next(iter(dataloader))
                     # train model
-                    t_start = time.time()
                     models[i], optimizers[i], loss_i = batch_train(
                         model=models[i],
                         xs=xs,
@@ -187,16 +191,15 @@ def fit_model(
                     loss += loss_i
                 loss /= n_submodels
             
-                # update model and optimizer via averaging over the parameters
-                # if n_submodels > 1:
-                #     avg_state_dict = average_parameters(models)
-                #     for submodel in models:
-                #         submodel.load_state_dict(avg_state_dict)
-            
-            if n_submodels > 1:
+            if n_submodels > 1 and return_ensemble:
                 model_backup = EnsembleRNN(models)
                 optimizer_backup = optimizers
             else:
+                # update model and optimizer via averaging over the parameters
+                if n_submodels > 1:
+                    avg_state_dict = average_parameters(models)
+                    for submodel in models:
+                        submodel.load_state_dict(avg_state_dict)
                 model_backup = models[0]
                 optimizer_backup = optimizers[0]
             
@@ -232,7 +235,7 @@ def fit_model(
             msg = 'Training interrupted. Continuing with further operations...'
         print(msg)
         
-    if n_submodels > 1:
+    if n_submodels > 1 and return_ensemble:
         model_backup = EnsembleRNN(models)
         optimizer_backup = optimizers
     else:

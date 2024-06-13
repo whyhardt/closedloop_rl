@@ -246,10 +246,13 @@ class AgentNetwork:
 
     def new_sess(self):
         """Reset the network for the beginning of a new session."""
-        state = self._model.initial_state(batch_size=1)
-        self._state = tuple([tensor.numpy() for tensor in state])
+        self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
         self._xs = torch.zeros((1, 2))-1
-      
+    
+    def set_state(self, state: Dict[str, torch.Tensor]):
+        state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
+        self._state = tuple([tensor.numpy() for tensor in state])
+    
     def get_value(self):
         """Return the value of the agent's current state."""
         if self.habit:
@@ -274,8 +277,7 @@ class AgentNetwork:
     def update(self, choice: float, reward: float):
         self._xs = torch.tensor([[choice, reward]])
         with torch.no_grad():
-          _, new_state = self._model(self._xs, self._model.get_state())
-        self._state = tuple([tensor.numpy() for tensor in new_state])
+          self.set_state(self._model(self._xs, self._model.get_state())[-1])
             
     @property
     def q(self):
