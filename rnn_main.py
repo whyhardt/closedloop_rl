@@ -31,7 +31,7 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_habit = True
-epochs = 1
+epochs = 10
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
@@ -54,7 +54,7 @@ if not data:
 
   # dataset parameters
   n_trials_per_session = 200  #@param
-  n_sessions = 128  #@param
+  n_sessions = 64  #@param
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)

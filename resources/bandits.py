@@ -277,7 +277,8 @@ class AgentNetwork:
     def update(self, choice: float, reward: float):
         self._xs = torch.tensor([[choice, reward]])
         with torch.no_grad():
-          self.set_state(self._model(self._xs, self._model.get_state())[-1])
+          self._model(self._xs, self._model.get_state())[-1]
+          self.set_state(self._model.get_state(return_dict=True))
             
     @property
     def q(self):
