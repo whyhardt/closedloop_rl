@@ -10,7 +10,7 @@ import pysindy as ps
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import RLRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, make_sindy_data
+from resources.sindy_utils import create_dataset
 from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
@@ -30,8 +30,8 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.
-perseverance_bias = 0.
+forget_rate = 0.1
+perseverance_bias = 0.25
 
 # environment parameters
 non_binary_reward = False
