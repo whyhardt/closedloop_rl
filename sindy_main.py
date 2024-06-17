@@ -15,6 +15,9 @@ from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
 
+# Implementing ensemble rnn did not help in terms of interchangable value updates at different stages 
+# TODO: limit the SINDy library to only the relevant variables actually used in the RNN at the respective stage
+
 # sindy parameters
 threshold = 0.03
 polynomial_degree = 2
