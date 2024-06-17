@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union, Dict
 
 
 class BaseRNN(nn.Module):
@@ -50,10 +50,10 @@ class BaseRNN(nn.Module):
             self.history[key] = []
         
         self.set_state(
-            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
-            torch.zeros([batch_size, self._hidden_size], dtype=torch.float).to(self.device),
-            torch.zeros([batch_size, self._n_actions], dtype=torch.float).to(self.device),
-            (self.init_value + torch.zeros([batch_size, self._n_actions], dtype=torch.float)).to(self.device)
+            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float).to(self.device),
+            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float).to(self.device),
+            torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float).to(self.device),
+            (self.init_value + torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float)).to(self.device)
             )
         
         return self.get_state(return_dict=return_dict)
@@ -68,7 +68,7 @@ class BaseRNN(nn.Module):
         # self._state = dict(hidden_habit=habit_state, hidden_value=value_state, habit=habit, value=value)
         self._state = tuple([habit_state, value_state, habit, value])
       
-    def get_state(self, detach=False, return_dict=False):
+    def get_state(self, detach=False, return_dict=False) -> Union[Tuple[torch.Tensor], Dict[str, torch.Tensor]]:
         """this method returns the hidden state
         
         Returns:
@@ -85,7 +85,7 @@ class BaseRNN(nn.Module):
         
         return state
     
-    def set_device(self, device): 
+    def set_device(self, device: torch.device): 
         self.device = device
         
     def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None):
@@ -258,6 +258,11 @@ class RLRNN(BaseRNN):
         else:
             self.initial_state(batch_size=inputs.shape[1], device=self.device)
         h_state, v_state, habit, value = self.get_state()
+        # remove model dim for forward pass -> only one model
+        h_state = h_state.squeeze(1)
+        v_state = v_state.squeeze(1)
+        habit = habit.squeeze(1)
+        value = value.squeeze(1)
         
         for t, a, r in zip(timesteps, action, reward):
             self.append_timestep_sample('ca', a)
@@ -275,8 +280,8 @@ class RLRNN(BaseRNN):
             
             logits[t, :, :] = logit.clone()
             
-        # set state
-        self.set_state(h_state, v_state, habit, value)
+        # add model dim again and set state
+        self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))
         
         if batch_first:
             logits = logits.permute(1, 0, 2)
@@ -348,17 +353,20 @@ class EnsembleRNN:
             inputs = inputs.unsqueeze(1)
             
         if prev_state is None:
-            for i, model in enumerate(self.models):
-                prev_state.append(model.initial_state(batch_size=inputs.shape[1]))
-        elif not isinstance(prev_state, list):
-            prev_state = [prev_state for _ in range(len(self.models))]
+            # initialize state if not provided
+            prev_state = self.initial_state(batch_size=inputs.shape[0])
+        if len(prev_state[0].shape) == 2:
+            # repeat state for each model and return list of stacked states with shape (n_models, batch_size, hidden_size)
+            self.set_state([prev_state for _ in range(len(self.models))])
+            prev_state = self.get_state()
         
         logits = []
         states = []
         for i, model in enumerate(self.models):
-            logits_i, state_i = model(inputs, prev_state[i], batch_first)
+            logits_i, state_i = model(inputs, [state[:, i] for state in prev_state], batch_first)
             logits.append(logits_i)
             states.append(state_i)
+        # TODO: Check if voting logits and single states is the same
         logits = self.vote(torch.stack(logits))
         states = self.set_state(states)
         
@@ -373,7 +381,7 @@ class EnsembleRNN:
     def __len__(self):
         return len(self.models)
     
-    def vote(self, values: torch.Tensor):
+    def vote(self, values: torch.Tensor) -> torch.Tensor:
         if self.ensemble_type == self.MEDIAN:
             return torch.median(values, dim=0)[0]
         elif self.ensemble_type == self.MEAN:
@@ -381,47 +389,48 @@ class EnsembleRNN:
         else:
             raise ValueError(f'Invalid ensemble type {self.ensemble_type}. Must be either {self.MEAN} (mean) or {self.MEDIAN} (median).')
     
-    def set_state(self, states: List[Tuple[torch.Tensor]]):
-        # vote for all non-hidden states i.e. internal values (habit and value)
-        # identified by state[i].shape[-1] == self.models[0]._n_actions
-        voting_states = [True if state_i.shape[-1] == self.models[0]._n_actions else False for state_i in states[0]]
-        for i, voting in enumerate(voting_states):
-            if voting:
-                state_voted = self.vote(torch.stack([state[i] for state in states]))
-                for state in states:
-                    state[i] = state_voted.clone()
-        self._state = states
+    def get_voting_states(self):
+        # get states that are voted for and 
+        return [True if state_i.shape[-1] == self.models[0]._n_actions else False for state_i in self.models[0].get_state()]
     
-    def get_state(self, detach=False, return_dict=False):
-        state = []
+    def set_state(self, states: List[Tuple[torch.Tensor]]):
+        # vote for all non-hidden states i.e. visible values (habit and value) and copy all hidden states of each submodel
+        # non-hidden states are identified by state[i].shape[-1] == self.models[0]._n_actions
+        # transform all tuples to lists
+        states = [list(state) for state in states]
+        states_tensor = [None for _ in range(len(states[0]))]
+        voting_states = self.get_voting_states()
+        for i, voting in enumerate(voting_states):
+            state = [state[i] for state in states]
+            if voting:
+                # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
+                new_state = self.vote(torch.stack(state)).repeat(1, len(states), 1)
+            else:
+                # if hidden state keep the state of each model
+                new_state = torch.concatenate(state, dim=1)
+            states_tensor[i] = new_state.clone()
+        self._state = states_tensor
+    
+    def get_state(self, detach=False, return_dict=False):        
+        state = self._state
         
-        # put all states into a list with length len(states[0]) where one state is a stacked tensor of all models' states
-        for i in range(len(self._state[0])):
-            state_i = []
-            for state_model in self._state:
-                state_i.append(state_model[i].detach() if detach else state_model[i])
-            state_i = torch.stack(state_i)
-            state.append(state_i)
-        
+        if detach:
+            state = [s.detach() for s in state]
+            
         if return_dict:
             keys = ['hidden_habit', 'hidden_value', 'habit', 'value']
             state = {keys[i]: state[i] for i in range(len(state))}
         else:
             state = tuple(state)
-                
+            
         return state
     
     def initial_state(self, batch_size=1, return_dict=False):
         state = []
         for model in self.models:
-            state.append(model.initial_state(batch_size=batch_size, return_dict=True))
-        keys = state[0].keys()
-        len_state = len(state[0])
-        # make tuple[torch.Tensor] with shape (n_models, *state_shape) and length len_state
-        state = tuple([torch.stack([s[key] for s in state]) for key in keys])
-        if return_dict:
-            state = {keys[i]: state[i] for i in range(len_state)}
-        return state
+            state.append(model.initial_state(batch_size=batch_size))
+        self.set_state(state)
+        return self.get_state(return_dict=return_dict)
     
     def get_history(self, key):
         if 'x' in key:
@@ -430,3 +439,13 @@ class EnsembleRNN:
         else:
             # control signals are equal for all models. It's sufficient to get only the first model's value
             return self.models[0].get_history(key)
+        
+    def set_device(self, device): 
+        self.device = device
+        
+    def to(self, device: torch.device):
+        for model in self.models:
+            model = model.to(device)
+            model.set_device(device)
+        self.device = device
+        return self

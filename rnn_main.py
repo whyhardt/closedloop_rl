@@ -134,7 +134,7 @@ if train:
       n_steps_per_call = n_steps_per_call,
       batch_size=batch_size,
       n_submodels=n_submodels,
-      return_ensemble=False,
+      return_ensemble=True,
   )
   
   # validate model
@@ -149,8 +149,8 @@ if train:
   
   # save trained parameters  
   state_dict = {
-    'model': model.state_dict(),
-    'optimizer': optimizer_rnn.state_dict(),
+    'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
+    'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
   }
   torch.save(state_dict, params_path)
 
