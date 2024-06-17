@@ -346,6 +346,7 @@ class EnsembleRNN:
         self.device = device
         self.models = model_list
         self.ensemble_type = ensemble_type
+        self.history = {key: [] for key in self.models[0].history.keys()}
         
     def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
         if len(inputs.shape) == 2:
@@ -362,12 +363,17 @@ class EnsembleRNN:
         
         logits = []
         states = []
+        history_call = {key: [] for key in self.models[0].history.keys()}
         for i, model in enumerate(self.models):
             logits_i, state_i = model(inputs, [state[:, i] for state in prev_state], batch_first)
             logits.append(logits_i)
             states.append(state_i)
-        # TODO: Check if voting logits and single states is the same
-        logits = self.vote(torch.stack(logits))
+            for key in history_call.keys():
+                history_call[key].append(model.get_history(key)[-1])
+        self.append_timestep_sample(history_call)
+
+        # TODO: Check if voting logits and single states (xQf, xQr etc) is the same
+        logits = self.vote(torch.concatenate(logits, dim=1))
         states = self.set_state(states)
         
         return logits, states
@@ -383,9 +389,9 @@ class EnsembleRNN:
     
     def vote(self, values: torch.Tensor) -> torch.Tensor:
         if self.ensemble_type == self.MEDIAN:
-            return torch.median(values, dim=0)[0]
+            return torch.median(values, dim=1)[0]
         elif self.ensemble_type == self.MEAN:
-            return torch.mean(values, dim=0)
+            return torch.mean(values, dim=1, keepdim=True)
         else:
             raise ValueError(f'Invalid ensemble type {self.ensemble_type}. Must be either {self.MEAN} (mean) or {self.MEDIAN} (median).')
     
@@ -404,7 +410,7 @@ class EnsembleRNN:
             state = [state[i] for state in states]
             if voting:
                 # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
-                new_state = self.vote(torch.stack(state)).repeat(1, len(states), 1)
+                new_state = self.vote(torch.concatenate(state, dim=1)).repeat(1, len(self), 1)
             else:
                 # if hidden state keep the state of each model
                 new_state = torch.concatenate(state, dim=1)
@@ -426,6 +432,7 @@ class EnsembleRNN:
         return state
     
     def initial_state(self, batch_size=1, return_dict=False):
+        self.history = {key: [] for key in self.models[0].history.keys()}
         state = []
         for model in self.models:
             state.append(model.initial_state(batch_size=batch_size))
@@ -439,6 +446,17 @@ class EnsembleRNN:
         else:
             # control signals are equal for all models. It's sufficient to get only the first model's value
             return self.models[0].get_history(key)
+        
+    def append_timestep_sample(self, history_ensemble):
+        for key in history_ensemble.keys():
+            if 'x' in key:
+                # vote history values
+                self.history[key].append(self.vote(torch.tensor(np.stack(history_ensemble[key], axis=1))).squeeze(1).numpy())
+            elif 'c' in key:
+                # control signals are equal for all models. It's sufficient to get only the first model's value
+                self.history[key].append(history_ensemble[key][0])
+            else:
+                raise ValueError(f'Invalid history key {key}.')
         
     def set_device(self, device): 
         self.device = device

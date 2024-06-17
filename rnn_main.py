@@ -31,12 +31,13 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_habit = True
+ensemble = False
 epochs = 10
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
-n_submodels = 10
+n_submodels = 30
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -134,7 +135,7 @@ if train:
       n_steps_per_call = n_steps_per_call,
       batch_size=batch_size,
       n_submodels=n_submodels,
-      return_ensemble=True,
+      return_ensemble=ensemble,
   )
   
   # validate model
@@ -143,6 +144,7 @@ if train:
     rnn_training.fit_model(
         model=model,
         dataset=dataset_test,
+        n_steps_per_call=1,
     )
 
   print(f'Training took {time.time() - start_time:.2f} seconds.')

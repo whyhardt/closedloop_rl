@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pysindy as ps
 
 sys.path.append('resources')  # add source directoy to path
-from resources.rnn import RLRNN
+from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
 from resources.sindy_utils import create_dataset, make_sindy_data
 from resources.rnn_utils import parameter_file_naming
@@ -52,8 +52,17 @@ dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 
 
 # set up rnn agent and expose q-values to train sindy
 params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
-rnn = RLRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state)
-rnn.load_state_dict(torch.load(params_path, map_location=torch.device('cpu'))['model'])
+state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
+if isinstance(state_dict, dict):
+    rnn = RLRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state)
+    rnn.load_state_dict(state_dict)
+elif isinstance(state_dict, list):
+    print('Loading ensemble model...')
+    model_list = []
+    for state_dict_i in state_dict:
+        model_list.append(RLRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state))
+        model_list[-1].load_state_dict(state_dict_i)
+    rnn = EnsembleRNN(model_list)
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
