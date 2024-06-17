@@ -4,11 +4,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from typing import Any, Dict, Optional
 import time
+import copy
+from typing import Optional, Union
 
-from rnn import RLRNN
-
+# from rnn import BaseRNN, EnsembleRNN
+from resources.rnn import BaseRNN, EnsembleRNN
 
 class DatasetRNN(Dataset):
     def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=torch.device('cpu')):
@@ -54,7 +55,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
 
 
 def train_step(
-    model: RLRNN,
+    model: BaseRNN,
     x: torch.Tensor,
     y: torch.Tensor,
     optimizer: torch.optim.Optimizer,
@@ -84,7 +85,7 @@ def train_step(
 
 
 def batch_train(
-    model: RLRNN,
+    model: BaseRNN,
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
@@ -96,10 +97,6 @@ def batch_train(
     Trains a model for a fixed number of steps.
     """
     
-    # initialize optimizer
-    if optimizer is None:
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    
     # start training
     model.initial_state(batch_size=len(xs))
     n_steps = n_steps_per_call if n_steps_per_call is not None else xs.shape[1]-1
@@ -109,40 +106,36 @@ def batch_train(
     
 
 def fit_model(
-    model: RLRNN,
+    model: Union[BaseRNN, EnsembleRNN],
     dataset: DatasetRNN,
     optimizer: torch.optim.Optimizer = None,
-    rnn_state_dict: Optional[Dict[str, Any]] = None,
-    optimizer_state_dict: Optional[Dict[str, Any]] = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
     n_steps_per_call: int = None,
     batch_size: int = None,
+    n_submodels: int = 1,
+    return_ensemble: bool = False,
 ):
     
-    # check if n_steps_per_call is set otherwise set it to the length of the dataset
-    # if n_steps_per_call == -1:
-    #     n_steps_per_call = dataset.xs.shape[0]
-    # else:
-    #     if n_steps_per_call > dataset.xs.shape[0]:
-    #         print(f'n_steps_per_call is larger than the number of steps in the dataset. Setting n_steps_per_call to {dataset.xs.shape[1]}.')
-    #         n_steps_per_call = dataset.xs.shape[0]
+    # initialize submodels
+    if isinstance(model, BaseRNN):
+        models = [model for _ in range(n_submodels)]
+    elif isinstance(model, EnsembleRNN):
+        models = model
+    else:
+        raise ValueError('Model must be either a BaseRNN (can be trained) or an EnsembleRNN (can only be tested).')
     
     # initialize optimizer
-    if optimizer is None:
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    
-    # load rnn state and optimizer state
-    if rnn_state_dict is not None:
-        model.load_state_dict(rnn_state_dict)
-    if optimizer_state_dict is not None:
-        optimizer.load_state_dict(optimizer_state_dict)
+    optimizers = [torch.optim.Adam(submodel.parameters(), lr=1e-3) for submodel in models]
+    if optimizer is not None:
+        for subopt in optimizers:
+            subopt.load_state_dict(optimizer.state_dict())
     
     # initialize dataloader
     if batch_size is None:
         batch_size = len(dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
+    
     # initialize training
     continue_training = True
     converged = False
@@ -150,31 +143,65 @@ def fit_model(
     n_calls_to_train_model = 0
     
     model_backup = model
-    optimizer_backup = optimizer
+    optimizer_backup = optimizers[0]
     
     len_last_losses = min([20, epochs])
     last_losses = torch.ones((len_last_losses,))
     weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
     sum_weights_losses = torch.sum(weights_losses)
     
+    def average_parameters(models):
+        avg_state_dict = {key: None for key in models[0].state_dict().keys()}
+        for key in avg_state_dict.keys():
+            avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
+        return avg_state_dict
+    
     # start training
     while continue_training:
         try:
-            # get next batch
-            xs, ys = next(iter(dataloader))
-            # train model
             t_start = time.time()
-            model, optimizer, loss = batch_train(
-                model=model,
-                xs=xs,
-                ys=ys,
-                optimizer=optimizer,
-                n_steps_per_call=n_steps_per_call,
-                # loss_fn = categorical_log_likelihood
-            )
+            loss = 0
+            if isinstance(model, EnsembleRNN):
+                Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
+                with torch.no_grad():
+                    # get next batch
+                    xs, ys = next(iter(dataloader))
+                    # train model
+                    _, _, loss = batch_train(
+                        model=models,
+                        xs=xs,
+                        ys=ys,
+                        optimizer=optimizers[0],
+                        n_steps_per_call=n_steps_per_call,
+                    )
+            else:
+                for i in range(n_submodels):
+                    # get next batch
+                    xs, ys = next(iter(dataloader))
+                    # train model
+                    models[i], optimizers[i], loss_i = batch_train(
+                        model=models[i],
+                        xs=xs,
+                        ys=ys,
+                        optimizer=optimizers[i],
+                        n_steps_per_call=n_steps_per_call,
+                        # loss_fn = categorical_log_likelihood
+                    )
+                
+                    loss += loss_i
+                loss /= n_submodels
             
-            model_backup = model
-            optimizer_backup = optimizer
+            if n_submodels > 1 and return_ensemble:
+                model_backup = EnsembleRNN(models)
+                optimizer_backup = optimizers
+            else:
+                # update model and optimizer via averaging over the parameters
+                if n_submodels > 1:
+                    avg_state_dict = average_parameters(models)
+                    for submodel in models:
+                        submodel.load_state_dict(avg_state_dict)
+                model_backup = models[0]
+                optimizer_backup = optimizers[0]
             
             # update training state
             n_calls_to_train_model += 1
@@ -207,5 +234,12 @@ def fit_model(
             continue_training = False
             msg = 'Training interrupted. Continuing with further operations...'
         print(msg)
+        
+    if n_submodels > 1 and return_ensemble:
+        model_backup = EnsembleRNN(models)
+        optimizer_backup = optimizers
+    else:
+        model_backup = models[0]
+        optimizer_backup = optimizers[0]
         
     return model_backup, optimizer_backup, loss

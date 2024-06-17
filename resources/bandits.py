@@ -229,7 +229,8 @@ class AgentNetwork:
       self,
       model: RLRNN,
       n_actions: int = 2,
-      habit: bool = False):
+      habit: bool = False,
+      ):
         """Initialize the agent network.
 
         Args:
@@ -245,37 +246,48 @@ class AgentNetwork:
         self.new_sess()
 
     def new_sess(self):
-        """Reset the network for the beginning of a new session."""
-        state = self._model.initial_state(batch_size=1)
-        self._state = tuple([tensor.numpy() for tensor in state])
-        self._xs = torch.zeros((1, 2))-1
-      
+      """Reset the network for the beginning of a new session."""
+      self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
+      self._xs = torch.zeros((1, 2))-1
+    
+    def set_state(self, state: Dict[str, torch.Tensor]):
+      state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
+      self._state = tuple([tensor.numpy() for tensor in state])
+    
     def get_value(self):
-        """Return the value of the agent's current state."""
-        if self.habit:
-            # habit + value
-            return self._state[-2].reshape(-1) + self._state[-1].reshape(-1)
-        else:
-          # only value
-          return self._state[-1].reshape(-1)
-      
+      """Return the value of the agent's current state."""
+      # if self.habit:
+      #     # habit + value
+      #     return self._state[-2].reshape(-1) + self._state[-1].reshape(-1)
+      # else:
+      #   # only value
+      #   return self._state[-1].reshape(-1)
+      state = [state.numpy() for state in self._model.get_state()]
+      if self.habit:
+          # habit + value
+          value = state[-2][:, 0].reshape(-1) + state[-1][:, 0].reshape(-1)
+      else:
+        # only value
+        value = state[-1][:, 0].reshape(-1)
+      return value
+    
     def get_choice_probs(self) -> np.ndarray:
-        """Predict the choice probabilities as a softmax over output logits."""
-        # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
-        choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
-        return choice_probs
+      """Predict the choice probabilities as a softmax over output logits."""
+      # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
+      choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
+      return choice_probs
 
     def get_choice(self):
-        """Sample choice."""
-        choice_probs = self.get_choice_probs()
-        choice = np.random.choice(self._n_actions, p=choice_probs)
-        return choice
+      """Sample choice."""
+      choice_probs = self.get_choice_probs()
+      choice = np.random.choice(self._n_actions, p=choice_probs)
+      return choice
 
     def update(self, choice: float, reward: float):
-        self._xs = torch.tensor([[choice, reward]])
-        with torch.no_grad():
-          _, new_state = self._model(self._xs, self._model.get_state())
-        self._state = tuple([tensor.numpy() for tensor in new_state])
+      self._xs = torch.tensor([[choice, reward]])
+      with torch.no_grad():
+        self._model(self._xs, self._model.get_state())[-1]
+        self.set_state(self._model.get_state(return_dict=True))
             
     @property
     def q(self):

@@ -1,4 +1,3 @@
-import torch
-
-print(f"CUDA Version: {torch.version.cuda}")
+d = {1: 1, 2: 2, 3: 3}
+print(len(d))
     
