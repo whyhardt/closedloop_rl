@@ -21,8 +21,8 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.03
 polynomial_degree = 2
-regularization = 1e-1
-ensemble = False
+regularization = 1e0
+sindy_ensemble = False
 library_ensemble = False
 library = ps.PolynomialLibrary(degree=polynomial_degree)
 
@@ -33,8 +33,8 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
-perseverance_bias = 0.25
+forget_rate = 0.
+perseverance_bias = 0.
 
 # environment parameters
 non_binary_reward = False
@@ -84,7 +84,7 @@ for i in range(x_train[0].shape[-1]):
             feature_names=feature_names_i,
         ))
         
-        sindy_models[-1].fit(x_train_i, u=control, t=1, multiple_trajectories=True, ensemble=ensemble, library_ensemble=library_ensemble)
+        sindy_models[-1].fit(x_train_i, u=control, t=1, multiple_trajectories=True, ensemble=sindy_ensemble, library_ensemble=library_ensemble)
         sindy_models[-1].print()
         
 # mimic behavior of rnn with sindy
