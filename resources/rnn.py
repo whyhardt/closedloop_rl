@@ -130,7 +130,7 @@ class RLRNN(BaseRNN):
         # define general network parameters
         self.init_value = init_value
         self._n_actions = n_actions
-        self.beta = 3#nn.Parameter(torch.tensor(1., dtype=torch.float32).reshape((1, 1)))
+        self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
@@ -278,7 +278,7 @@ class RLRNN(BaseRNN):
             
             self.prev_action = a
             
-            logits[t, :, :] = logit.clone()
+            logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
             
         # add model dim again and set state
         self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))
@@ -342,10 +342,10 @@ class EnsembleRNN:
     MEAN = 0
     MEDIAN = 1
     
-    def __init__(self, model_list: List[BaseRNN], device=torch.device('cpu'), ensemble_type=0):
+    def __init__(self, model_list: List[BaseRNN], device=torch.device('cpu'), voting_type=0):
         self.device = device
         self.models = model_list
-        self.ensemble_type = ensemble_type
+        self.ensemble_type = voting_type
         self.history = {key: [] for key in self.models[0].history.keys()}
         
     def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
@@ -389,7 +389,7 @@ class EnsembleRNN:
     
     def vote(self, values: torch.Tensor) -> torch.Tensor:
         if self.ensemble_type == self.MEDIAN:
-            return torch.median(values, dim=1)[0]
+            return torch.median(values, dim=1)[0].unsqueeze(1)
         elif self.ensemble_type == self.MEAN:
             return torch.mean(values, dim=1, keepdim=True)
         else:

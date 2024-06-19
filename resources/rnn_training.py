@@ -2,7 +2,7 @@ import sys
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 import time
 import copy
@@ -113,8 +113,10 @@ def fit_model(
     epochs: int = 1,
     n_steps_per_call: int = None,
     batch_size: int = None,
+    sampling_replacement: bool = False,
     n_submodels: int = 1,
     return_ensemble: bool = False,
+    voting_type: int = EnsembleRNN.MEAN,
 ):
     
     # initialize submodels
@@ -134,8 +136,15 @@ def fit_model(
     # initialize dataloader
     if batch_size is None:
         batch_size = len(dataset)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    
+    # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    if not sampling_replacement:
+        # if no ensemble model is used, use normaler dataloader instance with sampling without replacement
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    else:
+        # if ensemble model is used, use random sampler with replacement
+        sampler = RandomSampler(dataset, replacement=True, num_samples=batch_size)
+        dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+        
     # initialize training
     continue_training = True
     converged = False
@@ -192,7 +201,7 @@ def fit_model(
                 loss /= n_submodels
             
             if n_submodels > 1 and return_ensemble:
-                model_backup = EnsembleRNN(models)
+                model_backup = EnsembleRNN(models, voting_type=voting_type)
                 optimizer_backup = optimizers
             else:
                 # update model and optimizer via averaging over the parameters
@@ -236,7 +245,7 @@ def fit_model(
         print(msg)
         
     if n_submodels > 1 and return_ensemble:
-        model_backup = EnsembleRNN(models)
+        model_backup = EnsembleRNN(models, voting_type=voting_type)
         optimizer_backup = optimizers
     else:
         model_backup = models[0]

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Union, Iterable, List
+from typing import Union, Iterable, List, Dict, Tuple
 
 import pysindy as ps
 
@@ -68,54 +68,6 @@ def create_dataset(
   environment: Environment,
   n_trials_per_session: int,
   n_sessions: int,
-  ):
-  
-  keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
-  keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
-  
-  x_train = np.zeros((n_sessions*agent._n_actions, n_trials_per_session-1, len(keys_x)))
-  control = np.zeros((n_sessions*agent._n_actions, n_trials_per_session-1, len(keys_c)))
-  
-  for session in range(0, n_sessions, agent._n_actions):
-    agent.new_sess()
-    
-    for trial in range(n_trials_per_session):
-      # generate trial data
-      choice = agent.get_choice()
-      reward = environment.step(choice)
-      agent.update(choice, reward)
-    
-    # sort the data of one session into the corresponding signals
-    for key in agent._model.history.keys():
-      if len(agent._model.history[key]) > 1:
-        values = np.concatenate(agent._model.history[key][1:])
-        if len(values) > n_trials_per_session-1:
-          values = values[:n_trials_per_session-1]
-        if key in keys_x:
-          # add values of interest of one session as trajectory
-          i_key = keys_x.index(key)
-          for i_action in range(agent._n_actions):
-            x_train[session+i_action, :, i_key] = values[:, i_action]
-        if key in keys_c:
-          # add control signals of one session as corresponding trajectory
-          i_key = keys_c.index(key)
-          if values.shape[-1] == 1:
-            values = np.repeat(values, 2, -1)
-          for i_action in range(agent._n_actions):
-            control[session+i_action, :, i_key] = values[:, i_action]
-  
-  x_train = [x_session for x_session in x_train]
-  control = [c_session for c_session in control]
-  feature_names = keys_x + keys_c
-  
-  return x_train, control, feature_names
-
-
-def create_dataset(
-  agent: AgentNetwork,
-  environment: Environment,
-  n_trials_per_session: int,
-  n_sessions: int,
   normalize: bool = False,
   ):
   
@@ -174,3 +126,58 @@ def create_dataset(
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
   
   return x_train_list, control_list, feature_names
+
+
+def optimize_beta():
+  raise NotImplementedError("not implemented yet")
+
+
+def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
+  msg = '\n'
+  for key in library_setup.keys():
+    if key not in feature_names:
+      msg += f'Key {key} not in feature_names.\n'
+    else:
+      for feature in library_setup[key]:
+        if feature not in feature_names:
+          msg += f'Key {key}: Feature {feature} not in feature_names.\n'
+  if msg != '\n':
+    msg += f'Valid feature names are {feature_names}.\n'
+    print(msg)
+    return False
+  else:
+    if verbose:
+      print('Library setup is valid. All keys and features appear in the provided list of features.')
+    return True
+  
+
+def remove_control_features(control_variables: List[np.ndarray], feature_names_org, feature_names_new) -> List[np.ndarray]:
+  control_new = []
+  for control in control_variables:
+    remaining_control_variables = [control[:, feature_names_org.index(feature)] for feature in feature_names_new]
+    if len(remaining_control_variables) > 0:
+      control_new.append(np.stack(remaining_control_variables, axis=-1))
+    else:
+      control_new = None
+      break
+  return control_new
+
+
+def extract_samples(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+  x_train_relevant = []
+  control_relevant = []
+  x_features = [feature for feature in feature_names if feature.startswith('x')]
+  control_features = [feature for feature in feature_names if feature.startswith('c')]
+  for i, x, c in zip(range(len(x_train)), x_train, control):
+    if relevant_feature in feature_names:
+      i_relevant = control_features.index(relevant_feature)
+      if c[0, i_relevant] == condition:
+        x_train_relevant.append(x)
+        control_relevant.append(c)
+        if remove_relevant_feature:
+          control_relevant[-1] = np.delete(control_relevant[-1], i_relevant, axis=-1)
+  
+  if remove_relevant_feature:
+    control_features.remove(relevant_feature)
+    
+  return x_train_relevant, control_relevant, x_features+control_features

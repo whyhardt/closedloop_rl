@@ -25,18 +25,26 @@ use_lstm = False
 path_data = 'data/dataset_train.pkl'
 params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapted to the ground truth model)
 
-# rnn and training parameters
+# rnn parameters
 hidden_size = 4
 last_output = False
 last_state = False
 use_habit = False
+sindy_feature_list = ['xQf','xQr','ca','ca[k-1]', 'cr']
+if use_habit:
+  sindy_feature_list += ['xHf']
+# ensemble parameters
+sampling_replacement = True
+n_submodels = 1
 ensemble = False
-epochs = 10
+voting_type = rnn.EnsembleRNN.MEDIAN
+
+# training parameters
+epochs = 100
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
-n_submodels = 1
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -70,7 +78,7 @@ if not data:
   dataset_test, experiment_list_test = bandits.create_dataset(
       agent=agent,
       environment=environment,
-      n_trials_per_session=n_trials_per_session,
+      n_trials_per_session=200,#n_trials_per_session,
       n_sessions=1024,
       device=device)
   
@@ -109,6 +117,7 @@ else:
       last_state=last_state,
       use_habit=use_habit,
       device=device,
+      list_sindy_signals=sindy_feature_list,
       ).to(device)
 
 optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -135,6 +144,8 @@ if train:
       batch_size=batch_size,
       n_submodels=n_submodels,
       return_ensemble=ensemble,
+      voting_type=voting_type,
+      sampling_replacement=sampling_replacement,
   )
   
   # validate model
@@ -196,7 +207,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 

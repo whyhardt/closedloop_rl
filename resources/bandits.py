@@ -164,9 +164,11 @@ class AgentSindy:
   def __init__(
       self,
       n_actions: int=2,
+      beta: float=1.,
       ):
 
     self._q_init = 0.5
+    self._beta = beta
     self._n_actions = n_actions
     self._prev_choice = None
         
@@ -203,7 +205,7 @@ class AgentSindy:
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    choice_probs = np.exp(self._q) / np.sum(np.exp(self._q))
+    choice_probs = np.exp(self._q*self._beta) / np.sum(np.exp(self._q*self._beta))
     return choice_probs
 
   def get_choice(self) -> int:
