@@ -11,7 +11,7 @@ import pysindy as ps
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, remove_control_features, extract_samples
+from resources.sindy_utils import create_dataset, check_library_setup, remove_control_features, extract_samples, optimize_beta
 from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
@@ -139,15 +139,12 @@ def update_rule_sindy(q, h, choice, prev_choice, reward):
         h = sindy_models['xH'].simulate(h, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
     return q, h
 
-# get trained beta from RNN
-if isinstance(rnn, RLRNN):
-    beta_rnn = rnn.beta.item()
-elif isinstance(rnn, EnsembleRNN):
-    beta_rnn = rnn.vote(torch.tensor([model_i.beta for model_i in rnn]).reshape(1, -1), rnn.voting_type).item()
-print(f'Trained beta from RNN: {np.round(beta_rnn, 2)}')
-
-agent_sindy = AgentSindy(n_actions, beta_rnn)
+# initialize sindy agent and set beta
+agent_sindy = AgentSindy(n_actions)
 agent_sindy.set_update_rule(update_rule_sindy)
+beta = optimize_beta(experiment_list_test[0], agent_rnn, agent_sindy, plot=False)
+agent_sindy._beta = beta
+print(f'Optimized SINDy-agent beta: {beta}')
 
 # test sindy agent
 dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)

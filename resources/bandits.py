@@ -205,7 +205,8 @@ class AgentSindy:
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    choice_probs = np.exp(self._q*self._beta) / np.sum(np.exp(self._q*self._beta))
+    q = self.q * self._beta
+    choice_probs = np.exp(q) / np.sum(np.exp(q))
     return choice_probs
 
   def get_choice(self) -> int:
@@ -217,7 +218,6 @@ class AgentSindy:
   @property
   def q(self):
     return self._q.copy()
-    
 
 
 class AgentNetwork:

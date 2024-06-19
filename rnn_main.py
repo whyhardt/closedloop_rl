@@ -33,12 +33,12 @@ use_habit = False
 
 # ensemble parameters
 sampling_replacement = True
-n_submodels = 20
+n_submodels = 10
 ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 10
+epochs = 1000
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
@@ -66,7 +66,7 @@ if not data:
   sigma = .1  #@param
 
   # dataset parameters
-  n_trials_per_session = 200  #@param
+  n_trials_per_session = 20  #@param
   n_sessions = 64  #@param
 
   # setup
@@ -163,11 +163,11 @@ if train:
     )
 
   # print adjusted beta parameter
-  if isinstance(model, rnn.RLRNN):
-    print(f'beta: {np.round(model.beta.item(), 2)}')
-  elif isinstance(model, rnn.EnsembleRNN):
-    beta = torch.tensor([model_i.beta for model_i in model]).reshape(1, -1)
-    print(f'beta: {np.round(model.vote(beta, voting_type).item(), 2)}')
+  # if isinstance(model, rnn.RLRNN):
+  #   print(f'beta: {np.round(model.beta.item(), 2)}')
+  # elif isinstance(model, rnn.EnsembleRNN):
+  #   beta = torch.tensor([model_i.beta for model_i in model]).reshape(1, -1)
+  #   print(f'beta: {np.round(model.vote(beta, voting_type).item(), 2)}')
   
   print(f'Training took {time.time() - start_time:.2f} seconds.')
   

@@ -130,7 +130,7 @@ class RLRNN(BaseRNN):
         # define general network parameters
         self.init_value = init_value
         self._n_actions = n_actions
-        self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
+        # self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
@@ -278,7 +278,8 @@ class RLRNN(BaseRNN):
             
             self.prev_action = a
             
-            logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
+            logits[t, :, :] = logit.clone()            
+            # logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
             
         # add model dim again and set state
         self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))

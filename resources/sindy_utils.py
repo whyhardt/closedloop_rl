@@ -128,8 +128,45 @@ def create_dataset(
   return x_train_list, control_list, feature_names
 
 
-def optimize_beta():
-  raise NotImplementedError("not implemented yet")
+def optimize_beta(experiment, agent: AgentNetwork, agent_sindy: AgentSindy, plot=False):
+  # fit beta parameter of softmax by fitting on choice probability of the RNN by simple grid search
+
+  # number of observed points
+  n_points = 100
+
+  # get choice probabilities of the RNN
+  _, choice_probs_rnn = get_update_dynamics(experiment, agent)
+
+  # set prior for beta parameter; x_max seems to be a good starting point
+  # beta_range = np.linspace(x_max-1, x_max+1, n_points)
+  beta_range = np.linspace(1, 10, n_points)
+
+  # get choice probabilities of the SINDy agent for each beta in beta_range
+  choice_probs_sindy = np.zeros((len(beta_range), len(choice_probs_rnn), agent._n_actions))
+  for i, beta in enumerate(beta_range):
+      agent_sindy._beta = beta
+      _, choice_probs_sindy_beta = get_update_dynamics(experiment, agent_sindy)
+      
+      # add choice probabilities to choice_probs_sindy
+      choice_probs_sindy[i, :, :] = choice_probs_sindy_beta
+      
+  # get best beta value by minimizing the error between choice probabilities of the RNN and the SINDy agent
+  errors = np.zeros(len(beta_range))
+  for i in range(len(beta_range)):
+      errors[i] = np.sum(np.abs(choice_probs_rnn - choice_probs_sindy[i]))
+
+  # get right beta value
+  beta = beta_range[np.argmin(errors)]
+
+  if plot:
+    # plot error plot with best beta value in title
+    plt.plot(beta_range, errors)
+    plt.title(f'Error plot with best beta={beta}')
+    plt.xlabel('Beta')
+    plt.ylabel('MAE')
+    plt.show()
+
+  return beta
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
