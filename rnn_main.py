@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
+#test
+
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
