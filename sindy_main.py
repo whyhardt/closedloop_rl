@@ -169,7 +169,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 

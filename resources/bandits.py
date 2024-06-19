@@ -87,10 +87,10 @@ class AgentQ:
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = self._beta * self._q
+    decision_variable = self._q# * self._beta
     if self._prev_choice is not None:
       decision_variable[self._prev_choice] += self._perseverance_bias
-    choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
+    choice_probs = np.exp(decision_variable*self._beta) / np.sum(np.exp(decision_variable*self._beta))
     return choice_probs
 
   def get_choice(self) -> int:
@@ -124,7 +124,7 @@ class AgentQ:
     # For agent = AgentQ(...), you can view the q values with agent.q; however,
     # you will not be able to modify them directly because you will be viewing
     # a copy.
-    q = self._q.copy() * self._beta
+    q = self._q.copy()# * self._beta
     if self._prev_choice is not None:
       q[self._prev_choice] += self._perseverance_bias
     return q
