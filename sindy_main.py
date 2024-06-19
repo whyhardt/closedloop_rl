@@ -49,7 +49,13 @@ last_state = False
 use_habit = False
 use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
-sindy_feature_list = ['xQf','xQr','ca','ca[k-1]', 'cr']
+
+# tracked variables in the RNN
+x_train_list = ['xQf','xQr']
+control_list = ['ca','ca[k-1]', 'cr']
+if use_habit:
+  x_train_list += ['xH']
+sindy_feature_list = x_train_list + control_list
 
 # data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
 # key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
@@ -64,8 +70,9 @@ datafilter_setup = {
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    # 'xH': ['ca[k-1]'],
 }
+if use_habit:
+    library_setup['xH'] = ['ca[k-1]']
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
 
@@ -128,11 +135,18 @@ def update_rule_sindy(q, h, choice, prev_choice, reward):
         # reward-based update
         q = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
     # add habit (perseverance bias)
-    # if prev_choice != np.nan:
-    #     h = sindy_models['xH'].simulate(h, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
+    if use_habit and prev_choice != np.nan:
+        h = sindy_models['xH'].simulate(h, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
     return q, h
 
-agent_sindy = AgentSindy(n_actions, rnn.beta.item())
+# get trained beta from RNN
+if isinstance(rnn, RLRNN):
+    beta_rnn = rnn.beta.item()
+elif isinstance(rnn, EnsembleRNN):
+    beta_rnn = rnn.vote(torch.tensor([model_i.beta for model_i in rnn]).reshape(1, -1), rnn.voting_type).item()
+print(f'Trained beta from RNN: {np.round(beta_rnn, 2)}')
+
+agent_sindy = AgentSindy(n_actions, beta_rnn)
 agent_sindy.set_update_rule(update_rule_sindy)
 
 # test sindy agent
