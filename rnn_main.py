@@ -30,14 +30,19 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_habit = False
-sindy_feature_list = ['xQf','xQr','ca','ca[k-1]', 'cr']
-if use_habit:
-  sindy_feature_list += ['xHf']
+
 # ensemble parameters
 sampling_replacement = True
 n_submodels = 1
 ensemble = False
-voting_type = rnn.EnsembleRNN.MEDIAN
+voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
+
+# tracked variables in the RNN
+x_train_list = ['xQf','xQr']
+control_list = ['ca','ca[k-1]', 'cr']
+if use_habit:
+  x_train_list += ['xHf']
+sindy_feature_list = x_train_list + control_list
 
 # training parameters
 epochs = 100
