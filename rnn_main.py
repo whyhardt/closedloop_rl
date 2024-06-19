@@ -29,7 +29,7 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = True
+use_habit = False
 
 # ensemble parameters
 sampling_replacement = True
