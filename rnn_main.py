@@ -58,7 +58,7 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0. #@param
+  forget_rate = 0.1 #@param
   perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param

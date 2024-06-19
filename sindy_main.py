@@ -34,7 +34,7 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.
+forget_rate = 0.1
 perseverance_bias = 0.
 
 # environment parameters
