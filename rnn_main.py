@@ -29,26 +29,26 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = True
+use_habit = False
 
 # ensemble parameters
 sampling_replacement = True
-n_submodels = 10
+n_submodels = 20
 ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 10
+epochs = 100
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr']
+x_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
-if use_habit:
-  x_train_list += ['xH']
+# if use_habit:
+#   x_train_list += ['xH']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

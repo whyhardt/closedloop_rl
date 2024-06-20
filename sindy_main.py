@@ -46,15 +46,13 @@ sigma = .1
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = True
+use_habit = False
 use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr']
+x_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
-if use_habit:
-  x_train_list += ['xH']
 sindy_feature_list = x_train_list + control_list
 
 # data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
@@ -64,15 +62,16 @@ sindy_feature_list = x_train_list + control_list
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
+    'xH': ['ca[k-1]', 1]
 }
+
 # library setup aka which terms are allowed as control inputs in each SINDy model
 # key is the SINDy submodel name, value is a list of
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
+    'xH': []
 }
-if use_habit:
-    library_setup['xH'] = ['ca[k-1]']
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
 
@@ -126,17 +125,16 @@ for i in range(x_train[0].shape[-1]):
     sindy_models[feature_names[i]].print()
     
 # mimic behavior of rnn with sindy
-def update_rule_sindy(q, h, choice, prev_choice, reward):
+def update_rule_sindy(q, choice, prev_choice, reward):
     if choice == 0:
-        # blind update
-        q = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
+        # blind update for non-chosen action
+        q_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
     elif choice == 1:
-        # reward-based update
-        q = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-    # add habit (perseverance bias)
-    if use_habit and prev_choice != np.nan:
-        h = sindy_models['xH'].simulate(h, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
-    return q, h
+        # reward-based update for chosen action
+        q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
+    if prev_choice == 1:
+        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
+    return q_update
 
 # initialize sindy agent and set beta
 agent_sindy = AgentSindy(n_actions)

@@ -145,16 +145,15 @@ class RLRNN(BaseRNN):
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
         
-        # value network
-        self.habit_update = nn.Linear(n_actions, n_actions)
+        # habit subnetwork
+        self.habit_update = nn.Linear(1, 1)
+        
+        # reward-blind subnetwork
         self.reward_blind_update = nn.Linear(n_actions-1, n_actions-1)
+        
+        # reward-based subnetwork
         self.hidden_layer_value = nn.Linear(input_size, hidden_size)
         self.reward_based_update = nn.Linear(hidden_size, 1)
-        
-        # habit network
-        self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
-        # self.habit_layer = nn.Linear(hidden_size, n_actions)
-        self.habit_layer = nn.Linear(n_actions, n_actions)
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -169,13 +168,17 @@ class RLRNN(BaseRNN):
             torch.Tensor: updated Q-Values
         """
 
-        # first reward-blind mechanism (forgetting) for all elements
+        # 1. reward-blind mechanism (forgetting) for all elements
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
         blind_update = self.reward_blind_update(not_chosen_value)
         self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
         
-        # now reward-based update for the chosen element        
-        # get the value of the chosen action
+        # 2. perseverance mechanism for previously chosen element
+        prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
+        habit_update = self.habit_update(prev_chosen_value)
+        self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
+        
+        # 3. reward-based update for the chosen element        
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
@@ -189,39 +192,9 @@ class RLRNN(BaseRNN):
         reward_update = self.reward_based_update(next_state)
         self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
         
-        next_value = action * reward_update + (1-action) * blind_update        
-        
-        # self.append_timestep_sample('cQ', value, next_value)
-        
-        return next_value, next_state
-    
-    def habit_network(self, state, habit, prev_action):
-        """this method computes the action-based updates for the Q-Values without considering the reward
-        
-        Args:
-            state (torch.Tensor): last hidden state
-            habit (torch.Tensor): last habit
-            action (torch.Tensor): chosen action
+        next_value = action * reward_update + (1-action) * blind_update + self.prev_action * habit_update  
 
-        Returns:
-            torch.Tensor: updated habit
-        """
-        
-        inputs = prev_action
-        if self._ho:
-            inputs = torch.cat([inputs, habit], dim=-1)
-        if self._hs:
-            inputs = torch.cat([inputs, state], dim=-1)
-        
-        # next_state = self.tanh(self.hidden_layer_habit(inputs))
-        # next_habit = self.habit_layer(next_state)
-        next_state = state
-        next_habit = self.habit_layer(inputs)
-        
-        # add extracted values
-        self.append_timestep_sample('xH', habit, next_habit)
-        
-        return next_habit, next_state
+        return next_value, next_state
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
@@ -271,14 +244,10 @@ class RLRNN(BaseRNN):
             
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
-            logit = value
-            if self._wh:
-                habit, h_state = self.habit_network(h_state, habit, self.prev_action)
-                logit += habit
             
             self.prev_action = a
             
-            logits[t, :, :] = logit.clone()            
+            logits[t, :, :] = value.clone()            
             # logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
             
         # add model dim again and set state
