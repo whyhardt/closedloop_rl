@@ -291,9 +291,16 @@ class RLRNN(BaseRNN):
     
     
 class LSTM(BaseRNN):
-    def __init__(self, n_actions, hidden_size, init_value=0.5):
+    def __init__(
+        self, 
+        n_actions, 
+        hidden_size, 
+        init_value=0.5,
+        device=torch.device('cpu'),
+        ):
         super(LSTM, self).__init__(n_actions, hidden_size, init_value)
         
+        self.device = device
         self.init_value = init_value
         self._n_actions = n_actions
         self._hidden_size = hidden_size
@@ -324,16 +331,21 @@ class LSTM(BaseRNN):
             self.set_state(*prev_state)
         else:
             self.initial_state(batch_size=inputs.shape[1], device=self.device)
-        c0, h0, _, _ = self.get_state()
+        c0, h0, _, value = self.get_state()
         
         # forward pass
-        lstm_out, (c, h) = self.lstm(torch.concat((action, reward), dim=-1), (c0.unsqueeze(0), h0.unsqueeze(0)))
+        lstm_out, (c, h) = self.lstm(torch.concat((action, reward), dim=-1), (c0.swapaxes(0, 1), h0.swapaxes(0, 1)))
         logits = self.output_layer(lstm_out)
-        
-        self.set_state(c.squeeze(0), h.squeeze(0), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(self.device), logits)
         
         if batch_first:
             logits = logits.permute(1, 0, 2)
+        
+        # add timestep samples
+        self.append_timestep_sample('ca', action)
+        self.append_timestep_sample('cr', reward)
+        self.append_timestep_sample('xQr', value, logits[:, -1].view(-1, 1, self._n_actions))
+        
+        self.set_state(c.swapaxes(0, 1), h.swapaxes(0, 1), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(self.device), logits[:, -1].view(-1, 1, self._n_actions))
         
         return logits, self.get_state()
     

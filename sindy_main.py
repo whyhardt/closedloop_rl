@@ -34,8 +34,8 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
-perseverance_bias = 0.
+forget_rate = 0.
+perseverance_bias = 0.25
 
 # environment parameters
 non_binary_reward = False
@@ -46,7 +46,7 @@ sigma = .1
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
+use_habit = True
 use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
@@ -102,7 +102,7 @@ x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trial
 # train one sindy model per x_train variable instead of one sindy model for all
 sindy_models = {key: None for key in library_setup.keys()}
 for i in range(x_train[0].shape[-1]):
-    print('\n')
+    print(f'\nSINDy model for {feature_names[i]}:')
     x_train_i = [x_sample[:, i].reshape(-1, 1) for x_sample in x_train]
     feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
     if feature_names[i] in datafilter_setup:
@@ -123,7 +123,6 @@ for i in range(x_train[0].shape[-1]):
     )
     
     sindy_models[feature_names[i]].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True, ensemble=sindy_ensemble, library_ensemble=library_ensemble)
-    print(f'\nSINDy model for {feature_names[i]}:')
     sindy_models[feature_names[i]].print()
     
 # mimic behavior of rnn with sindy

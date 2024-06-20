@@ -65,14 +65,21 @@ def train_step(
     
     # predict y
     model.initial_state(batch_size=len(x))
-    for i in range(0, x.shape[1]-n_steps, n_steps):
-        y_pred, _ = model(x[:, i:i+n_steps], model.get_state(detach=True), batch_first=True)
-        
-        y_target = y[:, i:i+n_steps]
+    for i in range(0, x.shape[1]-n_steps, 1):
+        # get detached state in the beginning to avoid backpropagation errors
+        state = model.get_state(detach=True)
+        y_pred = []
+        y_target = []
+        for j in range(n_steps):
+            x_i = x[:, i+j]
+            y_i = y[:, i+j]
+            y_pred.append(model(x_i, state, batch_first=True)[0][:, 0])
+            y_target.append(y_i)
+            state = model.get_state()
         
         loss = 0
         for t in range(n_steps):
-            loss += loss_fn(y_pred[:, t], y_target[:, t])
+            loss += loss_fn(y_pred[t], y_target[t])
         loss /= n_steps
         
         if loss.requires_grad:

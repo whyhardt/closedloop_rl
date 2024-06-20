@@ -29,7 +29,7 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
+use_habit = True
 
 # ensemble parameters
 sampling_replacement = True
@@ -38,7 +38,7 @@ ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 1000
+epochs = 10
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
@@ -58,15 +58,15 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0.1 #@param
-  perseverance_bias = 0. #@param
+  forget_rate = 0. #@param
+  perseverance_bias = 0.25 #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
   sigma = .1  #@param
 
   # dataset parameters
-  n_trials_per_session = 20  #@param
+  n_trials_per_session = 200  #@param
   n_sessions = 64  #@param
 
   # setup
