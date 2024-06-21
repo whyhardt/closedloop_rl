@@ -38,7 +38,7 @@ ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 100
+epochs = 5
 n_steps_per_call = 10  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
@@ -59,7 +59,7 @@ if not data:
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
   forget_rate = 0. #@param
-  perseverance_bias = 0.25 #@param
+  perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -67,7 +67,7 @@ if not data:
 
   # dataset parameters
   n_trials_per_session = 200  #@param
-  n_sessions = 64  #@param
+  n_sessions = 256  #@param
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)
@@ -78,13 +78,15 @@ if not data:
       environment=environment,
       n_trials_per_session=n_trials_per_session,
       n_sessions=n_sessions,
+      sequence_length=n_steps_per_call,
       device=device)
 
   dataset_test, experiment_list_test = bandits.create_dataset(
       agent=agent,
       environment=environment,
-      n_trials_per_session=200,#n_trials_per_session,
+      n_trials_per_session=200,
       n_sessions=1024,
+      sequence_length=n_steps_per_call,
       device=device)
   
   params_path = rnn_utils.parameter_file_naming(

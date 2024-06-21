@@ -1,7 +1,5 @@
 import numpy as np
-from typing import Union, Iterable, List, Dict, Tuple
-
-import pysindy as ps
+from typing import Iterable, List, Dict, Tuple
 
 from bandits import *
 
@@ -69,6 +67,7 @@ def create_dataset(
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
+  shuffle: bool = False,
   ):
   
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
@@ -124,6 +123,11 @@ def create_dataset(
   for i in range(len(control[keys_c[0]])):
     x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
+  
+  if shuffle:
+    shuffle_idx = np.random.permutation(len(x_train_list))
+    x_train_list = [x_train_list[i] for i in shuffle_idx]
+    control_list = [control_list[i] for i in shuffle_idx]
   
   return x_train_list, control_list, feature_names
 

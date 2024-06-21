@@ -16,12 +16,9 @@ from resources.rnn_utils import parameter_file_naming
 
 warnings.filterwarnings("ignore")
 
-# Implementing ensemble rnn did not help in terms of interchangable value updates at different stages 
-# TODO: limit the SINDy library to only the relevant variables actually used in the RNN at the respective stage
-
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 1
+polynomial_degree = 2
 regularization = 1e0
 sindy_ensemble = False
 library_ensemble = False
@@ -96,7 +93,7 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
-x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True)
+x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=True)
 
 # train one sindy model per x_train variable instead of one sindy model for all
 sindy_models = {key: None for key in library_setup.keys()}
@@ -177,7 +174,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 

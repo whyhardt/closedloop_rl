@@ -12,7 +12,15 @@ from typing import Optional, Union
 from resources.rnn import BaseRNN, EnsembleRNN
 
 class DatasetRNN(Dataset):
-    def __init__(self, xs: torch.Tensor, ys: torch.Tensor, batch_size: Optional[int] = None, device=torch.device('cpu')):
+    def __init__(
+        self, 
+        xs: torch.Tensor, 
+        ys: torch.Tensor, 
+        sequence_length: int = None,
+        stride: int = 1,
+        batch_size: Optional[int] = None, 
+        device=torch.device('cpu'),
+        ):
         """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
         Actions can be either one-hot encoded or indexes.
 
@@ -32,7 +40,25 @@ class DatasetRNN(Dataset):
         self.xs = xs.to(device)
         self.ys = ys.to(device)
         self.batch_size = batch_size if batch_size is not None else len(xs)
-       
+        self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
+        self.stride = stride
+        
+        self.set_sequences()
+    
+    def set_sequences(self):
+        # sets sequences of length sequence_length with specified stride from the dataset
+        xs_sequences = []
+        ys_sequences = []
+        for i in range(0, self.xs.shape[1]-self.sequence_length, self.stride):
+            xs_sequences.append(self.xs[:, i:i+self.sequence_length, :])
+            ys_sequences.append(self.ys[:, i:i+self.sequence_length, :])
+        self.xs = torch.cat(xs_sequences, dim=0)
+        self.ys = torch.cat(ys_sequences, dim=0)
+        
+        if len(self.xs.shape) == 2:
+            self.xs = self.xs.unsqueeze(1)
+            self.ys = self.ys.unsqueeze(1)
+    
     def __len__(self):
         return self.xs.shape[0]
     
