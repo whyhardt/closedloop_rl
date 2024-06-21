@@ -18,7 +18,6 @@ class DatasetRNN(Dataset):
         ys: torch.Tensor, 
         sequence_length: int = None,
         stride: int = 1,
-        batch_size: Optional[int] = None, 
         device=torch.device('cpu'),
         ):
         """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
@@ -36,20 +35,22 @@ class DatasetRNN(Dataset):
             xs = torch.tensor(xs, dtype=torch.float32)
         if not isinstance(ys, torch.Tensor):
             ys = torch.tensor(ys, dtype=torch.float32)
-            
-        self.xs = xs.to(device)
-        self.ys = ys.to(device)
-        self.batch_size = batch_size if batch_size is not None else len(xs)
+        
+        self.xs = xs
+        self.ys = ys
         self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
         self.stride = stride
         
         self.set_sequences()
-    
+        
+        self.xs = xs.to(device)
+        self.ys = ys.to(device)
+        
     def set_sequences(self):
         # sets sequences of length sequence_length with specified stride from the dataset
         xs_sequences = []
         ys_sequences = []
-        for i in range(0, self.xs.shape[1]-self.sequence_length, self.stride):
+        for i in range(0, max(1, self.xs.shape[1]-self.sequence_length), self.stride):
             xs_sequences.append(self.xs[:, i:i+self.sequence_length, :])
             ys_sequences.append(self.ys[:, i:i+self.sequence_length, :])
         self.xs = torch.cat(xs_sequences, dim=0)
@@ -78,44 +79,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
         masked_log_liks = torch.multiply(log_liks, mask)
         loss = -torch.nansum(masked_log_liks)/torch.prod(torch.tensor(masked_log_liks.shape[:-1]))
         return loss
-
-
-def train_step(
-    model: BaseRNN,
-    x: torch.Tensor,
-    y: torch.Tensor,
-    optimizer: torch.optim.Optimizer,
-    loss_fn: nn.modules.loss._Loss,
-    n_steps: int = 10,
-    ):
     
-    # predict y
-    model.initial_state(batch_size=len(x))
-    for i in range(0, x.shape[1]-n_steps, 1):
-        # get detached state in the beginning to avoid backpropagation errors
-        state = model.get_state(detach=True)
-        y_pred = []
-        y_target = []
-        for j in range(n_steps):
-            x_i = x[:, i+j]
-            y_i = y[:, i+j]
-            y_pred.append(model(x_i, state, batch_first=True)[0][:, 0])
-            y_target.append(y_i)
-            state = model.get_state()
-        
-        loss = 0
-        for t in range(n_steps):
-            loss += loss_fn(y_pred[t], y_target[t])
-        loss /= n_steps
-        
-        if loss.requires_grad:
-            # backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-    
-    return model, optimizer, loss
-
 
 def batch_train(
     model: BaseRNN,
@@ -123,18 +87,27 @@ def batch_train(
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
-    n_steps_per_call: int = None,
     ):
 
     """
-    Trains a model for a fixed number of steps.
+    Trains a model with the given batch.
     """
     
-    # start training
+    # predict y
     model.initial_state(batch_size=len(xs))
-    n_steps = n_steps_per_call if n_steps_per_call is not None else xs.shape[1]-1
-    model, optimizer, loss = train_step(model, xs, ys, optimizer, loss_fn, n_steps)
-
+    y_pred = model(xs, model.get_state(detach=True), batch_first=True)[0]
+    
+    loss = 0
+    for t in range(xs.shape[1]):
+        loss += loss_fn(y_pred[:, t], ys[:, t])
+    loss /= xs.shape[1]
+    
+    if loss.requires_grad:
+        # backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    
     return model, optimizer, loss
     
 
@@ -144,7 +117,6 @@ def fit_model(
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
-    n_steps_per_call: int = None,
     batch_size: int = None,
     sampling_replacement: bool = False,
     n_submodels: int = 1,
@@ -214,7 +186,6 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[0],
-                        n_steps_per_call=n_steps_per_call,
                     )
             else:
                 for i in range(n_submodels):
@@ -226,7 +197,6 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[i],
-                        n_steps_per_call=n_steps_per_call,
                         # loss_fn = categorical_log_likelihood
                     )
                 

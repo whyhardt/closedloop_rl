@@ -32,15 +32,15 @@ last_state = False
 use_habit = False
 
 # ensemble parameters
-sampling_replacement = True
-n_submodels = 20
+sampling_replacement = False
+n_submodels = 1
 ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 5
+epochs = 1000
 n_steps_per_call = 10  # None for full sequence
-batch_size = None  # None for one batch per epoch
+batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -86,7 +86,7 @@ if not data:
       environment=environment,
       n_trials_per_session=200,
       n_sessions=1024,
-      sequence_length=n_steps_per_call,
+      sequence_length=n_trials_per_session,
       device=device)
   
   params_path = rnn_utils.parameter_file_naming(
@@ -147,7 +147,6 @@ if train:
       optimizer=optimizer_rnn,
       convergence_threshold=convergence_threshold,
       epochs=epochs,
-      n_steps_per_call = n_steps_per_call,
       batch_size=batch_size,
       n_submodels=n_submodels,
       return_ensemble=ensemble,
@@ -161,7 +160,6 @@ if train:
     rnn_training.fit_model(
         model=model,
         dataset=dataset_test,
-        n_steps_per_call=1,
     )
 
   # print adjusted beta parameter

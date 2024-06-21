@@ -32,7 +32,7 @@ n_sessions = 10
 gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
-perseverance_bias = 0.25
+perseverance_bias = 0.
 
 # environment parameters
 non_binary_reward = False
@@ -59,7 +59,7 @@ sindy_feature_list = x_train_list + control_list
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    # 'xH': ['ca[k-1]', 1]
 }
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -67,7 +67,7 @@ datafilter_setup = {
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    'xH': []
+    'xH': ['ca[k-1]']
 }
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
@@ -93,7 +93,7 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
 # create dataset for sindy training
-x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=True)
+x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
 
 # train one sindy model per x_train variable instead of one sindy model for all
 sindy_models = {key: None for key in library_setup.keys()}
@@ -129,9 +129,9 @@ def update_rule_sindy(q, choice, prev_choice, reward):
     elif choice == 1:
         # reward-based update for chosen action
         q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-    if prev_choice == 1:
-        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
-    return q_update
+    # if prev_choice == 1:
+    habit = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
+    return q_update+habit
 
 # initialize sindy agent and set beta
 agent_sindy = AgentSindy(n_actions)

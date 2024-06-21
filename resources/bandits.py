@@ -496,7 +496,6 @@ def create_dataset(
   n_sessions: int,
   sequence_length: int = None,
   stride: int = 1,
-  batch_size: int = None,
   device=torch.device('cpu'),
   ):
   """Generates a behavioral dataset from a given agent and environment.
@@ -536,7 +535,6 @@ def create_dataset(
     ys=np.swapaxes(ys, 0, 1),
     sequence_length=sequence_length,
     stride=stride,
-    batch_size=batch_size, 
     device=device)
   return dataset, experiment_list
 
