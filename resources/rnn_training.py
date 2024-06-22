@@ -145,6 +145,7 @@ def fit_model(
         sampler = RandomSampler(dataset, replacement=True, num_samples=batch_size)
         dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
         
+
     # initialize training
     continue_training = True
     converged = False
@@ -158,7 +159,10 @@ def fit_model(
     last_losses = torch.ones((len_last_losses,))
     weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
     sum_weights_losses = torch.sum(weights_losses)
+
+
     
+
     def average_parameters(models):
         avg_state_dict = {key: None for key in models[0].state_dict().keys()}
         for key in avg_state_dict.keys():
@@ -170,6 +174,10 @@ def fit_model(
         try:
             t_start = time.time()
             loss = 0
+
+            # create loss list (madd)
+            #losses_over_time =[]
+
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
                 with torch.no_grad():
@@ -231,7 +239,12 @@ def fit_model(
                 converged = convergence_value < convergence_threshold
                 continue_training = not converged and n_calls_to_train_model < epochs
             
-            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e}'
+            # change back loss
+            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss11111: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e}'
+            
+            # add to list (madd)
+            #losses_over_time = losses_over_time.append(float(loss))
+
             
             if converged:
                 msg += '\nModel converged!'
