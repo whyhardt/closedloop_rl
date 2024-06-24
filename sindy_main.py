@@ -130,7 +130,7 @@ def update_rule_sindy(q, choice, prev_choice, reward):
         # reward-based update for chosen action
         q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
     # if prev_choice == 1:
-    habit = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
+    habit = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q
     return q_update+habit
 
 # initialize sindy agent and set beta
