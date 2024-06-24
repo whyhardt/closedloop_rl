@@ -11,8 +11,9 @@ import pysindy as ps
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, remove_control_features, extract_samples, optimize_beta
+from resources.sindy_utils import create_dataset, check_library_setup, optimize_beta, constructor_update_rule_sindy
 from resources.rnn_utils import parameter_file_naming
+from resources.sindy_training import fit_model, setup_sindy_agent
 
 warnings.filterwarnings("ignore")
 
@@ -22,7 +23,7 @@ polynomial_degree = 2
 regularization = 1e0
 sindy_ensemble = False
 library_ensemble = False
-library = ps.PolynomialLibrary(degree=polynomial_degree)
+library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=True)
 
 # training dataset parameters
 n_trials_per_session = 200
@@ -59,7 +60,7 @@ sindy_feature_list = x_train_list + control_list
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
-    # 'xH': ['ca[k-1]', 1]
+    'xH': ['ca[k-1]', 1]
 }
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -67,7 +68,7 @@ datafilter_setup = {
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    'xH': ['ca[k-1]']
+    'xH': []
 }
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
@@ -92,58 +93,17 @@ elif isinstance(state_dict, list):
     rnn = EnsembleRNN(model_list, voting_type=voting_type)
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
 
-# create dataset for sindy training
+# create dataset for sindy training, fit sindy, set up sindy agent
 x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
+sindy_models = fit_model(x_train, control, sindy_feature_list, library, library_setup, datafilter_setup, True, False)
+update_rule_sindy = constructor_update_rule_sindy(sindy_models)
+agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn)
+# dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
-# train one sindy model per x_train variable instead of one sindy model for all
-sindy_models = {key: None for key in library_setup.keys()}
-for i in range(x_train[0].shape[-1]):
-    print(f'\nSINDy model for {feature_names[i]}:')
-    x_train_i = [x_sample[:, i].reshape(-1, 1) for x_sample in x_train]
-    feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
-    if feature_names[i] in datafilter_setup:
-        x_train_i, control_i, feature_names_i = extract_samples(x_train_i, control, feature_names_i, datafilter_setup[feature_names[i]][0], datafilter_setup[feature_names[i]][1])
-    else:
-        control_i = control
-    control_i = remove_control_features(control_i, feature_names_i[1:], library_setup[feature_names[i]])
-    feature_names_i = [feature_names[i]] + library_setup[feature_names[i]]
-    if control_i is None:
-        control_i = [np.zeros_like(x_train_i[0]) for _ in range(len(x_train_i))]
-        feature_names_i = feature_names_i + ['u']
-    # feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
-    sindy_models[feature_names[i]] = ps.SINDy(
-        optimizer=ps.STLSQ(threshold=threshold, verbose=True, alpha=regularization),
-        feature_library=library,
-        discrete_time=True,
-        feature_names=feature_names_i,
-    )
-    
-    sindy_models[feature_names[i]].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True, ensemble=sindy_ensemble, library_ensemble=library_ensemble)
-    sindy_models[feature_names[i]].print()
-    
-# mimic behavior of rnn with sindy
-def update_rule_sindy(q, choice, prev_choice, reward):
-    if choice == 0:
-        # blind update for non-chosen action
-        q_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
-    elif choice == 1:
-        # reward-based update for chosen action
-        q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-    # if prev_choice == 1:
-    habit = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1]
-    return q_update+habit
-
-# initialize sindy agent and set beta
-agent_sindy = AgentSindy(n_actions)
-agent_sindy.set_update_rule(update_rule_sindy)
-beta = optimize_beta(experiment_list_test[0], agent_rnn, agent_sindy, plot=False)
-agent_sindy._beta = beta
-print(f'Optimized SINDy-agent beta: {beta}')
-
-# test sindy agent
-dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
-
+# --------------------------------------------------------------
 # Analysis
+# --------------------------------------------------------------
+
 labels = ['Ground Truth', 'RNN', 'SINDy']
 experiment_test = experiment_list_test[0]
 choices = experiment_test.choices

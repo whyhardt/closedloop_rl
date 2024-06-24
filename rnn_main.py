@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, rnn_utils
+from resources import rnn, rnn_training, bandits, rnn_utils, sindy_utils, sindy_training
 
 
 # train model
@@ -34,8 +34,8 @@ use_habit = False
 # ensemble parameters
 sampling_replacement = False
 n_submodels = 1
-ensemble = True
-voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
+ensemble = False
+voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 1000

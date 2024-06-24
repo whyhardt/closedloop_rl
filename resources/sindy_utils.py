@@ -1,6 +1,8 @@
 import numpy as np
 from typing import Iterable, List, Dict, Tuple
 
+import pysindy as ps
+
 from bandits import *
 
 
@@ -192,10 +194,10 @@ def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List
     return True
   
 
-def remove_control_features(control_variables: List[np.ndarray], feature_names_org, feature_names_new) -> List[np.ndarray]:
+def remove_control_features(control_variables: List[np.ndarray], feature_names: List[str], target_feature_names: List[str]) -> List[np.ndarray]:
   control_new = []
   for control in control_variables:
-    remaining_control_variables = [control[:, feature_names_org.index(feature)] for feature in feature_names_new]
+    remaining_control_variables = [control[:, feature_names.index(feature)] for feature in target_feature_names]
     if len(remaining_control_variables) > 0:
       control_new.append(np.stack(remaining_control_variables, axis=-1))
     else:
@@ -204,7 +206,7 @@ def remove_control_features(control_variables: List[np.ndarray], feature_names_o
   return control_new
 
 
-def extract_samples(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
   x_train_relevant = []
   control_relevant = []
   x_features = [feature for feature in feature_names if feature.startswith('x')]
@@ -222,3 +224,33 @@ def extract_samples(x_train: List[np.ndarray], control: List[np.ndarray], featur
     control_features.remove(relevant_feature)
     
   return x_train_relevant, control_relevant, x_features+control_features
+
+
+def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.feature_library.base.BaseFeatureLibrary, List[str]]]:
+  libraries = {key: None for key in library_setup.keys()}
+  feature_names = {key: [key] + library_setup[key] for key in library_setup.keys()}
+  for key in library_setup.keys():
+      library = ps.PolynomialLibrary(degree=2)
+      library.fit(np.random.rand(10, len(feature_names[key])))
+      print(library.get_feature_names_out(feature_names[key]))
+      libraries[key] = (library, feature_names[key])
+  
+  ps.ConcatLibrary([libraries[key][0] for key in libraries.keys()])
+  
+  return libraries
+
+
+def constructor_update_rule_sindy(sindy_models):
+  def update_rule_sindy(q, choice, prev_choice, reward):
+      # mimic behavior of rnn with sindy
+      if choice == 0:
+          # blind update for non-chosen action
+          q_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
+      elif choice == 1:
+          # reward-based update for chosen action
+          q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
+      if prev_choice == 1:
+        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q
+      return q_update
+    
+  return update_rule_sindy
