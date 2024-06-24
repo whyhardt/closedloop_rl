@@ -168,15 +168,15 @@ def fit_model(
         for key in avg_state_dict.keys():
             avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
         return avg_state_dict
-    
+
+    # create loss list
+    losses_over_time =[]   
+
     # start training
     while continue_training:
         try:
             t_start = time.time()
             loss = 0
-
-            # create loss list (madd)
-            #losses_over_time =[]
 
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
@@ -206,7 +206,10 @@ def fit_model(
                     )
                 
                     loss += loss_i
+
                 loss /= n_submodels
+
+                
             
             if n_submodels > 1 and return_ensemble:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
@@ -239,13 +242,8 @@ def fit_model(
                 converged = convergence_value < convergence_threshold
                 continue_training = not converged and n_calls_to_train_model < epochs
             
-            # change back loss
-            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss11111: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e}'
-            
-            # add to list (madd)
-            #losses_over_time = losses_over_time.append(float(loss))
-
-            
+            msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.1f}s; Convergence value: {convergence_value:.2e}'
+           
             if converged:
                 msg += '\nModel converged!'
             elif n_calls_to_train_model >= epochs:
@@ -256,6 +254,10 @@ def fit_model(
             continue_training = False
             msg = 'Training interrupted. Continuing with further operations...'
         print(msg)
+
+        # add loss to list
+        losses_over_time.append(float(loss)) 
+
         
     if n_submodels > 1 and return_ensemble:
         model_backup = EnsembleRNN(models, voting_type=voting_type)
@@ -264,4 +266,5 @@ def fit_model(
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         
-    return model_backup, optimizer_backup, loss
+    return model_backup, optimizer_backup, losses_over_time
+    
