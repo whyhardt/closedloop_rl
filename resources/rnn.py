@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+from copy import deepcopy
 from typing import Optional, Tuple, List, Union, Dict
 
 
@@ -118,7 +119,7 @@ class RLRNN(BaseRNN):
         use_habit=False,
         last_output=False,
         last_state=False,
-        list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],#, 'cQ'],
+        list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],
         device=torch.device('cpu'),
         ):
         
@@ -175,9 +176,9 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
         
         # 2. perseverance mechanism for previously chosen element
-        prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
-        habit_update = self.habit_update(prev_chosen_value)
-        self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
+        # prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
+        # habit_update = self.habit_update(prev_chosen_value)
+        # self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
         # self.append_timestep_sample('xH', value, habit_update + value)
         
         # 3. reward-based update for the chosen element        
@@ -194,7 +195,7 @@ class RLRNN(BaseRNN):
         reward_update = self.reward_based_update(next_state)
         self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
         
-        next_value = action * reward_update + (1-action) * blind_update + self.prev_action * habit_update  
+        next_value = action * reward_update + (1-action) * blind_update# + self.prev_action * habit_update  
 
         return next_value, next_state
     
@@ -353,11 +354,12 @@ class EnsembleRNN:
             logits.append(logits_i)
             states.append(state_i)
             for key in history_call.keys():
-                history_call[key].append(model.get_history(key)[-1])
+                if len(model.get_history(key)) > 0:
+                    history_call[key].append(model.get_history(key))
         self.append_timestep_sample(history_call)
 
-        # TODO: Check if voting logits and single states (xQf, xQr etc) is the same
-        logits = self.vote(torch.concatenate(logits, dim=1), self.voting_type)
+        # TODO: Check if voting logits and single states (xQf, xQr etc) leads to the same behavior
+        logits = self.vote(torch.stack(logits, dim=1), self.voting_type).squeeze(1)
         states = self.set_state(states)
         
         return logits, states
@@ -435,8 +437,9 @@ class EnsembleRNN:
     def append_timestep_sample(self, history_ensemble):
         for key in history_ensemble.keys():
             if 'x' in key:
-                # vote history values
-                self.history[key].append(self.vote(torch.tensor(np.stack(history_ensemble[key], axis=1)), self.voting_type).squeeze(1).numpy())
+                if len(history_ensemble[key]) > 0:
+                    # vote history values
+                    self.history[key].append(self.vote(torch.tensor(np.stack(history_ensemble[key], axis=1)), self.voting_type).squeeze(1).numpy())
             elif 'c' in key:
                 # control signals are equal for all models. It's sufficient to get only the first model's value
                 self.history[key].append(history_ensemble[key][0])

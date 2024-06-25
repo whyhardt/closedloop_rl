@@ -4,7 +4,7 @@ import warnings
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from copy import copy
+from copy import deepcopy
 
 import pysindy as ps
 
@@ -19,8 +19,8 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 2
-regularization = 1e0
+polynomial_degree = 1
+regularization = 1e1
 sindy_ensemble = False
 library_ensemble = False
 library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=True)
@@ -32,7 +32,7 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.
+forget_rate = 0.1
 perseverance_bias = 0.
 
 # environment parameters
@@ -49,7 +49,7 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr', 'xH']
+x_train_list = ['xQf','xQr']#, 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = x_train_list + control_list
 
@@ -60,7 +60,7 @@ sindy_feature_list = x_train_list + control_list
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    # 'xH': ['ca[k-1]', 1]
 }
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -68,7 +68,7 @@ datafilter_setup = {
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    'xH': []
+    # 'xH': []
 }
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
@@ -88,7 +88,7 @@ elif isinstance(state_dict, list):
     print('Loading ensemble model...')
     model_list = []
     for state_dict_i in state_dict:
-        model_list.append(copy(rnn))
+        model_list.append(deepcopy(rnn))
         model_list[-1].load_state_dict(state_dict_i)
     rnn = EnsembleRNN(model_list, voting_type=voting_type)
 agent_rnn = AgentNetwork(rnn, n_actions, use_habit)

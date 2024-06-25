@@ -33,9 +33,9 @@ use_habit = False
 
 # ensemble parameters
 sampling_replacement = False
-n_submodels = 1
-ensemble = False
-voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
+n_submodels = 8
+ensemble = True
+voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 1000
@@ -47,8 +47,6 @@ convergence_threshold = 1e-6
 # tracked variables in the RNN
 x_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
-# if use_habit:
-#   x_train_list += ['xH']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -58,7 +56,7 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0. #@param
+  forget_rate = 0.1 #@param
   perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
@@ -177,6 +175,8 @@ if train:
     'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
   }
   torch.save(state_dict, params_path)
+  
+  print(f'Saved RNN parameters to file {params_path}.')
 
 else:
   # load trained parameters

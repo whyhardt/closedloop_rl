@@ -4,7 +4,7 @@ from typing import Iterable, List, Dict, Tuple
 import pysindy as ps
 
 from bandits import *
-
+from resources.rnn import EnsembleRNN, BaseRNN
 
 def make_sindy_data(
     dataset,
@@ -92,9 +92,11 @@ def create_dataset(
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
       if len(agent._model.history[key]) > 1:
-        values = np.concatenate(agent._model.history[key])#[1:])  # skip first value because it is not usable
-        # if len(values) > n_trials_per_session-1:
-        #   values = values[:n_trials_per_session-1]  # state values (start with 'x') have one value more per session because they have to be initialized
+        # TODO: resolve ugly workaround with class distinction
+        history = agent._model.history[key]
+        if isinstance(agent._model, EnsembleRNN):
+          history = history[-1]
+        values = np.concatenate(history)
         if key in keys_x:
           # add values of interest of one session as trajectory
           if normalize:
@@ -102,14 +104,12 @@ def create_dataset(
             value_max = np.max(values)
             values = (values - value_min) / (value_max - value_min)
           for i_action in range(agent._n_actions):
-            # x_train[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             x_train[key] += [v for v in values[:, :, i_action]]
         if key in keys_c:
           # add control signals of one session as corresponding trajectory
           if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
-            # control[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             control[key] += [v for v in values[:, :, i_action]]
               
   # get all keys of x_train and control that have no values and remove them
@@ -249,8 +249,8 @@ def constructor_update_rule_sindy(sindy_models):
       elif choice == 1:
           # reward-based update for chosen action
           q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-      if prev_choice == 1:
-        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q
+      # if prev_choice == 1:
+      #   q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q
       return q_update
     
   return update_rule_sindy

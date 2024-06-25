@@ -81,56 +81,7 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
         masked_log_liks = torch.multiply(log_liks, mask)
         loss = -torch.nansum(masked_log_liks)/torch.prod(torch.tensor(masked_log_liks.shape[:-1]))
         return loss
-    
-    
-class sindy_loss(nn.CrossEntropyLoss):
-    def __init__(self,
-                 sindy_constructor: Callable,
-                 sindy_update_rule_constructor: Callable,
-                 sindy_library: ps.feature_library.base.BaseFeatureLibrary,
-                 weight_rnn_pred: float = 1,
-                 weight_sindy_pred: float = 1e-3,
-                 weight_sindy_regularization: float = 1e-3,):
-        super().__init__()
-        
-        self.sindy_constructor = sindy_constructor
-        self.sindy_update_rule_constructor = sindy_update_rule_constructor
-        self.sindy_library = sindy_library
-        self.weight_rnn_pred = weight_rnn_pred
-        self.weight_sindy_pred = weight_sindy_pred
-        self.weight_regularization = weight_sindy_regularization
-        
-    def forward(self, action_prediction_rnn, target_prediction, control_inputs_sindy, q_prediction_rnn):    
-        # control_inputs_sindy need to be a list of control inputs for the SINDy model with (prev_q_value, action, prev_action, reward)
-        
-        # create new instance of sindy model with sindy contstructor
-        sindy_model = self.sindy_constructor()
-        sindy_update_rule = self.sindy_update_rule_constructor(sindy_model)
-        
-        # compute the loss for:
-        # - action prediction of RNN
-        # - action prediction of SINDy model
-        # - Q-Value prediction of SINDy model --> Only one sindy-prediction-loss needed; stay with Q-Values
-        # - SINDy weight regularization
-        
-        # compute prediction error of RNN with nn.CrossEntropy
-        loss_rnn_prediction = super(action_prediction_rnn, target_prediction)
-        
-        # compute Q-Value prediction error of SINDy model
-        q_sindy = torch.zeros_like(q_prediction_rnn)
-        for c in range(q_sindy.shape[-1]):
-            q_sindy[:, :, c] = sindy_update_rule(*control_inputs_sindy)
-        # use mse as metric
-        loss_q_prediction = torch.nn.functional.mse_loss(q_sindy, q_prediction_rnn)
-        
-        # compute weight regularization of SINDy model
-        loss_regularization_sindy_weights = torch.tensor(0.)
-        for model in sindy_model:
-            loss_regularization_sindy_weights += torch.sum(model.coefficients())
-        
-        return self.weight_rnn_pred * loss_rnn_prediction + self.weight_sindy_pred_x * loss_q_prediction + self.weight_regularization * loss_regularization_sindy_weights
-        
-    
+
 
 def batch_train(
     model: BaseRNN,
@@ -172,12 +123,15 @@ def fit_model(
     sampling_replacement: bool = False,
     n_submodels: int = 1,
     return_ensemble: bool = False,
-    voting_type: int = EnsembleRNN.MEAN,
+    voting_type: int = EnsembleRNN.MEDIAN,
 ):
     
     # initialize submodels
     if isinstance(model, BaseRNN):
-        models = [model for _ in range(n_submodels)]
+        if n_submodels == 1:
+            models = [model]
+        else:
+            models = [copy.deepcopy(model) for _ in range(n_submodels)]
     elif isinstance(model, EnsembleRNN):
         models = model
     else:
