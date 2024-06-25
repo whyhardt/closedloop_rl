@@ -2,7 +2,7 @@
 from rnn import BaseRNN, EnsembleRNN
 
 
-def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=False):
+def parameter_file_naming(params_path, use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=False):
     # create name for corresponding rnn
   
     if use_lstm:
@@ -10,7 +10,7 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_ha
     else:
         params_path += '_rnn'
     
-    if any([last_output, last_state, use_habit]):
+    if any([last_output, last_state]):
         params_path += '_'
     
     if last_output:
@@ -18,9 +18,6 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_ha
         
     if last_state:
         params_path += 's'
-        
-    if use_habit:
-        params_path += 'h'
     
     params_path += f'_b' + str(gen_beta).replace('.', '')
     

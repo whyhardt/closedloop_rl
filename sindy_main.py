@@ -32,8 +32,8 @@ n_sessions = 10
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
-perseverance_bias = 0.
+forget_rate = 0.
+perseverance_bias = 0.25
 
 # environment parameters
 non_binary_reward = False
@@ -44,12 +44,11 @@ sigma = .1
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
 use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr']#, 'xH']
+x_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = x_train_list + control_list
 
@@ -60,7 +59,7 @@ sindy_feature_list = x_train_list + control_list
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
-    # 'xH': ['ca[k-1]', 1]
+    'xH': ['ca[k-1]', 1]
 }
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -68,7 +67,7 @@ datafilter_setup = {
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    # 'xH': []
+    'xH': []
 }
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
@@ -79,9 +78,9 @@ agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias)
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
-rnn = RLRNN(n_actions, hidden_size, 0.5, use_habit, last_output, last_state, sindy_feature_list)
+rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):
     rnn.load_state_dict(state_dict)
 elif isinstance(state_dict, list):
@@ -91,7 +90,7 @@ elif isinstance(state_dict, list):
         model_list.append(deepcopy(rnn))
         model_list[-1].load_state_dict(state_dict_i)
     rnn = EnsembleRNN(model_list, voting_type=voting_type)
-agent_rnn = AgentNetwork(rnn, n_actions, use_habit)
+agent_rnn = AgentNetwork(rnn, n_actions)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
 x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)

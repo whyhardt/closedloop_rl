@@ -249,8 +249,8 @@ def constructor_update_rule_sindy(sindy_models):
       elif choice == 1:
           # reward-based update for chosen action
           q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-      # if prev_choice == 1:
-      #   q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q
+      if prev_choice == 1:
+        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference of the update
       return q_update
     
   return update_rule_sindy

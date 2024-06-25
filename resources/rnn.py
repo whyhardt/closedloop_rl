@@ -116,7 +116,6 @@ class RLRNN(BaseRNN):
         n_actions, 
         hidden_size,
         init_value=0.5,
-        use_habit=False,
         last_output=False,
         last_state=False,
         list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],
@@ -126,7 +125,7 @@ class RLRNN(BaseRNN):
         super(RLRNN, self).__init__(n_actions, hidden_size, init_value, device, list_sindy_signals)
         
         # define level of recurrence
-        self._vs, self._hs, self._vo, self._ho, self._wh = last_state, last_state, last_output, last_output, use_habit
+        self._vs, self._hs, self._vo, self._ho = last_state, last_state, last_output, last_output
         
         # define general network parameters
         self.init_value = init_value
@@ -176,9 +175,9 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
         
         # 2. perseverance mechanism for previously chosen element
-        # prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
-        # habit_update = self.habit_update(prev_chosen_value)
-        # self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
+        prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
+        habit_update = self.habit_update(prev_chosen_value)
+        self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
         # self.append_timestep_sample('xH', value, habit_update + value)
         
         # 3. reward-based update for the chosen element        
@@ -195,7 +194,7 @@ class RLRNN(BaseRNN):
         reward_update = self.reward_based_update(next_state)
         self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
         
-        next_value = action * reward_update + (1-action) * blind_update# + self.prev_action * habit_update  
+        next_value = action * reward_update + (1-action) * blind_update + self.prev_action * habit_update  
 
         return next_value, next_state
     

@@ -230,7 +230,6 @@ class AgentNetwork:
       self,
       model: RLRNN,
       n_actions: int = 2,
-      habit: bool = False,
       ):
         """Initialize the agent network.
 
@@ -243,7 +242,6 @@ class AgentNetwork:
         self._model = model.to(torch.device('cpu'))
         self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
-        self.habit = habit
         self.new_sess()
 
     def new_sess(self):
@@ -257,19 +255,8 @@ class AgentNetwork:
     
     def get_value(self):
       """Return the value of the agent's current state."""
-      # if self.habit:
-      #     # habit + value
-      #     return self._state[-2].reshape(-1) + self._state[-1].reshape(-1)
-      # else:
-      #   # only value
-      #   return self._state[-1].reshape(-1)
       state = [state.numpy() for state in self._model.get_state()]
-      if self.habit:
-          # habit + value
-          value = state[-2][:, 0].reshape(-1) + state[-1][:, 0].reshape(-1)
-      else:
-        # only value
-        value = state[-1][:, 0].reshape(-1)
+      value = state[-1][:, 0].reshape(-1)
       return value
     
     def get_choice_probs(self) -> np.ndarray:

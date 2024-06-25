@@ -14,7 +14,6 @@ warnings.filterwarnings("ignore")
 sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils, sindy_utils, sindy_training
 
-
 # train model
 train = True
 checkpoint = False
@@ -29,11 +28,10 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 hidden_size = 4
 last_output = False
 last_state = False
-use_habit = False
 
 # ensemble parameters
 sampling_replacement = False
-n_submodels = 8
+n_submodels = 1
 ensemble = True
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
@@ -56,8 +54,8 @@ if not data:
   agent_kw = 'basic'  #@param ['basic', 'quad_q'] 
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
-  forget_rate = 0.1 #@param
-  perseverance_bias = 0. #@param
+  forget_rate = 0. #@param
+  perseverance_bias = 0.25 #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -92,7 +90,6 @@ if not data:
       use_lstm,
       last_output,
       last_state,
-      use_habit,
       gen_beta,
       forget_rate,
       perseverance_bias,
@@ -120,7 +117,6 @@ else:
       init_value=0.5,
       last_output=last_output,
       last_state=last_state,
-      use_habit=use_habit,
       device=device,
       list_sindy_signals=sindy_feature_list,
       ).to(device)
@@ -190,7 +186,7 @@ else:
 environment = bandits.EnvironmentBanditsDrift(0.1)
 model.set_device(torch.device('cpu'))
 model.to(torch.device('cpu'))
-rnn_agent = bandits.AgentNetwork(model, n_actions=2, habit=use_habit)
+rnn_agent = bandits.AgentNetwork(model, n_actions=2)
 # dataset_rnn, experiment_list_rnn = bandits.create_dataset(rnn_agent, environment, 220, 10)
 
 # Analysis
