@@ -184,8 +184,9 @@ class AgentSindy:
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
       # self._q[c] = self._update_rule(self._q[c], int(choice==c), int(self._prev_choice==c), reward)
-      q = self._update_rule(self._q[c], int(choice==c), int(self._prev_choice==c), reward)
+      q, h = self._update_rule(self._q[c], self._h[c], int(choice==c), int(self._prev_choice==c), reward)
       self._q[c] = q
+      self._h[c] = h
     self._prev_choice = choice
     
   def new_sess(self):
@@ -199,8 +200,8 @@ class AgentSindy:
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    q = self.q * self._beta
-    choice_probs = np.exp(q) / np.sum(np.exp(q))
+    decision_variable = np.exp(self.q * self._beta)
+    choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
   def get_choice(self) -> int:
@@ -211,7 +212,7 @@ class AgentSindy:
   
   @property
   def q(self):
-    return self._q.copy()
+    return (self._q + self._h).copy()
 
 
 class AgentNetwork:

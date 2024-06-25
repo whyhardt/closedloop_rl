@@ -241,7 +241,7 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, choice, prev_choice, reward):
+  def update_rule_sindy(q, h, choice, prev_choice, reward):
       # mimic behavior of rnn with sindy
       if choice == 0:
           # blind update for non-chosen action
@@ -250,7 +250,7 @@ def constructor_update_rule_sindy(sindy_models):
           # reward-based update for chosen action
           q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
       if prev_choice == 1:
-        q_update += sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference of the update
-      return q_update
+        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update
+      return q_update, h
     
   return update_rule_sindy

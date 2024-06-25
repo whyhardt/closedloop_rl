@@ -146,11 +146,10 @@ class RLRNN(BaseRNN):
         self.sigmoid = nn.Sigmoid()
         
         # habit subnetwork
-        # make a list of modules
-        self.habit_update = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        self.habit_network = nn.Sequential(nn.Linear(n_actions, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions))
         
         # reward-blind subnetwork
-        self.reward_blind_update = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions-1))
+        self.reward_blind_update = nn.Sequential(nn.Linear(n_actions, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions))
         
         # reward-based subnetwork
         self.hidden_layer_value = nn.Linear(input_size, hidden_size)
@@ -169,18 +168,12 @@ class RLRNN(BaseRNN):
             torch.Tensor: updated Q-Values
         """
 
-        # 1. reward-blind mechanism (forgetting) for all elements
-        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        blind_update = self.reward_blind_update(not_chosen_value)
-        self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
+        # 1. reward-blind mechanism (forgetting) for all non-chosen elements
+        # not_chosen_value = (1-action) * value
+        blind_update = self.reward_blind_update(value)
+        self.append_timestep_sample(key='xQf', old_value=value, new_value=value + (1-action) * blind_update)
         
-        # 2. perseverance mechanism for previously chosen element
-        prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
-        habit_update = self.habit_update(prev_chosen_value)
-        # habit_update = self.habit_update(torch.ones_like(reward))
-        self.append_timestep_sample('xH', value, value + self.prev_action*habit_update)
-        
-        # 3. reward-based update for the chosen element        
+        # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
@@ -190,11 +183,10 @@ class RLRNN(BaseRNN):
             inputs = torch.cat([inputs, state], dim=-1)
         
         next_state = self.tanh(self.hidden_layer_value(inputs))
-        
         reward_update = self.reward_based_update(next_state)
-        self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
+        self.append_timestep_sample('xQr', value, value + action*reward_update)
         
-        next_value = action * reward_update + (1-action) * blind_update + self.prev_action * habit_update  
+        next_value = value + action * reward_update + (1-action) * blind_update
 
         return next_value, next_state
     
@@ -246,11 +238,14 @@ class RLRNN(BaseRNN):
             
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
+            # 2. perseverance mechanism for previously chosen element
+            habit = self.habit_network(self.prev_action)
+            logit = value + self.prev_action * habit
+            self.append_timestep_sample('xH', value, value + self.prev_action * habit)
             
             self.prev_action = a
             
-            logits[t, :, :] = value.clone()            
-            # logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
+            logits[t, :, :] = logit.clone()
             
         # add model dim again and set state
         self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))

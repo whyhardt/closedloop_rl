@@ -31,12 +31,12 @@ last_state = False
 
 # ensemble parameters
 sampling_replacement = True
-n_submodels = 20
+n_submodels = 1
 ensemble = False
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 1000
+epochs = 10000
 n_steps_per_call = 16  # None for full sequence
 batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-2
