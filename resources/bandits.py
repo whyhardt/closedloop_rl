@@ -69,7 +69,7 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
-    self._prev_choice = None
+    self._prev_choice = -1
     self._alpha = alpha
     self._beta = beta
     self._n_actions = n_actions
@@ -84,13 +84,12 @@ class AgentQ:
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init * np.ones(self._n_actions)
+    self._prev_choice = -1
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = self._q# * self._beta
-    if self._prev_choice is not None:
-      decision_variable[self._prev_choice] += self._perseverance_bias
-    choice_probs = np.exp(decision_variable*self._beta) / np.sum(np.exp(decision_variable*self._beta))
+    decision_variable = np.exp(self.q * self._beta)
+    choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
   def get_choice(self) -> int:
@@ -112,20 +111,16 @@ class AgentQ:
     # Restore q-values toward the initial value
     self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
 
-    # Memorize previous choice for perseveration
-    self._prev_choice = choice
-
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
     
+    # Memorize current choice for perseveration
+    self._prev_choice = choice
+    
   @property
   def q(self):
-    # This establishes q as an externally visible attribute of the agent.
-    # For agent = AgentQ(...), you can view the q values with agent.q; however,
-    # you will not be able to modify them directly because you will be viewing
-    # a copy.
-    q = self._q.copy()# * self._beta
-    if self._prev_choice is not None:
+    q = self._q.copy()
+    if self._prev_choice != -1:
       q[self._prev_choice] += self._perseverance_bias
     return q
 
@@ -288,7 +283,7 @@ class AgentNetwork:
 
 
 class EnvironmentBanditsFlips:
-  """Env for 2-armed bandit task with with reward probs that flip in blocks."""
+  """Env for 2-armed bandit task with reward probs that flip in blocks."""
 
   def __init__(
       self,

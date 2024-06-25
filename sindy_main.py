@@ -93,7 +93,7 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
-x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
+x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=True)
 sindy_models = fit_model(x_train, control, sindy_feature_list, library, library_setup, datafilter_setup, True, False)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn)
@@ -132,7 +132,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -172,7 +172,7 @@ plot_session(
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = np.diff(qs, axis=2)
+dqs_arms = -1*np.diff(qs, axis=2)
 
 plot_session(
     compare=True,

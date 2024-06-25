@@ -38,29 +38,29 @@ class DatasetRNN(Dataset):
         if not isinstance(ys, torch.Tensor):
             ys = torch.tensor(ys, dtype=torch.float32)
         
-        self.xs = xs
-        self.ys = ys
         self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
         self.stride = stride
         
-        self.set_sequences()
+        xs, ys = self.set_sequences(xs, ys)
         
         self.xs = xs.to(device)
         self.ys = ys.to(device)
         
-    def set_sequences(self):
+    def set_sequences(self, xs, ys):
         # sets sequences of length sequence_length with specified stride from the dataset
         xs_sequences = []
         ys_sequences = []
-        for i in range(0, max(1, self.xs.shape[1]-self.sequence_length), self.stride):
-            xs_sequences.append(self.xs[:, i:i+self.sequence_length, :])
-            ys_sequences.append(self.ys[:, i:i+self.sequence_length, :])
-        self.xs = torch.cat(xs_sequences, dim=0)
-        self.ys = torch.cat(ys_sequences, dim=0)
+        for i in range(0, max(1, xs.shape[1]-self.sequence_length), self.stride):
+            xs_sequences.append(xs[:, i:i+self.sequence_length, :])
+            ys_sequences.append(ys[:, i:i+self.sequence_length, :])
+        xs = torch.cat(xs_sequences, dim=0)
+        ys = torch.cat(ys_sequences, dim=0)
         
-        if len(self.xs.shape) == 2:
-            self.xs = self.xs.unsqueeze(1)
-            self.ys = self.ys.unsqueeze(1)
+        if len(xs.shape) == 2:
+            xs = xs.unsqueeze(1)
+            ys = ys.unsqueeze(1)
+            
+        return xs, ys
     
     def __len__(self):
         return self.xs.shape[0]
@@ -133,6 +133,8 @@ def fit_model(
         else:
             models = [copy.deepcopy(model) for _ in range(n_submodels)]
     elif isinstance(model, EnsembleRNN):
+        models = model
+    elif isinstance(model, list):
         models = model
     else:
         raise ValueError('Model must be either a BaseRNN (can be trained) or an EnsembleRNN (can only be tested).')

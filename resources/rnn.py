@@ -177,8 +177,8 @@ class RLRNN(BaseRNN):
         # 2. perseverance mechanism for previously chosen element
         prev_chosen_value = torch.sum(self.prev_action * value, dim=-1).view(-1, 1)
         habit_update = self.habit_update(prev_chosen_value)
-        self.append_timestep_sample('xH', value, self.prev_action*habit_update + (1-self.prev_action)*value)
-        # self.append_timestep_sample('xH', value, habit_update + value)
+        # habit_update = self.habit_update(torch.ones_like(reward))
+        self.append_timestep_sample('xH', value, value + self.prev_action*habit_update)
         
         # 3. reward-based update for the chosen element        
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)

@@ -30,14 +30,14 @@ last_output = False
 last_state = False
 
 # ensemble parameters
-sampling_replacement = False
-n_submodels = 1
-ensemble = True
+sampling_replacement = True
+n_submodels = 20
+ensemble = False
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 1000
-n_steps_per_call = 10  # None for full sequence
+n_steps_per_call = 16  # None for full sequence
 batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
@@ -111,7 +111,7 @@ if use_lstm:
       device=device,
       ).to(device)
 else:
-  model = rnn.RLRNN(
+  model = [rnn.RLRNN(
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
@@ -120,8 +120,9 @@ else:
       device=device,
       list_sindy_signals=sindy_feature_list,
       ).to(device)
+           for _ in range(n_submodels)]
 
-optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer_rnn = None#torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 if train:
   if checkpoint:
@@ -215,7 +216,7 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -255,7 +256,7 @@ bandits.plot_session(
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = np.diff(qs, axis=2)
+dqs_arms = -1*np.diff(qs, axis=2)
 
 bandits.plot_session(
     compare=True,

@@ -59,7 +59,7 @@ def fit_model(
         # feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
         sindy_models[x_feature] = ps.SINDy(
             optimizer=ps.STLSQ(threshold=0.05, verbose=False, alpha=1e-1),
-            feature_library=library,
+            feature_library=library,#ps.PolynomialLibrary(degree=2),
             discrete_time=True,
             feature_names=feature_names_i,
         )

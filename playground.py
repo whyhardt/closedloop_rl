@@ -1,24 +1,14 @@
 import pysindy as ps
 import numpy as np
 
-# library_setup = {
-#     'xQf': [],
-#     'xQr': ['cr'],
-#     'xH': ['ca[k-1]']
-# }
+init_values = [np.random.rand(1).reshape(1, 1) for _ in range(100)]
+array = [np.concatenate([init_values[i], init_values[i]+0.35]) for i in range(100)]
 
-# libraries = {key: None for key in library_setup.keys()}
-# feature_names = {key: [key] + library_setup[key] for key in library_setup.keys()}
-# for key in library_setup.keys():
-#     library = ps.PolynomialLibrary(degree=2)
-#     library.fit(np.random.rand(10, len(feature_names[key])))
-#     # print(library.get_feature_names_out(feature_names[key]))
-#     libraries[key] = library
+model = ps.SINDy(
+    ps.optimizers.STLSQ(threshold=0.03),
+    ps.feature_library.PolynomialLibrary(degree=2),
+    discrete_time=True,
+)
 
-# feature_names = ['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr']
-# library = ps.TensoredLibrary([ps.PolynomialLibrary(degree=2) for _ in range(3)],
-#                              inputs_per_library=np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0]]),
-#                              )
-
-# library.fit(np.random.rand(10, len(feature_names)))
-# print(library.get_feature_names(feature_names))
+model.fit(array, t=1, multiple_trajectories=True)
+model.print()
