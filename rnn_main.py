@@ -30,10 +30,10 @@ last_output = False
 last_state = False
 
 # ensemble parameters
-sampling_replacement = True
+sampling_replacement = False
 n_submodels = 1
-ensemble = False
-voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
+ensemble = True
+voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 10000
@@ -55,7 +55,7 @@ if not data:
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
   forget_rate = 0. #@param
-  perseverance_bias = 0.25 #@param
+  perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param

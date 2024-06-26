@@ -99,10 +99,7 @@ def create_dataset(
         values = np.concatenate(history)
         if key in keys_x:
           # add values of interest of one session as trajectory
-          if normalize:
-            value_min = np.min(values)
-            value_max = np.max(values)
-            values = (values - value_min) / (value_max - value_min)
+          values = np.round(values, 4)
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
         if key in keys_c:
@@ -118,6 +115,14 @@ def create_dataset(
   x_train = {key: x_train[key] for key in keys_x}
   control = {key: control[key] for key in keys_c}
   feature_names = keys_x + keys_c
+  
+  # normalize x_train over all sessions
+  if normalize:
+    for key in keys_x:
+      min_value = min(np.concatenate(x_train[key]))
+      max_value = max(np.concatenate(x_train[key]))
+      for i in range(len(x_train[key])):
+        x_train[key][i] = (x_train[key][i] - min_value) / (max_value - min_value)
   
   # make x_train and control List[np.ndarray] with shape (n_trials_per_session-1, len(keys)) instead of dictionaries
   x_train_list = []

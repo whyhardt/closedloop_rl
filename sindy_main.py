@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 1
+polynomial_degree = 2
 regularization = 1e1
 sindy_ensemble = False
 library_ensemble = False
@@ -33,7 +33,7 @@ n_sessions = 10
 gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
-perseverance_bias = 0.25
+perseverance_bias = 0.
 
 # environment parameters
 non_binary_reward = False
@@ -99,6 +99,7 @@ update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn)
 # dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
+# --------------------------------------------------------------
 # Analysis
 # --------------------------------------------------------------
 
