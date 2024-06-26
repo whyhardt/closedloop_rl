@@ -41,7 +41,8 @@ class DatasetRNN(Dataset):
         self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
         self.stride = stride
         
-        xs, ys = self.set_sequences(xs, ys)
+        if sequence_length is not None:
+            xs, ys = self.set_sequences(xs, ys)
         
         self.xs = xs.to(device)
         self.ys = ys.to(device)
@@ -88,6 +89,7 @@ def batch_train(
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
+    n_steps_per_call: int = 16,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     ):
 
@@ -97,18 +99,17 @@ def batch_train(
     
     # predict y
     model.initial_state(batch_size=len(xs))
-    y_pred = model(xs, model.get_state(detach=True), batch_first=True)[0]
-    
-    loss = 0
-    for t in range(xs.shape[1]):
-        loss += loss_fn(y_pred[:, t], ys[:, t])
-    loss /= xs.shape[1]
-    
-    if loss.requires_grad:
-        # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    for t in range(0, xs.shape[1], n_steps_per_call):
+        n_steps = min(xs.shape[1]-t, n_steps_per_call)
+        state = model.get_state(detach=True)
+        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
+        loss = loss_fn(y_pred, ys[:, t+n_steps-1])
+        
+        if loss.requires_grad:
+            # backpropagation
+            optimizer.zero_grad()
+            loss.backward(retain_graph=True)
+            optimizer.step()
     
     return model, optimizer, loss
     

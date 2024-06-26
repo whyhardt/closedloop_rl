@@ -1,10 +1,13 @@
 import numpy as np
-from typing import Iterable, List, Dict, Tuple
+from torch.nn.functional import cross_entropy
+from typing import Iterable, List, Dict, Tuple, Callable
 
 import pysindy as ps
 
 from bandits import *
 from resources.rnn import EnsembleRNN, BaseRNN
+from resources.rnn_training import DatasetRNN
+
 
 def make_sindy_data(
     dataset,
@@ -259,3 +262,33 @@ def constructor_update_rule_sindy(sindy_models):
       return q_update, h
     
   return update_rule_sindy
+
+
+def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable = cross_entropy):
+  """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
+  This loss is not used for SINDy-Training, but for analysis purposes only.
+
+  Args:
+      model (ps.SINDy): _description_
+      x_data (DatasetRNN): _description_
+      loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
+  """
+  
+  loss = 0
+  for x, y in x_data:
+    agent_sindy.new_sess()
+    choice_probs = np.zeros_like(y)
+    loss_session = 0
+    for t in range(x.shape[1]):
+      # get choice from agent for current state
+      choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
+      # update state of agent
+      action = np.argmax(x[t, :-1])
+      reward = x[t, -1]
+      agent_sindy.update(action, reward)
+      # compute loss
+      loss_session += loss_fn(y[t], torch.tensor(choice_probs[t])).item()
+    loss += loss_session/x.shape[1]
+  loss /= len(x_data)
+  
+  return loss

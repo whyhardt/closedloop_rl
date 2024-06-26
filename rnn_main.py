@@ -8,7 +8,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
@@ -32,12 +32,12 @@ last_state = False
 # ensemble parameters
 sampling_replacement = False
 n_submodels = 1
-ensemble = True
+ensemble = False
 voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 10000
-n_steps_per_call = 16  # None for full sequence
+n_steps_per_call = 8  # None for full sequence
 batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
@@ -74,7 +74,6 @@ if not data:
       environment=environment,
       n_trials_per_session=n_trials_per_session,
       n_sessions=n_sessions,
-      sequence_length=n_steps_per_call,
       device=device)
 
   dataset_test, experiment_list_test = bandits.create_dataset(
@@ -82,7 +81,6 @@ if not data:
       environment=environment,
       n_trials_per_session=200,
       n_sessions=1024,
-      sequence_length=n_trials_per_session,
       device=device)
   
   params_path = rnn_utils.parameter_file_naming(
@@ -101,6 +99,10 @@ else:
   # load data
   with open(path_data, 'rb') as f:
       dataset_train = pickle.load(f)
+
+if ensemble and n_submodels == 1:
+  Warning('Ensemble is set to True but n_submodels is set to 1. Setting ensemble to False.')
+  ensemble = False
 
 # define model
 if use_lstm:

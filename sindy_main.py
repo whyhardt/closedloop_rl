@@ -11,7 +11,7 @@ import pysindy as ps
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, optimize_beta, constructor_update_rule_sindy
+from resources.sindy_utils import create_dataset, check_library_setup, optimize_beta, constructor_update_rule_sindy, sindy_loss_x
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model, setup_sindy_agent
 
@@ -19,9 +19,9 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 2
+polynomial_degree = 1
 regularization = 1e1
-sindy_ensemble = False
+sindy_ensemble = True
 library_ensemble = False
 library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=True)
 
@@ -48,9 +48,9 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr', 'xH']
+z_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
-sindy_feature_list = x_train_list + control_list
+sindy_feature_list = z_train_list + control_list
 
 # data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
 # key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
@@ -93,10 +93,12 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
-x_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=True)
-sindy_models = fit_model(x_train, control, sindy_feature_list, library, library_setup, datafilter_setup, True, False)
+z_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=True)
+sindy_models = fit_model(z_train, control, sindy_feature_list, library, library_setup, datafilter_setup, True, False)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn)
+loss_x = sindy_loss_x(agent_sindy, dataset_test)
+print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
 # dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
 # --------------------------------------------------------------
@@ -133,7 +135,10 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+def normalize(qs):
+    return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+
+qs = normalize(qs)
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -173,7 +178,7 @@ plot_session(
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = -1*np.diff(qs, axis=2)
+dqs_arms = normalize(-1*np.diff(qs, axis=2))
 
 plot_session(
     compare=True,
