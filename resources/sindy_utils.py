@@ -1,12 +1,12 @@
 import numpy as np
-from torch.nn.functional import cross_entropy
+from torch.nn.functional import cross_entropy, mse_loss
 from typing import Iterable, List, Dict, Tuple, Callable
 
 import pysindy as ps
 
-from bandits import *
+from resources.bandits import *
 from resources.rnn import EnsembleRNN, BaseRNN
-from resources.rnn_training import DatasetRNN
+from resources.rnn_utils import DatasetRNN
 
 
 def make_sindy_data(
@@ -68,12 +68,27 @@ def make_sindy_data(
 
 def create_dataset(
   agent: AgentNetwork,
-  environment: Environment,
+  data: Union[Environment, DatasetRNN, np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
   shuffle: bool = False,
+  verbose: bool = False,
   ):
+  
+  if not isinstance(data, Environment):
+    if isinstance(data, (np.ndarray, torch.Tensor)) and data.ndim == 2:
+      data = [data]
+    if verbose:
+      Warning('data is not of type Environment. Checking for correct number of sessions and trials per session with respect to the given data object.')
+    if n_sessions > len(data):
+      n_sessions = len(data)
+    if not isinstance(data, DatasetRNN):
+      if n_trials_per_session > data[0].shape[0]:
+        n_trials_per_session = data[0].shape[0]
+    else:
+      if n_trials_per_session > data.xs.shape[1]:
+        n_trials_per_session = data.xs.shape[1]
   
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
@@ -89,7 +104,15 @@ def create_dataset(
     for trial in range(n_trials_per_session):
       # generate trial data
       choice = agent.get_choice()
-      reward = environment.step(choice)
+      if isinstance(data, Environment):
+        reward = data.step(choice)
+      elif isinstance(data, DatasetRNN):
+        reward = data.xs[session, trial, -1].item()
+      else:
+        reward = data[session][trial, -1]
+        if isinstance(reward, torch.Tensor):
+          reward = reward.item()
+        
       agent.update(choice, reward)
     
     # sort the data of one session into the corresponding signals
@@ -277,18 +300,72 @@ def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable 
   loss = 0
   for x, y in x_data:
     agent_sindy.new_sess()
-    choice_probs = np.zeros_like(y)
+    qs = np.zeros_like(y)
     loss_session = 0
     for t in range(x.shape[1]):
       # get choice from agent for current state
-      choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
+      # choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
+      qs[t] = agent_sindy.q.reshape(1, -1)
       # update state of agent
       action = np.argmax(x[t, :-1])
       reward = x[t, -1]
       agent_sindy.update(action, reward)
       # compute loss
-      loss_session += loss_fn(y[t], torch.tensor(choice_probs[t])).item()
+      loss_session += loss_fn(y[t], torch.tensor(qs[t])).item()
     loss += loss_session/x.shape[1]
   loss /= len(x_data)
   
   return loss
+
+
+def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNetwork = None, z_data: np.ndarray = None, loss_fn: Callable = mse_loss):
+  """Compute the loss of the SINDy model on the data in z-coordinates.
+
+  Args:
+      agent_sindy (AgentSindy): _description_
+      z_data (np.ndarray): _description_
+      loss_fn (Callable, optional): _description_. Defaults to mse_loss.
+  """
+  
+  if agent_rnn is None and z_data is None:
+    raise ValueError('Either agent_rnn or z_data must be provided.')
+  if agent_rnn is not None and z_data is not None:
+    raise ValueError('Only one of agent_rnn or z_data must be provided.')
+  
+  if z_data is not None and len(x_data) != len(z_data):
+    raise ValueError('Length of x_data and z_data must be equal.')
+  
+  loss = 0
+  for i, data in enumerate(x_data):
+    x, y = data
+    # x, y = next(iter(x_data))
+    if z_data is not None:
+      z = z_data[i]
+    else:
+      z = torch.zeros_like(y)
+    qs = np.zeros_like(y)
+    loss_session = 0
+    agent_sindy.new_sess()
+    if agent_rnn is not None:
+      agent_rnn.new_sess()
+    
+    for t in range(x.shape[0]):
+      # get Q-value from rnn agent
+      if agent_rnn is not None:
+        z[t] = torch.tensor(agent_rnn.q)
+      # get Q-Value from sindy agent
+      qs[t] = agent_sindy.q
+      # update state of agent
+      action = np.argmax(x[t, :-1])
+      reward = x[t, -1]
+      agent_rnn.update(action, reward)
+      agent_sindy.update(action, reward)
+      # compute loss for current timestep
+      # TODO: z and qs are differently scaled at the moment (SINDy produces values between 0 and 1)
+      loss_session += loss_fn(z[t], torch.tensor(qs[t])).item()
+    
+    loss += loss_session/x.shape[1]
+  loss /= len(x_data)
+  
+  return loss
+    

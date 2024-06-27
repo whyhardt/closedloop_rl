@@ -10,10 +10,10 @@ import pysindy as ps
 
 sys.path.append('resources')  # add source directoy to path
 from resources.rnn import RLRNN, EnsembleRNN
-from resources.bandits import AgentQ, AgentNetwork, AgentSindy, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, optimize_beta, constructor_update_rule_sindy, sindy_loss_x
+from resources.bandits import AgentQ, AgentNetwork, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
+from resources.sindy_utils import create_dataset, check_library_setup, constructor_update_rule_sindy, sindy_loss_x, sindy_loss_z
 from resources.rnn_utils import parameter_file_naming
-from resources.sindy_training import fit_model, setup_sindy_agent
+from resources.sindy_training import fit_model, setup_sindy_agent, datafilter_setup, library_setup
 
 warnings.filterwarnings("ignore")
 
@@ -33,7 +33,7 @@ n_sessions = 10
 gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
-perseverance_bias = 0.
+perseverance_bias = 0.25
 
 # environment parameters
 non_binary_reward = False
@@ -52,23 +52,6 @@ z_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = z_train_list + control_list
 
-# data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
-# key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
-# Example:
-# 'xQf': ['ca', 0] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf'
-datafilter_setup = {
-    'xQf': ['ca', 0],
-    'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
-}
-
-# library setup aka which terms are allowed as control inputs in each SINDy model
-# key is the SINDy submodel name, value is a list of
-library_setup = {
-    'xQf': [],
-    'xQr': ['cr'],
-    'xH': []
-}
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
 
@@ -98,7 +81,9 @@ sindy_models = fit_model(z_train, control, sindy_feature_list, library, library_
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn)
 loss_x = sindy_loss_x(agent_sindy, dataset_test)
+loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)
 print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
+print(f'Loss for SINDy in z-coordinates: {np.round(loss_z, 4)}')
 # dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
 # --------------------------------------------------------------

@@ -7,6 +7,25 @@ from sindy_utils import remove_control_features, conditional_filtering, optimize
 from bandits import AgentNetwork, AgentSindy, BanditSession
 
 
+# library setup aka which terms are allowed as control inputs in each SINDy model
+# key is the SINDy submodel name, value is a list of
+library_setup = {
+    'xQf': [],
+    'xQr': ['cr'],
+    'xH': []
+}
+
+# data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
+# key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
+# Example:
+# 'xQf': ['ca', 0] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf'
+datafilter_setup = {
+    'xQf': ['ca', 0],
+    'xQr': ['ca', 1],
+    'xH': ['ca[k-1]', 1]
+}
+
+
 def fit_model(
     x_train: List[np.ndarray], 
     control: List[np.ndarray] = None, 

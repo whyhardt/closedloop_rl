@@ -5,13 +5,13 @@ from typing import NamedTuple, Union, Optional, List, Dict
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from copy import copy
+from copy import copy, deepcopy
 import torch
 from torch import nn
 import torch.utils
 
-from rnn import RLRNN
-from rnn_training import DatasetRNN
+from resources.rnn import RLRNN, EnsembleRNN
+from rnn_utils import DatasetRNN
 
 # Setup so that plots will look nice
 small = 15
@@ -224,8 +224,9 @@ class AgentNetwork:
 
     def __init__(
       self,
-      model: RLRNN,
+      model: Union[RLRNN, EnsembleRNN],
       n_actions: int = 2,
+      device = torch.device('cpu'),
       ):
         """Initialize the agent network.
 
@@ -235,30 +236,45 @@ class AgentNetwork:
         """
         
         self._q_init = 0.5
-        self._model = model.to(torch.device('cpu'))
+        if device != model.device:
+          model = model.to(device)
+        if isinstance(model, RLRNN):
+          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, model._vo, model._vs, list(model.history.keys()), device=model.device).to(model.device)
+          self._model.load_state_dict(model.state_dict())
+        else:
+          self._model = model 
         self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
         self.new_sess()
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
+      # self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
+      self._model.initial_state(batch_size=1, return_dict=True)
       self._xs = torch.zeros((1, 2))-1
     
-    def set_state(self, state: Dict[str, torch.Tensor]):
-      state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
-      self._state = tuple([tensor.numpy() for tensor in state])
+    # def set_state(self, state: Dict[str, torch.Tensor]):
+    #   state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
+    #   self._state = tuple([tensor.cpu().numpy() for tensor in state])
     
     def get_value(self):
       """Return the value of the agent's current state."""
-      state = [state.numpy() for state in self._model.get_state()]
-      value = state[-1][:, 0].reshape(-1)
+      state = self._model.get_state()[-1].cpu().numpy()
+      value = state[:, 0].reshape(-1)
       return value
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
       # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
-      choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
+      value = self.get_value()
+      if all(np.abs(value) > 10):
+        choice_probs = np.array([0.5, 0.5])
+      elif any(value > 10):
+        # TODO: this works currently only for 2 actions
+        choice_probs = np.zeros(self._n_actions)
+        choice_probs[np.argmax(value)] = 1
+      else:
+        choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
       return choice_probs
 
     def get_choice(self):
@@ -268,10 +284,10 @@ class AgentNetwork:
       return choice
 
     def update(self, choice: float, reward: float):
-      self._xs = torch.tensor([[choice, reward]])
+      self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
-        self._model(self._xs, self._model.get_state())[-1]
-        self.set_state(self._model.get_state(return_dict=True))
+        self._model(self._xs, self._model.get_state())
+        # self.set_state(self._model.get_state(return_dict=True))
             
     @property
     def q(self):

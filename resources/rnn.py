@@ -217,7 +217,7 @@ class RLRNN(BaseRNN):
         action_oh = torch.zeros((inputs.shape[0], inputs.shape[1], self._n_actions), dtype=torch.float, device=self.device)
         if action.shape[-1] == 1:
             for i in range(inputs.shape[1]):
-                action_oh[:, i, :] = torch.eye(self._n_actions)[action[:, i, 0].int()]
+                action_oh[:, i, :] = torch.eye(self._n_actions, device=self.device)[action[:, i, 0].int()]
             action = action_oh
             
         if prev_state is not None:

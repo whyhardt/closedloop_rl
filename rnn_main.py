@@ -12,12 +12,14 @@ import matplotlib.pyplot as plt
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, rnn_utils, sindy_utils, sindy_training
+from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
 train = True
 checkpoint = False
 data = False
+sindy_ae = False
+evolution_interval = 10
 
 use_lstm = False
 
@@ -30,15 +32,15 @@ last_output = False
 last_state = False
 
 # ensemble parameters
-sampling_replacement = False
-n_submodels = 1
+sampling_replacement = True
+n_submodels = 16
 ensemble = False
 voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 10000
 n_steps_per_call = 8  # None for full sequence
-batch_size = 256  # None for one batch per epoch
+batch_size = 64  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -55,7 +57,7 @@ if not data:
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
   forget_rate = 0. #@param
-  perseverance_bias = 0. #@param
+  perseverance_bias = 0.25 #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -149,6 +151,8 @@ if train:
       return_ensemble=ensemble,
       voting_type=voting_type,
       sampling_replacement=sampling_replacement,
+      sindy_ae=sindy_ae,
+      evolution_interval=evolution_interval,
   )
   
   # validate model
