@@ -37,10 +37,11 @@ def batch_train(
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
-    n_steps_per_call: int = 16,
+    n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     sindy_ae: bool = False,
     weight_rnn_x: float = 1,
+    weight_reg_rnn: float = 1e-3,
     weight_sindy_x: float = 1e-2,
     weight_sindy_reg: float = 1e-2,
     ):
@@ -49,36 +50,44 @@ def batch_train(
     Trains a model with the given batch.
     """
     
-    # predict y
+    if n_steps_per_call is None:
+        n_steps_per_call = xs.shape[1]
+    
+    # predict y and compute loss
     model.initial_state(batch_size=len(xs))
     for t in range(0, xs.shape[1], n_steps_per_call):
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])  # rnn loss in x-coordinates
-        loss_sindy_x, loss_sindy_weights = None, None
-        if sindy_ae:
-            # train sindy
-            z_train, control, feature_names = create_dataset(AgentNetwork(model, model._n_actions, model.device), xs, 200, 1, normalize=True)
-            sindy = fit_sindy_model(z_train, control, feature_names, library_setup=library_setup, filter_setup=datafilter_setup)
-            update_rule_sindy = constructor_update_rule_sindy(sindy)
-            agent_sindy = setup_sindy_agent(update_rule_sindy, model._n_actions)
-            
-            # sindy loss in x-coordinates
-            loss_sindy_x = sindy_loss_x(agent_sindy, DatasetRNN(xs[0], ys[0]))
-            # sindy loss in z-coordinates --> Try first without; I dont think it is necessary since we are working with really low-dimensional input data for the RNN
-            # sindy weight regularization
-            loss_sindy_weights = torch.mean((torch.tensor([sindy[key].coefficients() for key in sindy])))
         
-            loss = weight_rnn_x * loss + weight_sindy_x * loss_sindy_x + weight_sindy_reg * loss_sindy_weights
-            
+        loss_sindy_x, loss_sindy_weights = None, None
         if loss.requires_grad:
+            
+            # penalty for using a layer --> should enforce the model to use the layer only if necessary
+            loss = weight_rnn_x * loss + weight_reg_rnn * penalty_null_hypothesis(model)
+            
+            if sindy_ae:
+                # train sindy
+                z_train, control, feature_names = create_dataset(AgentNetwork(model, model._n_actions, model.device), xs, 200, 1, normalize=True)
+                sindy = fit_sindy_model(z_train, control, feature_names, library_setup=library_setup, filter_setup=datafilter_setup)
+                update_rule_sindy = constructor_update_rule_sindy(sindy)
+                agent_sindy = setup_sindy_agent(update_rule_sindy, model._n_actions)
+                
+                # sindy loss in x-coordinates
+                loss_sindy_x = sindy_loss_x(agent_sindy, DatasetRNN(xs[0], ys[0]))
+                # sindy loss in z-coordinates --> Try first without; I dont think it is necessary since we are working with really low-dimensional input data for the RNN
+                # sindy weight regularization
+                loss_sindy_weights = torch.mean((torch.tensor([sindy[key].coefficients() for key in sindy])))
+            
+                loss = weight_rnn_x * loss + weight_sindy_x * loss_sindy_x + weight_sindy_reg * loss_sindy_weights
+            
             # backpropagation
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
     
-    return model, optimizer, loss, (loss_sindy_x, loss_sindy_weights)
+    return model, optimizer, loss.item(), (loss_sindy_x, loss_sindy_weights)
     
 
 def fit_model(
@@ -94,6 +103,7 @@ def fit_model(
     voting_type: int = EnsembleRNN.MEDIAN,
     sindy_ae: bool = False,
     evolution_interval: int = None, verbose: bool = True,
+    n_steps_per_call: int = None,
 ):
     
     # initialize submodels
@@ -168,6 +178,7 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[0],
+                        n_steps_per_call=n_steps_per_call,
                     )
             else:
                 for i in range(n_submodels):
@@ -180,6 +191,7 @@ def fit_model(
                         ys=ys,
                         optimizer=optimizers[i],
                         sindy_ae=sindy_ae,
+                        n_steps_per_call=n_steps_per_call
                         # loss_fn = categorical_log_likelihood
                     )
                 
@@ -206,11 +218,12 @@ def fit_model(
             
             if n_submodels > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
                 # make sure that evolution interval is big enough so that the ensemble model can be trained effectively before evolution
-                models, optimizers = evolution_step(models, optimizers, DatasetRNN(*next(iter(dataloader_evolution))), 8, 2)
+                models, optimizers = evolution_step(models, optimizers, DatasetRNN(*next(iter(dataloader_evolution)), device=model[0].device))
+                n_submodels = len(models)
             
             # update last losses according fifo principle
             last_losses[:-1] = last_losses[1:].clone()
-            last_losses[-1] = loss.item()
+            last_losses[-1] = copy.copy(loss)
 
             # check for convergence
             # convergence_value = torch.abs(loss - loss_new) / loss
@@ -252,7 +265,7 @@ def fit_model(
     return model_backup, optimizer_backup, loss
 
 
-def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimizer], data: DatasetRNN, n_best=10, n_children=10):
+def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimizer], data: DatasetRNN, n_best: int = None, n_children: int = None):
     """Make an evolution step for the ensemble model by selecting the best models and creating children from them.
 
     Args:
@@ -262,9 +275,13 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
         n_children (int, optional): _description_. Defaults to 10.
     """
     
-    if len(models) < n_best:
+    if n_best is None:
         n_best = len(models)//2
-    if len(models) < n_children*n_best:
+    elif len(models) < n_best:
+        n_best = len(models)//2
+    if n_children is None:
+        n_children = 2
+    elif len(models) < n_children*n_best:
         n_children = len(models)//n_best
         
     # select best models
@@ -289,4 +306,19 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
             children_optims.append(copy.deepcopy(optim))
 
     return children, children_optims
+
+
+def penalty_null_hypothesis(model):
+    """Compute a penalty for each layer of the model based on the difference between the input and output of the layer.
+    This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place.
+    In this manner implemented hypothesis could be tested without model comparison but by the null-hypothesis."""
     
+    reg_rnn = torch.zeros((1, 1), device=model.device)
+    i = 0
+    for name, module in model.named_modules():
+        if name.startswith('x') and not '.' in name:
+            # create a random variable for the current layer
+            epsilon = torch.randn((1, module[0].in_features), device=model.device)
+            reg_rnn += torch.pow(module(epsilon) - epsilon[0, 0], 2)
+            i += 1
+    return reg_rnn/i

@@ -1,11 +1,13 @@
 import numpy as np
 from torch.nn.functional import cross_entropy, mse_loss
-from typing import Iterable, List, Dict, Tuple, Callable
+import torch
+from typing import Iterable, List, Dict, Tuple, Callable, Union
+import matplotlib.pyplot as plt
 
 import pysindy as ps
 
-from resources.bandits import *
-from resources.rnn import EnsembleRNN, BaseRNN
+from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics
+from resources.rnn import EnsembleRNN
 from resources.rnn_utils import DatasetRNN
 
 
@@ -88,7 +90,7 @@ def create_dataset(
         n_trials_per_session = data[0].shape[0]
     else:
       if n_trials_per_session > data.xs.shape[1]:
-        n_trials_per_session = data.xs.shape[1]
+        n_trials_per_session = data.xs.shape[1]    
   
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
@@ -103,7 +105,7 @@ def create_dataset(
     
     for trial in range(n_trials_per_session):
       # generate trial data
-      choice = agent.get_choice()
+      choice = agent.get_choice(random=False)
       if isinstance(data, Environment):
         reward = data.step(choice)
       elif isinstance(data, DatasetRNN):
@@ -122,10 +124,9 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = np.concatenate(history)
+        values = torch.concat(history).detach().cpu().numpy()
         if key in keys_x:
           # add values of interest of one session as trajectory
-          values = np.round(values, 4)
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
         if key in keys_c:
@@ -142,20 +143,17 @@ def create_dataset(
   control = {key: control[key] for key in keys_c}
   feature_names = keys_x + keys_c
   
-  # normalize x_train over all sessions
-  if normalize:
-    for key in keys_x:
-      min_value = min(np.concatenate(x_train[key]))
-      max_value = max(np.concatenate(x_train[key]))
-      for i in range(len(x_train[key])):
-        x_train[key][i] = (x_train[key][i] - min_value) / (max_value - min_value)
-  
   # make x_train and control List[np.ndarray] with shape (n_trials_per_session-1, len(keys)) instead of dictionaries
   x_train_list = []
   control_list = []
   for i in range(len(control[keys_c[0]])):
     x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
+  
+  if normalize:
+    x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
+    for i, x in enumerate(x_train_list):
+      x_train_list[i] = (x - x_min) / (x_max - x_min)
   
   if shuffle:
     shuffle_idx = np.random.permutation(len(x_train_list))
@@ -274,15 +272,20 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 def constructor_update_rule_sindy(sindy_models):
   def update_rule_sindy(q, h, choice, prev_choice, reward):
       # mimic behavior of rnn with sindy
-      if choice == 0:
+      
+      # habit network
+      if prev_choice == 1 and 'xH' in sindy_models:
+        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+      
+      # value network
+      if choice == 0 and 'xQf' in sindy_models:
           # blind update for non-chosen action
-          q_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
-      elif choice == 1:
+          q = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
+      elif choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
-          q_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-      if prev_choice == 1:
-        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update
-      return q_update, h
+          q = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
+          
+      return q, h
     
   return update_rule_sindy
 
@@ -354,7 +357,7 @@ def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNe
       if agent_rnn is not None:
         z[t] = torch.tensor(agent_rnn.q)
       # get Q-Value from sindy agent
-      qs[t] = agent_sindy.q
+      qs[t] = agent_sindy.q * agent_sindy._beta
       # update state of agent
       action = np.argmax(x[t, :-1])
       reward = x[t, -1]

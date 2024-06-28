@@ -99,11 +99,15 @@ class BaseRNN(nn.Module):
         """
         
         if new_value is None:
-            new_value = torch.zeros(old_value.shape) - 1
+            new_value = torch.zeros_like(old_value) - 1
         
-        old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
-        new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
-        sample = np.concatenate([old_value, new_value], axis=1)
+        # old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
+        # new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
+        # sample = np.concatenate([old_value, new_value], axis=1)
+        # self.history[key].append(sample)
+        old_value = old_value.view(-1, 1, old_value.shape[-1])
+        new_value = new_value.view(-1, 1, new_value.shape[-1])
+        sample = torch.cat([old_value, new_value], dim=1)
         self.history[key].append(sample)
         
     def get_history(self, key):
@@ -146,14 +150,15 @@ class RLRNN(BaseRNN):
         self.sigmoid = nn.Sigmoid()
         
         # habit subnetwork
-        self.habit_network = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        self.xH = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
         
         # reward-blind subnetwork
-        self.reward_blind_update = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        self.xQf = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
         
         # reward-based subnetwork
-        self.hidden_layer_value = nn.Linear(input_size, hidden_size)
-        self.reward_based_update = nn.Linear(hidden_size, 1)
+        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        # self.hidden_layer_value = nn.Linear(input_size, hidden_size)
+        # self.reward_based_update = nn.Linear(hidden_size, 1)
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -170,7 +175,7 @@ class RLRNN(BaseRNN):
 
         # 1. reward-blind mechanism (forgetting) for all non-chosen elements
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        blind_update = self.reward_blind_update(not_chosen_value)
+        blind_update = self.xQf(not_chosen_value)
         self.append_timestep_sample(key='xQf', old_value=value, new_value=value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
@@ -182,12 +187,14 @@ class RLRNN(BaseRNN):
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.tanh(self.hidden_layer_value(inputs))
-        reward_update = self.reward_based_update(next_state)
+        # next_state = self.tanh(self.hidden_layer_value(inputs))
+        # reward_update = self.reward_based_update(next_state)
+        reward_update = self.xQr(inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         
         next_value = value + action * reward_update + (1-action) * blind_update
 
+        next_state = state  # right now I am not using the state
         return next_value, next_state
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
@@ -203,7 +210,11 @@ class RLRNN(BaseRNN):
         """
         
         if len(inputs.shape) == 2:
-            inputs = inputs.unsqueeze(1)
+            # unsqueeze time dimension
+            if batch_first:
+                inputs = inputs.unsqueeze(1)
+            else:
+                inputs = inputs.unsqueeze(0)
         
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
@@ -239,10 +250,10 @@ class RLRNN(BaseRNN):
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
             # 2. perseverance mechanism for previously chosen element
-            prev_chosen_action = torch.sum(self.prev_action*value, dim=-1).view(-1, 1)
-            habit = self.habit_network(prev_chosen_action)
-            logit = value + self.prev_action * habit
-            self.append_timestep_sample('xH', value, value + self.prev_action * habit)
+            # prev_chosen_action = torch.sum(self.prev_action*value, dim=-1).view(-1, 1)
+            # habit = self.xH(prev_chosen_action)
+            # self.append_timestep_sample('xH', value, value + self.prev_action * habit)
+            logit = value# + self.prev_action * habit
             
             self.prev_action = a
             
@@ -331,33 +342,48 @@ class EnsembleRNN:
     def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
         if len(inputs.shape) == 2:
             # unsqueeze time dimension
-            inputs = inputs.unsqueeze(1)
+            if batch_first:
+                inputs = inputs.unsqueeze(1)
+            else:
+                inputs = inputs.unsqueeze(0)
+            
+        if batch_first:
+            inputs = inputs.permute(1, 0, 2)
             
         if prev_state is None:
             # initialize state if not provided
-            prev_state = self.initial_state(batch_size=inputs.shape[0])
-        if len(prev_state[0].shape) == 2:
+            self.initial_state(batch_size=inputs.shape[0])
+            state = self.get_state()
+        elif len(prev_state[0].shape) == 2:
             # repeat state for each model and return list of stacked states with shape (n_models, batch_size, hidden_size)
             self.set_state([prev_state for _ in range(len(self.models))])
-            prev_state = self.get_state()
+            state = self.get_state()
+        else:
+            state = prev_state
         
         logits = []
-        states = []
-        history_call = {key: [] for key in self.models[0].history.keys()}
-        for i, model in enumerate(self.models):
-            logits_i, state_i = model(inputs, [state[:, i] for state in prev_state], batch_first)
-            logits.append(logits_i)
-            states.append(state_i)
-            for key in history_call.keys():
-                if len(model.get_history(key)) > 0:
-                    history_call[key].append(model.get_history(key))
-        self.append_timestep_sample(history_call)
+        for inputs_t in inputs:
+            history_call = {key: [] for key in self.models[0].history.keys()}
+            logits_t = []
+            states = []
+            for i, model in enumerate(self.models):
+                logits_i, state_i = model(inputs_t.unsqueeze(0), [s[:, i] for s in state])
+                logits_t.append(logits_i)
+                states.append(state_i)
+                for key in history_call.keys():
+                    if len(model.get_history(key)) > 0:
+                        history_call[key].append(model.get_history(key)[-1])
+            self.set_state(states)
+            state = self.get_state()
+            logits.append(self.vote(torch.stack(logits_t, dim=1), self.voting_type).squeeze(1))
+            self.append_timestep_sample(history_call)
 
-        # TODO: Check if voting logits and single states (xQf, xQr etc) leads to the same behavior
-        logits = self.vote(torch.stack(logits, dim=1), self.voting_type).squeeze(1)
-        states = self.set_state(states)
+        logits = torch.concat(logits)
         
-        return logits, states
+        if batch_first:
+            logits = logits.permute(1, 0, 2)
+        
+        return logits, self.get_state()
     
     def __iter__(self):
         return iter(self.models)
@@ -385,17 +411,17 @@ class EnsembleRNN:
         # vote for all non-hidden states i.e. visible values (habit and value) and copy all hidden states of each submodel
         # non-hidden states are identified by state[i].shape[-1] == self.models[0]._n_actions
         # transform all tuples to lists
-        states = [list(state) for state in states]
+        states = [list(s) for s in states]
         states_tensor = [None for _ in range(len(states[0]))]
         voting_states = self.get_voting_states()
         for i, voting in enumerate(voting_states):
-            state = [state[i] for state in states]
+            state_all_models = [s[i] for s in states]
             if voting:
                 # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
-                new_state = self.vote(torch.concatenate(state, dim=1), self.voting_type).repeat(1, len(self), 1)
+                new_state = self.vote(torch.concatenate(state_all_models, dim=1), self.voting_type).repeat(1, len(self), 1)
             else:
                 # if hidden state keep the state of each model
-                new_state = torch.concatenate(state, dim=1)
+                new_state = torch.concatenate(state_all_models, dim=1)
             states_tensor[i] = new_state.clone()
         self._state = states_tensor
     
@@ -418,6 +444,9 @@ class EnsembleRNN:
         state = []
         for model in self.models:
             state.append(model.initial_state(batch_size=batch_size))
+        # state = list(zip(*state))
+        # state = [torch.concat(s, dim=1) for s in state]
+        # self._state = state
         self.set_state(state)
         return self.get_state(return_dict=return_dict)
     
@@ -434,7 +463,7 @@ class EnsembleRNN:
             if 'x' in key:
                 if len(history_ensemble[key]) > 0:
                     # vote history values
-                    self.history[key].append(self.vote(torch.tensor(np.stack(history_ensemble[key], axis=1)), self.voting_type).squeeze(1).numpy())
+                    self.history[key].append(self.vote(torch.stack(history_ensemble[key], dim=1), self.voting_type).squeeze(1))
             elif 'c' in key:
                 # control signals are equal for all models. It's sufficient to get only the first model's value
                 self.history[key].append(history_ensemble[key][0])

@@ -12,7 +12,7 @@ from bandits import AgentNetwork, AgentSindy, BanditSession
 library_setup = {
     'xQf': [],
     'xQr': ['cr'],
-    'xH': []
+    # 'xH': []
 }
 
 # data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
@@ -22,7 +22,7 @@ library_setup = {
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    # 'xH': ['ca[k-1]', 1]
 }
 
 
@@ -103,12 +103,13 @@ def setup_sindy_agent(
     optimize_beta: bool = False,
     experiment: BanditSession = None,
     comparison_agent: AgentNetwork = None,
+    verbose: bool = False
     ):
     agent_sindy = AgentSindy(n_actions)
     agent_sindy.set_update_rule(update_rule)
     if optimize_beta:
         beta = optimize_beta_func(experiment, comparison_agent, agent_sindy, plot=False)
         agent_sindy._beta = beta
-        # print(f'Optimized SINDy-agent beta: {beta}')
+        print(f'Optimized SINDy-agent beta: {beta}')
         
     return agent_sindy

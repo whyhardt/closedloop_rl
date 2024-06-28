@@ -183,7 +183,6 @@ class AgentSindy:
 
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
-      # self._q[c] = self._update_rule(self._q[c], int(choice==c), int(self._prev_choice==c), reward)
       q, h = self._update_rule(self._q[c], self._h[c], int(choice==c), int(self._prev_choice==c), reward)
       self._q[c] = q
       self._h[c] = h
@@ -191,9 +190,6 @@ class AgentSindy:
     
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
-    # self._qf = self._q_init + np.zeros(self._n_actions)
-    # self._qr = self._q_init + np.zeros(self._n_actions)
-    # self._h = np.zeros(self._n_actions)
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
     self._prev_choice = -1
@@ -204,10 +200,13 @@ class AgentSindy:
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
-  def get_choice(self) -> int:
+  def get_choice(self, random=True) -> int:
     """Sample a choice, given the agent's current internal state."""
     choice_probs = self.get_choice_probs()
-    choice = np.random.choice(self._n_actions, p=choice_probs)
+    if random:
+      choice = np.random.choice(self._n_actions, p=choice_probs)
+    else:
+      choice = np.argmax(choice_probs)
     return choice
   
   @property
@@ -277,10 +276,13 @@ class AgentNetwork:
         choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
       return choice_probs
 
-    def get_choice(self):
+    def get_choice(self, random=True):
       """Sample choice."""
       choice_probs = self.get_choice_probs()
-      choice = np.random.choice(self._n_actions, p=choice_probs)
+      if random:
+        choice = np.random.choice(self._n_actions, p=choice_probs)
+      else:
+        choice = np.argmax(choice_probs)
       return choice
 
     def update(self, choice: float, reward: float):
@@ -461,12 +463,12 @@ def run_experiment(
     experiment: A BanditSession holding choices and rewards from the session
   """
   
-  choices = np.zeros(n_trials)
-  rewards = np.zeros(n_trials)
-  qs = np.zeros((n_trials, environment.n_actions))
-  reward_probs = np.zeros((n_trials, environment.n_actions))
+  choices = np.zeros(n_trials+1)
+  rewards = np.zeros(n_trials+1)
+  qs = np.zeros((n_trials+1, environment.n_actions))
+  reward_probs = np.zeros((n_trials+1, environment.n_actions))
 
-  for trial in np.arange(n_trials):
+  for trial in range(n_trials+1):
     # First record environment reward probs
     reward_probs[trial] = environment.reward_probs
     qs[trial] = agent.q
@@ -481,11 +483,11 @@ def run_experiment(
     agent.update(choice, reward)
     
   experiment = BanditSession(n_trials=n_trials,
-                             choices=choices.astype(int),
-                             rewards=rewards,
-                             timeseries=reward_probs,
-                             q=qs)
-  return experiment
+                             choices=choices[:-1].astype(int),
+                             rewards=rewards[:-1],
+                             timeseries=reward_probs[:-1],
+                             q=qs[:-1])
+  return experiment, choices.astype(int), rewards
 
 
 def create_dataset(
@@ -516,19 +518,15 @@ def create_dataset(
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
 
-  for sess_i in np.arange(n_sessions):
+  for session in range(n_sessions):
     agent.new_sess()
-    experiment = run_experiment(agent, environment, n_trials_per_session)
+    experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
     experiment_list.append(experiment)
     # one-hot encoding of choices
-    choices = np.eye(agent._n_actions)[experiment.choices]
-    prev_choices = np.concatenate((np.zeros((1, *choices.shape[1:])), choices[0:-1]), axis=0)
-    prev_rewards = np.concatenate(([0], experiment.rewards[0:-1]))
-    xs[:, sess_i] = np.concatenate((prev_choices, prev_rewards.reshape(-1, 1)), axis=-1)
-    ys[:, sess_i] = choices
+    choices = np.eye(agent._n_actions)[choices]
+    xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1)), axis=-1)
+    ys[:, session] = choices[1:]
 
-  # dataset = DatasetRNN(xs, ys, batch_size)
-  # use Dataset class instead
   dataset = DatasetRNN(
     xs=np.swapaxes(xs, 0, 1), 
     ys=np.swapaxes(ys, 0, 1),

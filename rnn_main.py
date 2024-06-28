@@ -19,7 +19,6 @@ train = True
 checkpoint = False
 data = False
 sindy_ae = False
-evolution_interval = 10
 
 use_lstm = False
 
@@ -32,15 +31,16 @@ last_output = False
 last_state = False
 
 # ensemble parameters
-sampling_replacement = True
-n_submodels = 16
-ensemble = False
-voting_type = rnn.EnsembleRNN.MEAN  # necessary if ensemble==True
+evolution_interval = None
+sampling_replacement = False
+n_submodels = 1
+ensemble = True
+voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
 epochs = 10000
-n_steps_per_call = 8  # None for full sequence
-batch_size = 64  # None for one batch per epoch
+n_steps_per_call = 16  # None for full sequence
+batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
@@ -57,7 +57,7 @@ if not data:
   gen_alpha = .25 #@param
   gen_beta = 3 #@param
   forget_rate = 0. #@param
-  perseverance_bias = 0.25 #@param
+  perseverance_bias = 0. #@param
   # environment parameters
   non_binary_reward = False #@param
   n_actions = 2 #@param
@@ -153,6 +153,7 @@ if train:
       sampling_replacement=sampling_replacement,
       sindy_ae=sindy_ae,
       evolution_interval=evolution_interval,
+      n_steps_per_call=n_steps_per_call,
   )
   
   # validate model
@@ -161,6 +162,7 @@ if train:
     rnn_training.fit_model(
         model=model,
         dataset=dataset_test,
+        n_steps_per_call=1,
     )
 
   # print adjusted beta parameter
@@ -222,8 +224,10 @@ probs = np.concatenate(list_probs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 
 # normalize q-values
-# qs = (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
+def normalize(qs):
+  return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
+qs = normalize(qs)
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
 reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
@@ -262,7 +266,7 @@ bandits.plot_session(
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = -1*np.diff(qs, axis=2)
+dqs_arms = normalize(-1*np.diff(qs, axis=2))
 
 bandits.plot_session(
     compare=True,
