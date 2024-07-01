@@ -48,9 +48,9 @@ def batch_train(
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     sindy_ae: bool = False,
     weight_rnn_x: float = 1,
-    weight_reg_rnn: float = 1e-3,
-    weight_sindy_x: float = 1e-3,
-    weight_sindy_reg: float = 1e-3,
+    weight_reg_rnn: float = 1e-2,
+    weight_sindy_x: float = 1e-2,
+    weight_sindy_reg: float = 1e-2,
     ):
 
     """
@@ -67,12 +67,12 @@ def batch_train(
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])  # rnn loss in x-coordinates
-        
+                
         loss_sindy_x, loss_sindy_weights = None, None
         if loss.requires_grad:
             
-            # penalty for using a layer --> should enforce the model to use the layer only if necessary
-            loss = weight_rnn_x * loss + weight_reg_rnn * penalty_null_hypothesis(model)
+            # regularization terms for RNN
+            loss = weight_rnn_x * loss + weight_reg_rnn * (penalty_null_hypothesis(model, 5, 32) + penalty_correlated_update(model, 5, 32))
             
             if sindy_ae:
                 # train sindy
@@ -312,17 +312,53 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
     return children, children_optims
 
 
-def penalty_null_hypothesis(model):
-    """Compute a penalty for each layer of the model based on the difference between the input and output of the layer.
+def penalty_null_hypothesis(model, batch_size: int = 1):
+    """Compute a penalty for each subnetwork of the model based on the difference between the input and output of the layer.
     This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place.
     In this manner implemented hypothesis could be tested without model comparison but by the null-hypothesis."""
     
     reg_rnn = torch.zeros((1, 1), device=model.device)
     i = 0
+    
+    epsilon = torch.randn((batch_size, 32), device=model.device)
     for name, module in model.named_modules():
         if name.startswith('x') and not '.' in name:
-            # create a random variable for the current layer
-            epsilon = torch.randn((1, module[0].in_features), device=model.device)
-            reg_rnn += torch.pow(module(epsilon) - epsilon[0, 0], 2)
+            # create a random variable for the current subnetwork
+            # if module[-1].out_features == module[0].in_features:
+            #     reg_rnn += torch.sum(torch.pow(module(epsilon) - epsilon, 2))
+            # elif module[-1].out_features < module[0].in_features:
+            #     n_control_inputs = module[0].in_features - module[-1].out_features
+            #     reg_rnn += torch.sum(torch.pow(module(epsilon) - epsilon[0, :-n_control_inputs], 2))
+            # else:
+            #     raise ValueError('Output features of the RNN-subnetwork must be less or equal to input features.')
+            
+            # All updates in the RNN are conceptualized in such a way that they are added onto the old value.
+            # That means that the output of the RNN should be zero such that the null hypothesis is fulfilled.
+            # I do not want no change to the input but the output to be zero!
+            reg_rnn += torch.sum(torch.pow(module(epsilon[:module[0].in_features]), 2))/batch_size
             i += 1
+    return reg_rnn/i
+
+
+def penalty_correlated_update(model, batch_size: int = 1):
+    """Compute a penalty for each subnetwork based on the influence of one input onto another output e.g. dxi/dxj = 0 for i != j.
+
+    Args:
+        model (BaseRNN): Model to test
+    """
+    
+    reg_rnn = torch.zeros((1, 1), device=model.device)
+    i = 0
+    for name, module in model.named_modules():
+        if name.startswith('x') and not '.' in name:
+            # create a random variable for the current subnetwork
+            epsilon = torch.randn((1, module[0].in_features), device=model.device)
+            for j in range(module[-1].out_features):
+                epsilon_j = epsilon.clone()
+                epsilon_j[0, j] = 0
+                for jj in range(module[-1].out_features):
+                    if jj != j:
+                        reg_rnn += torch.pow(module(epsilon)[:, jj] - module(epsilon_j)[:, jj], 2)/batch_size
+                        i += 1
+    
     return reg_rnn/i

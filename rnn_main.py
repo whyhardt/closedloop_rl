@@ -32,12 +32,12 @@ use_lstm = False
 # ensemble parameters
 evolution_interval = 5
 sampling_replacement = False
-n_submodels = 1
+n_submodels = 32
 ensemble = rnn_training.ensemble_types.NONE
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 1000
+epochs = 10000
 n_steps_per_call = 16  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
@@ -64,7 +64,7 @@ if not data:
   gen_beta = 3
   forget_rate = 0.
   perseverance_bias = 0.
-  correlated_reward_agent = True
+  correlated_reward_agent = False
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
