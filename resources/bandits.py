@@ -59,6 +59,7 @@ class AgentQ:
       n_actions: int = 2,
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
+      correlated_reward: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -75,6 +76,7 @@ class AgentQ:
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseverance_bias
+    self._correlated_reward = correlated_reward
     self._q_init = 0.5
     self.new_sess()
 
@@ -108,11 +110,17 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
-    # Restore q-values toward the initial value
-    self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
+    # Restore q-values of non-chosen actions toward the initial value
+    non_chosen_action = np.arange(self._n_actions) != choice
+    self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
+    
+    # Correlated update
+    if self._correlated_reward:
+      index_correlated_update = self._n_actions - choice - 1
+      self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
     
     # Memorize current choice for perseveration
     self._prev_choice = choice
@@ -266,14 +274,14 @@ class AgentNetwork:
       """Predict the choice probabilities as a softmax over output logits."""
       # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
       value = self.get_value()
-      if all(np.abs(value) > 10):
-        choice_probs = np.array([0.5, 0.5])
-      elif any(value > 10):
-        # TODO: this works currently only for 2 actions
-        choice_probs = np.zeros(self._n_actions)
-        choice_probs[np.argmax(value)] = 1
-      else:
-        choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
+      # if all(np.abs(value) > 10):
+      #   choice_probs = np.array([0.5, 0.5])
+      # elif any(value > 10):
+      #   # TODO: this works currently only for 2 actions
+      #   choice_probs = np.zeros(self._n_actions)
+      #   choice_probs[np.argmax(value)] = 1
+      # else:
+      choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
       return choice_probs
 
     def get_choice(self, random=True):
@@ -365,7 +373,8 @@ class EnvironmentBanditsDrift:
       self,
       sigma: float,
       n_actions: int = 2,
-      non_binary_rewards: bool = False,
+      non_binary_reward: bool = False,
+      correlated_reward: bool = False,
       ):
     """Initialize the environment."""
     # Check inputs
@@ -376,7 +385,8 @@ class EnvironmentBanditsDrift:
     # Initialize persistent properties
     self._sigma = sigma
     self._n_actions = n_actions
-    self._non_binary_reward = non_binary_rewards
+    self._non_binary_reward = non_binary_reward
+    self._correlated_rewards = correlated_reward
 
     # Sample new reward probabilities
     self._new_sess()
@@ -413,8 +423,13 @@ class EnvironmentBanditsDrift:
     
     # Add gaussian noise to reward probabilities
     drift = np.random.normal(loc=0, scale=self._sigma, size=self._n_actions)
-    self._reward_probs += drift
-
+    if not self._correlated_rewards:
+      self._reward_probs += drift
+    else:
+      for i in range(self._n_actions//2):
+        self._reward_probs[i] += drift[i]
+        self._reward_probs[i-1] -= drift[i]
+        
     # Fix reward probs that've drifted below 0 or above 1
     self._reward_probs = np.clip(self._reward_probs, 0, 1)
 

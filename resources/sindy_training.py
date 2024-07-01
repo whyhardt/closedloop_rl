@@ -35,6 +35,8 @@ def fit_model(
     filter_setup: Dict[str, Tuple[str, float]] = {},
     verbose: bool = False,
     get_loss: bool = False,
+    optimizer_threshold: float = 0.05,
+    optimizer_alpha: float = 1e-1
     ):
     
     if feature_names is None:
@@ -77,7 +79,7 @@ def fit_model(
             feature_names_i = feature_names_i + ['u']
         # feature_names_i = [feature_names[i]] + feature_names[x_train[0].shape[-1]:]
         sindy_models[x_feature] = ps.SINDy(
-            optimizer=ps.STLSQ(threshold=0.05, verbose=False, alpha=1e-1),
+            optimizer=ps.STLSQ(threshold=optimizer_threshold, verbose=True, alpha=optimizer_alpha),
             feature_library=library,#ps.PolynomialLibrary(degree=2),
             discrete_time=True,
             feature_names=feature_names_i,
@@ -110,6 +112,7 @@ def setup_sindy_agent(
     if optimize_beta:
         beta = optimize_beta_func(experiment, comparison_agent, agent_sindy, plot=False)
         agent_sindy._beta = beta
-        print(f'Optimized SINDy-agent beta: {beta}')
+        if verbose:
+            print(f'Optimized SINDy-agent beta: {beta}')
         
     return agent_sindy

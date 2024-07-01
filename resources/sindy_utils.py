@@ -154,13 +154,16 @@ def create_dataset(
     x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
     for i, x in enumerate(x_train_list):
       x_train_list[i] = (x - x_min) / (x_max - x_min)
+    beta = x_max - x_min
+  else:
+    beta = 1
   
   if shuffle:
     shuffle_idx = np.random.permutation(len(x_train_list))
     x_train_list = [x_train_list[i] for i in shuffle_idx]
     control_list = [control_list[i] for i in shuffle_idx]
   
-  return x_train_list, control_list, feature_names
+  return x_train_list, control_list, feature_names, beta
 
 
 def optimize_beta(experiment, agent: AgentNetwork, agent_sindy: AgentSindy, plot=False):

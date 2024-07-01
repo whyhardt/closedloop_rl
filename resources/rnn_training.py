@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader, RandomSampler
 import time
 import copy
 import numpy as np
-from typing import Union, List
+from typing import Union, List, NamedTuple
 
 import pysindy as ps
 
@@ -17,6 +17,13 @@ from resources.rnn_utils import DatasetRNN
 from resources.sindy_utils import sindy_loss_x, create_dataset, constructor_update_rule_sindy
 from resources.sindy_training import fit_model as fit_sindy_model, library_setup, datafilter_setup, setup_sindy_agent
 from resources.bandits import AgentNetwork, AgentSindy, EnvironmentBanditsDrift
+
+
+# ensemble types
+class ensemble_types(NamedTuple):
+    NONE = -1
+    VOTE = 0
+    AVERAGE = 1
 
 class categorical_log_likelihood(nn.modules.loss._Loss):
     def __init__(self, size_average=None, reduce=None, reduction: str = 'mean') -> None:
@@ -42,8 +49,8 @@ def batch_train(
     sindy_ae: bool = False,
     weight_rnn_x: float = 1,
     weight_reg_rnn: float = 1e-3,
-    weight_sindy_x: float = 1e-2,
-    weight_sindy_reg: float = 1e-2,
+    weight_sindy_x: float = 1e-3,
+    weight_sindy_reg: float = 1e-3,
     ):
 
     """
@@ -99,7 +106,7 @@ def fit_model(
     batch_size: int = None,
     sampling_replacement: bool = False,
     n_submodels: int = 1,
-    return_ensemble: bool = False,
+    ensemble_type: int = -1,
     voting_type: int = EnsembleRNN.MEDIAN,
     sindy_ae: bool = False,
     evolution_interval: int = None, verbose: bool = True,
@@ -136,8 +143,6 @@ def fit_model(
         # if ensemble model is used, use random sampler with replacement
         sampler = RandomSampler(dataset, replacement=True, num_samples=batch_size)
         dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
-    if evolution_interval is not None:
-        dataloader_evolution = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     # initialize training
     continue_training = True
@@ -204,12 +209,12 @@ def fit_model(
                     loss_sindy_x /= n_submodels
                     loss_sindy_weights /= n_submodels
             
-            if n_submodels > 1 and return_ensemble:
+            if n_submodels > 1 and ensemble_type == ensemble_types.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
                 optimizer_backup = optimizers
             else:
                 # update model and optimizer via averaging over the parameters
-                if n_submodels > 1 and evolution_interval is None:
+                if n_submodels > 1 and ensemble_types.AVERAGE:
                     avg_state_dict = average_parameters(models)
                     for submodel in models:
                         submodel.load_state_dict(avg_state_dict)
@@ -218,7 +223,7 @@ def fit_model(
             
             if n_submodels > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
                 # make sure that evolution interval is big enough so that the ensemble model can be trained effectively before evolution
-                models, optimizers = evolution_step(models, optimizers, DatasetRNN(*next(iter(dataloader_evolution)), device=model[0].device))
+                models, optimizers = evolution_step(models, optimizers, DatasetRNN(*next(iter(dataloader)), device=model[0].device))
                 n_submodels = len(models)
             
             # update last losses according fifo principle
@@ -255,7 +260,7 @@ def fit_model(
         if verbose:
             print(msg)
         
-    if n_submodels > 1 and return_ensemble:
+    if n_submodels > 1 and ensemble_type:
         model_backup = EnsembleRNN(models, voting_type=voting_type)
         optimizer_backup = optimizers
     else:
@@ -286,11 +291,10 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
         
     # select best models
     losses = torch.zeros(len(models))
-    for model in models:
+    for i, model in enumerate(models):
         with torch.no_grad():
-            for i, model in enumerate(models):
-                _, _, loss = fit_model(model, data, verbose=False)
-                losses[i] = loss
+            _, _, loss = fit_model(model, data, verbose=False)
+            losses[i] = loss
                 
     # sort models by loss
     sorted_indices = torch.argsort(losses)

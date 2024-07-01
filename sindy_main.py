@@ -27,18 +27,20 @@ library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=Tru
 
 # training dataset parameters
 n_trials_per_session = 200
-n_sessions = 1
+n_sessions = 32
 
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
 perseverance_bias = 0.
+correlated_reward_agent = True
 
 # environment parameters
-non_binary_reward = False
 n_actions = 2
 sigma = .1
+non_binary_reward = False
+correlated_reward = False
 
 # rnn parameters
 hidden_size = 4
@@ -56,8 +58,8 @@ if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
 
 # set up ground truth agent and environment
-environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_rewards=non_binary_reward)
-agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias)
+environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_reward_agent)
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
@@ -76,10 +78,12 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
-z_train, control, feature_names = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
-sindy_models = fit_model(z_train, control, feature_names, library, library_setup, datafilter_setup, True, False)
+z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
+sindy_models = fit_model(z_train, control, feature_names, library, library_setup, datafilter_setup, True, False, threshold, regularization)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
-agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, True, experiment_list_test[0], agent_rnn, True)
+agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
+print(f'Beta for SINDy: {beta}')
+agent_sindy._beta = beta
 loss_x = sindy_loss_x(agent_sindy, dataset_test)
 loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)
 print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
