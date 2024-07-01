@@ -46,6 +46,7 @@ def batch_train(
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
+    n_iterations_reg: int = 0,
     sindy_ae: bool = False,
     weight_rnn_x: float = 1,
     weight_reg_rnn: float = 1e-2,
@@ -62,32 +63,44 @@ def batch_train(
     
     # predict y and compute loss
     model.initial_state(batch_size=len(xs))
+    
+    # first, compute loss and optimize network w.r.t. regularization terms
+    # test prediction to check if 
+    if torch.is_grad_enabled():
+        for _ in range(n_iterations_reg):
+            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            reg_corr = penalty_correlated_update(model, batch_size=128)  # correlated update penalty
+            
+            loss = reg_null + reg_corr
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+    # second, compute loss and optimize network w.r.t. rnn-predictions
     for t in range(0, xs.shape[1], n_steps_per_call):
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])  # rnn loss in x-coordinates
-                
+        
         loss_sindy_x, loss_sindy_weights = None, None
-        if loss.requires_grad:
+        if torch.is_grad_enabled():
             
-            # regularization terms for RNN
-            loss = weight_rnn_x * loss + weight_reg_rnn * (penalty_null_hypothesis(model, 5, 32) + penalty_correlated_update(model, 5, 32))
-            
-            if sindy_ae:
-                # train sindy
-                z_train, control, feature_names = create_dataset(AgentNetwork(model, model._n_actions, model.device), xs, 200, 1, normalize=True)
-                sindy = fit_sindy_model(z_train, control, feature_names, library_setup=library_setup, filter_setup=datafilter_setup)
-                update_rule_sindy = constructor_update_rule_sindy(sindy)
-                agent_sindy = setup_sindy_agent(update_rule_sindy, model._n_actions)
+            # if sindy_ae:
+            #     # train sindy
+            #     z_train, control, feature_names = create_dataset(AgentNetwork(model, model._n_actions, model.device), xs, 200, 1, normalize=True)
+            #     sindy = fit_sindy_model(z_train, control, feature_names, library_setup=library_setup, filter_setup=datafilter_setup)
+            #     update_rule_sindy = constructor_update_rule_sindy(sindy)
+            #     agent_sindy = setup_sindy_agent(update_rule_sindy, model._n_actions)
                 
-                # sindy loss in x-coordinates
-                loss_sindy_x = sindy_loss_x(agent_sindy, DatasetRNN(xs[0], ys[0]))
-                # sindy loss in z-coordinates --> Try first without; I dont think it is necessary since we are working with really low-dimensional input data for the RNN
-                # sindy weight regularization
-                loss_sindy_weights = torch.mean((torch.tensor([sindy[key].coefficients() for key in sindy])))
+            #     # sindy loss in x-coordinates
+            #     loss_sindy_x = sindy_loss_x(agent_sindy, DatasetRNN(xs[0], ys[0]))
+            #     # sindy loss in z-coordinates --> Try first without; I dont think it is necessary since we are working with really low-dimensional input data for the RNN
+            #     # sindy weight regularization
+            #     loss_sindy_weights = torch.mean((torch.tensor([sindy[key].coefficients() for key in sindy])))
             
-                loss = weight_rnn_x * loss + weight_sindy_x * loss_sindy_x + weight_sindy_reg * loss_sindy_weights
+            #     loss = weight_rnn_x * loss + weight_sindy_x * loss_sindy_x + weight_sindy_reg * loss_sindy_weights
             
             # backpropagation
             optimizer.zero_grad()
@@ -128,9 +141,15 @@ def fit_model(
     
     # initialize optimizer
     optimizers = [torch.optim.Adam(submodel.parameters(), lr=1e-3) for submodel in models]
-    if optimizer is not None:
+    if optimizer is None:
+        pass
+    elif isinstance(optimizer, torch.optim.Optimizer):
         for subopt in optimizers:
             subopt.load_state_dict(optimizer.state_dict())
+    elif isinstance(optimizer, list) and len(optimizer) == n_submodels:
+        optimizers = optimizer
+    else:
+        raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
     
     # initialize dataloader
     if batch_size is None:
@@ -144,25 +163,30 @@ def fit_model(
         sampler = RandomSampler(dataset, replacement=True, num_samples=batch_size)
         dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     
-    # initialize training
-    continue_training = True
-    converged = False
-    loss = torch.inf
-    n_calls_to_train_model = 0
-    
+    # initialize training    
     model_backup = model
     optimizer_backup = optimizers[0]
-    
-    len_last_losses = min([20, epochs])
-    last_losses = torch.ones((len_last_losses,))
-    weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
-    sum_weights_losses = torch.sum(weights_losses)
     
     def average_parameters(models):
         avg_state_dict = {key: None for key in models[0].state_dict().keys()}
         for key in avg_state_dict.keys():
             avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
         return avg_state_dict
+    
+    loss = torch.inf
+    if epochs == 0:
+        continue_training = False
+        msg = 'No training epochs specified. Model will not be trained.'
+        if verbose:
+            print(msg)
+    else:
+        continue_training = True
+        converged = False
+        n_calls_to_train_model = 0
+        len_last_losses = min([20, epochs])
+        last_losses = torch.ones((len_last_losses,))
+        weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
+        sum_weights_losses = torch.sum(weights_losses)
     
     # start training
     while continue_training:
@@ -319,11 +343,10 @@ def penalty_null_hypothesis(model, batch_size: int = 1):
     
     reg_rnn = torch.zeros((1, 1), device=model.device)
     i = 0
-    
+    # create a random variable which is applicable for all subnetworks
     epsilon = torch.randn((batch_size, 32), device=model.device)
     for name, module in model.named_modules():
         if name.startswith('x') and not '.' in name:
-            # create a random variable for the current subnetwork
             # if module[-1].out_features == module[0].in_features:
             #     reg_rnn += torch.sum(torch.pow(module(epsilon) - epsilon, 2))
             # elif module[-1].out_features < module[0].in_features:
@@ -335,7 +358,7 @@ def penalty_null_hypothesis(model, batch_size: int = 1):
             # All updates in the RNN are conceptualized in such a way that they are added onto the old value.
             # That means that the output of the RNN should be zero such that the null hypothesis is fulfilled.
             # I do not want no change to the input but the output to be zero!
-            reg_rnn += torch.sum(torch.pow(module(epsilon[:module[0].in_features]), 2))/batch_size
+            reg_rnn += torch.sum(torch.pow(module(epsilon[:, :module[0].in_features]), 2))/batch_size
             i += 1
     return reg_rnn/i
 
@@ -349,16 +372,16 @@ def penalty_correlated_update(model, batch_size: int = 1):
     
     reg_rnn = torch.zeros((1, 1), device=model.device)
     i = 0
+    # create a random variable which is applicable for all subnetworks
+    epsilon = torch.randn((batch_size, 32), device=model.device)
     for name, module in model.named_modules():
         if name.startswith('x') and not '.' in name:
-            # create a random variable for the current subnetwork
-            epsilon = torch.randn((1, module[0].in_features), device=model.device)
             for j in range(module[-1].out_features):
                 epsilon_j = epsilon.clone()
-                epsilon_j[0, j] = 0
+                epsilon_j[:, j] = 0
                 for jj in range(module[-1].out_features):
                     if jj != j:
-                        reg_rnn += torch.pow(module(epsilon)[:, jj] - module(epsilon_j)[:, jj], 2)/batch_size
+                        reg_rnn += torch.sum(torch.pow(module(epsilon[:, :module[0].in_features])[:, jj] - module(epsilon_j[:, :module[0].in_features])[:, jj], 2))/batch_size
                         i += 1
     
     return reg_rnn/i

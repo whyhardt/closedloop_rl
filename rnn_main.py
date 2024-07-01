@@ -32,7 +32,7 @@ use_lstm = False
 # ensemble parameters
 evolution_interval = 5
 sampling_replacement = False
-n_submodels = 32
+n_submodels = 1
 ensemble = rnn_training.ensemble_types.NONE
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
@@ -125,15 +125,26 @@ else:
       ).to(device)
            for _ in range(n_submodels)]
 
-optimizer_rnn = None#torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
 
-if train:
-  if checkpoint:
+if checkpoint:
     # load trained parameters
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))
-    model.load_state_dict(state_dict['model'])
-    optimizer_rnn.load_state_dict(state_dict['optimizer'])
+    state_dict_model = state_dict['model']
+    state_dict_optimizer = state_dict['optimizer']
+    if isinstance(state_dict_model, dict):
+      for m, o in zip(model, optimizer_rnn):
+        m.load_state_dict(state_dict_model)
+        o.load_state_dict(state_dict_optimizer)
+    elif isinstance(state_dict_model, list):
+        print('Loading ensemble model...')
+        for i, state_dict_model_i, state_dict_optim_i in zip(range(n_submodels), state_dict_model, state_dict_optimizer):
+            model[i].load_state_dict(state_dict_model_i)
+            optimizer_rnn[i].load_state_dict(state_dict_optim_i)
+        rnn = rnn.EnsembleRNN(model, voting_type=voting_type)
     print('Loaded parameters.')
+
+if train:
   
   start_time = time.time()
   
@@ -183,19 +194,21 @@ if train:
   print(f'Saved RNN parameters to file {params_path}.')
 
 else:
-  # load trained parameters
-  model.load_state_dict(torch.load(params_path)['model'])
-  print(f'Loaded parameters from file {params_path}.')
-
-# if hasattr(model, 'beta'):
-#   print(f'beta: {model.beta}')
+  model, _, _ = rnn_training.fit_model(
+      model=model,
+      dataset=dataset_train,
+      epochs=0,
+      n_submodels=n_submodels,
+      ensemble_type=ensemble,
+      voting_type=voting_type,
+      verbose=True
+  )
 
 # Synthesize a dataset using the fitted network
 environment = bandits.EnvironmentBanditsDrift(0.1)
 model.set_device(torch.device('cpu'))
 model.to(torch.device('cpu'))
 rnn_agent = bandits.AgentNetwork(model, n_actions=2)
-# dataset_rnn, experiment_list_rnn = bandits.create_dataset(rnn_agent, environment, 220, 10)
 
 # Analysis
 session_id = 0
