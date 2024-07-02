@@ -36,13 +36,13 @@ ensemble = rnn_training.ensemble_types.NONE
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 10000
+epochs = 100
 n_steps_per_call = 16  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
-# agent parameters
+# ground truth parameters
 gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.

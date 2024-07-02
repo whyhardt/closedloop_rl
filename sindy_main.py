@@ -34,7 +34,7 @@ gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
 perseverance_bias = 0.
-correlated_reward_agent = False
+correlated_reward_agent = True
 
 # environment parameters
 n_actions = 2
