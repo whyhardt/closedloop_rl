@@ -122,7 +122,7 @@ class RLRNN(BaseRNN):
         init_value=0.5,
         last_output=False,
         last_state=False,
-        list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],
+        list_sindy_signals=['xQf', 'xQr', 'xQc', 'ca', 'ca[k-1]', 'cr'],
         device=torch.device('cpu'),
         ):
         
@@ -155,6 +155,9 @@ class RLRNN(BaseRNN):
         # reward-blind subnetwork
         self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions-1))
         
+        # correlation-update subnetwork
+        self.xQc = nn.Sequential(nn.Linear(2, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        
         # reward-based subnetwork
         self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
         # self.hidden_layer_value = nn.Linear(input_size, hidden_size)
@@ -176,7 +179,12 @@ class RLRNN(BaseRNN):
         # 1. reward-blind mechanism (forgetting) for all non-chosen elements
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
         blind_update = self.xQf(not_chosen_value)
-        self.append_timestep_sample(key='xQf', old_value=value, new_value=value + (1-action) * blind_update)
+        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        
+        # 2. correlated reward-based update for the non-chosen element
+        inputs = torch.cat([not_chosen_value, reward], dim=-1).float()
+        correlation_update = self.xQc(inputs)
+        self.append_timestep_sample('xQc', value, value + (1-action) * correlation_update)
         
         # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
@@ -190,7 +198,7 @@ class RLRNN(BaseRNN):
         reward_update = self.xQr(inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         
-        next_value = value + action * reward_update + (1-action) * blind_update
+        next_value = value + action * reward_update + (1-action) * (blind_update + correlation_update)
 
         next_state = state  # right now I am not using the state
         return next_value, next_state
@@ -250,11 +258,8 @@ class RLRNN(BaseRNN):
             # 2. perseverance mechanism for previously chosen element
             # prev_chosen_action = torch.sum(self.prev_action*value, dim=-1).view(-1, 1)
             # habit = self.xH(prev_chosen_action)
-            # habit = self.xH(self.prev_action)
             # self.append_timestep_sample('xH', value, value + self.prev_action * habit)
-            # self.append_timestep_sample('xH', value, value + habit)
-            # logit = value + self.prev_action * habit
-            logit = value #+ habit
+            logit = value #+ self.prev_action * habit
             
             self.prev_action = a
             

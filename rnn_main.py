@@ -45,7 +45,7 @@ convergence_threshold = 1e-6
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.
+forget_rate = 0.1
 perseverance_bias = 0.
 correlated_reward_agent = True
 
@@ -58,7 +58,7 @@ correlated_reward = False
 non_binary_reward = False
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr', 'xH']
+x_train_list = ['xQf','xQr', 'xQc']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = x_train_list + control_list
 
@@ -91,6 +91,7 @@ if not data:
       gen_beta,
       forget_rate,
       perseverance_bias,
+      correlated_reward_agent,
       non_binary_reward,
       verbose=True,
   )

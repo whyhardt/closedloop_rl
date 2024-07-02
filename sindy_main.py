@@ -50,7 +50,7 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-z_train_list = ['xQf','xQr', 'xH']
+z_train_list = ['xQf','xQr', 'xQc']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = z_train_list + control_list
 
@@ -63,7 +63,7 @@ agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, c
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, correlated_reward_agent, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):

@@ -281,14 +281,21 @@ def constructor_update_rule_sindy(sindy_models):
         h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network
+      blind_update, correlation_update, reward_update = 0, 0, 0
+      
+      if choice == 0 and 'xQc' in sindy_models:
+          # correlation update for non-chosen action
+          correlation_update = sindy_models['xQc'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+      
       if choice == 0 and 'xQf' in sindy_models:
           # blind update for non-chosen action
-          q = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1]
-      elif choice == 1 and 'xQr' in sindy_models:
+          blind_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1] - q
+      
+      if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
-          q = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1]
-          
-      return q, h
+          reward_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+      
+      return q+blind_update+correlation_update+reward_update, h
     
   return update_rule_sindy
 

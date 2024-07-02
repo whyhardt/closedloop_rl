@@ -11,6 +11,7 @@ from bandits import AgentNetwork, AgentSindy, BanditSession
 # key is the SINDy submodel name, value is a list of
 library_setup = {
     'xQf': [],
+    'xQc': ['cr'],
     'xQr': ['cr'],
     # 'xH': []
 }
@@ -21,6 +22,7 @@ library_setup = {
 # 'xQf': ['ca', 0] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf'
 datafilter_setup = {
     'xQf': ['ca', 0],
+    'xQc': ['ca', 0],
     'xQr': ['ca', 1],
     # 'xH': ['ca[k-1]', 1]
 }
