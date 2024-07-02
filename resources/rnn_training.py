@@ -58,7 +58,7 @@ def batch_train(
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
-        loss = loss_fn(y_pred, ys[:, t+n_steps-1])  # rnn loss in x-coordinates
+        loss = loss_fn(y_pred, ys[:, t+n_steps-1])
         
         if torch.is_grad_enabled():
             
