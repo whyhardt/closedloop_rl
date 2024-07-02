@@ -52,23 +52,45 @@ def batch_train(
     
     # predict y and compute loss
     model.initial_state(batch_size=len(xs))
-        
-    # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
-    for t in range(0, xs.shape[1], n_steps_per_call):
+    
+    for t in range(xs.shape[1]):
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
         state = model.get_state(detach=True)
-        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
-        loss = loss_fn(y_pred, ys[:, t+n_steps-1])
+        for step in range(n_steps):
+            y_pred = model(xs[:, t+step], state, batch_first=True)[0].squeeze(1)
+            state = model.get_state()
+            if step == 0:
+                # save state for next big iteration
+                state_buffer = state
+        model.set_state(*state_buffer)
         
+        # compute loss and optimize network
+        loss = loss_fn(y_pred, ys[:, t+n_steps-1])
         if torch.is_grad_enabled():
-            
-            # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
-            # loss += weight_reg_rnn * reg_null
-            
-            # backpropagation
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
             optimizer.step()
+    
+    # --------------------------------------------------------------
+    # old procedure; may be to inefficient due to big time steps
+    # --------------------------------------------------------------
+    
+    # # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
+    # for t in range(0, xs.shape[1], n_steps_per_call):
+    #     n_steps = min(xs.shape[1]-t, n_steps_per_call)
+    #     state = model.get_state(detach=True)
+    #     y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
+    #     loss = loss_fn(y_pred, ys[:, t+n_steps-1])
+        
+    #     if torch.is_grad_enabled():
+            
+    #         # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+    #         # loss += weight_reg_rnn * reg_null
+            
+    #         # backpropagation
+    #         optimizer.zero_grad()
+    #         loss.backward(retain_graph=True)
+    #         optimizer.step()
     
     return model, optimizer, loss.item()
     
