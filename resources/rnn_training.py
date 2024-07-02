@@ -9,15 +9,9 @@ import copy
 import numpy as np
 from typing import Union, List, NamedTuple
 
-import pysindy as ps
-
 # from rnn import BaseRNN, EnsembleRNN
 from resources.rnn import BaseRNN, EnsembleRNN
 from resources.rnn_utils import DatasetRNN
-from resources.sindy_utils import sindy_loss_x, create_dataset, constructor_update_rule_sindy
-from resources.sindy_training import fit_model as fit_sindy_model, library_setup, datafilter_setup, setup_sindy_agent
-from resources.bandits import AgentNetwork, AgentSindy, EnvironmentBanditsDrift
-
 
 # ensemble types
 class ensemble_types(NamedTuple):
@@ -46,12 +40,7 @@ def batch_train(
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
-    n_iterations_reg: int = 0,
-    sindy_ae: bool = False,
-    weight_rnn_x: float = 1,
     weight_reg_rnn: float = 1e-2,
-    weight_sindy_x: float = 1e-2,
-    weight_sindy_reg: float = 1e-2,
     ):
 
     """
@@ -71,33 +60,17 @@ def batch_train(
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])  # rnn loss in x-coordinates
         
-        loss_sindy_x, loss_sindy_weights = None, None
         if torch.is_grad_enabled():
             
-            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
-            loss += weight_reg_rnn * reg_null
-            
-            # if sindy_ae:
-            #     # train sindy
-            #     z_train, control, feature_names = create_dataset(AgentNetwork(model, model._n_actions, model.device), xs, 200, 1, normalize=True)
-            #     sindy = fit_sindy_model(z_train, control, feature_names, library_setup=library_setup, filter_setup=datafilter_setup)
-            #     update_rule_sindy = constructor_update_rule_sindy(sindy)
-            #     agent_sindy = setup_sindy_agent(update_rule_sindy, model._n_actions)
-                
-            #     # sindy loss in x-coordinates
-            #     loss_sindy_x = sindy_loss_x(agent_sindy, DatasetRNN(xs[0], ys[0]))
-            #     # sindy loss in z-coordinates --> Try first without; I dont think it is necessary since we are working with really low-dimensional input data for the RNN
-            #     # sindy weight regularization
-            #     loss_sindy_weights = torch.mean((torch.tensor([sindy[key].coefficients() for key in sindy])))
-            
-            #     loss = weight_rnn_x * loss + weight_sindy_x * loss_sindy_x + weight_sindy_reg * loss_sindy_weights
+            # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            # loss += weight_reg_rnn * reg_null
             
             # backpropagation
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
     
-    return model, optimizer, loss.item(), (loss_sindy_x, loss_sindy_weights)
+    return model, optimizer, loss.item()
     
 
 def fit_model(
@@ -111,7 +84,6 @@ def fit_model(
     n_submodels: int = 1,
     ensemble_type: int = -1,
     voting_type: int = EnsembleRNN.MEDIAN,
-    sindy_ae: bool = False,
     evolution_interval: int = None, verbose: bool = True,
     n_steps_per_call: int = None,
 ):
@@ -184,15 +156,13 @@ def fit_model(
             t_start = time.time()
             n_calls_to_train_model += 1
             loss = 0
-            loss_sindy_x = 0
-            loss_sindy_weights = 0
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
                 with torch.no_grad():
                     # get next batch
                     xs, ys = next(iter(dataloader))
                     # train model
-                    _, _, loss, _ = batch_train(
+                    _, _, loss = batch_train(
                         model=models,
                         xs=xs,
                         ys=ys,
@@ -204,34 +174,29 @@ def fit_model(
                     # get next batch
                     xs, ys = next(iter(dataloader))
                     # train model
-                    models[i], optimizers[i], loss_i, loss_sindy_i = batch_train(
+                    models[i], optimizers[i], loss_i = batch_train(
                         model=models[i],
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[i],
-                        sindy_ae=sindy_ae,
                         n_steps_per_call=n_steps_per_call
                         # loss_fn = categorical_log_likelihood
                     )
                 
                     loss += loss_i
-                    if sindy_ae:
-                        loss_sindy_x += loss_sindy_i[0]
-                        loss_sindy_weights += loss_sindy_i[1]
                 loss /= n_submodels
-                if sindy_ae:
-                    loss_sindy_x /= n_submodels
-                    loss_sindy_weights /= n_submodels
             
-            if n_submodels > 1 and ensemble_type == ensemble_types.VOTE:
-                model_backup = EnsembleRNN(models, voting_type=voting_type)
-                optimizer_backup = optimizers
-            else:
-                # update model and optimizer via averaging over the parameters
-                if n_submodels > 1 and ensemble_types.AVERAGE:
+            if n_submodels > 1 and ensemble_type != ensemble_types.NONE:
+                if ensemble_type == ensemble_types.VOTE:
+                    model_backup = EnsembleRNN(models, voting_type=voting_type)
+                    optimizer_backup = optimizers
+                elif ensemble_type == ensemble_types.AVERAGE:
                     avg_state_dict = average_parameters(models)
                     for submodel in models:
                         submodel.load_state_dict(avg_state_dict)
+                    model_backup = models[0]
+                    optimizer_backup = optimizers[0]
+            else:
                 model_backup = models[0]
                 optimizer_backup = optimizers[0]
             
@@ -258,10 +223,7 @@ def fit_model(
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'
-                if sindy_ae:
-                    msg += f' --- Loss SINDy x: {loss_sindy_x:.7f}; Loss SINDy weights: {loss_sindy_weights:.7f}'
-                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'                
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -274,7 +236,7 @@ def fit_model(
         if verbose:
             print(msg)
         
-    if n_submodels > 1 and ensemble_type:
+    if n_submodels > 1 and ensemble_type == ensemble_types.VOTE:
         model_backup = EnsembleRNN(models, voting_type=voting_type)
         optimizer_backup = optimizers
     else:
@@ -331,7 +293,7 @@ def penalty_null_hypothesis(model, batch_size: int = 1):
     This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place.
     In this manner implemented hypothesis could be tested without model comparison but by the null-hypothesis."""
     
-    reg_rnn = torch.zeros((1, 1), device=model.device)
+    reg_rnn = torch.zeros((), device=model.device)
     i = 0
     # create a random variable which is applicable for all subnetworks
     epsilon = torch.randn((batch_size, 32), device=model.device)
