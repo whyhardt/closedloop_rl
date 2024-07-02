@@ -138,7 +138,7 @@ class RLRNN(BaseRNN):
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
-        input_size = 2 + 1
+        input_size = 1 + 1  # Q-Value of chosen action and received reward
         if self._vo:
             input_size += self._n_actions
         if self._vs:
@@ -153,10 +153,10 @@ class RLRNN(BaseRNN):
         # self.xH = nn.Sequential(nn.Linear(2, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2))
         
         # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(2, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2))
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions-1))
         
         # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2))
+        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
         # self.hidden_layer_value = nn.Linear(input_size, hidden_size)
         # self.reward_based_update = nn.Linear(hidden_size, 1)
         
@@ -174,14 +174,12 @@ class RLRNN(BaseRNN):
         """
 
         # 1. reward-blind mechanism (forgetting) for all non-chosen elements
-        # not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        not_chosen_value = (1-action) * value
+        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
         blind_update = self.xQf(not_chosen_value)
         self.append_timestep_sample(key='xQf', old_value=value, new_value=value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
-        # chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
-        chosen_value = action * value
+        chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
         if self._vo:
@@ -189,13 +187,10 @@ class RLRNN(BaseRNN):
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        # next_state = self.tanh(self.hidden_layer_value(inputs))
-        # reward_update = self.reward_based_update(next_state)
         reward_update = self.xQr(inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         
-        # next_value = value + action * reward_update + (1-action) * blind_update
-        next_value = value + reward_update + blind_update
+        next_value = value + action * reward_update + (1-action) * blind_update
 
         next_state = state  # right now I am not using the state
         return next_value, next_state

@@ -18,7 +18,6 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 train = True
 checkpoint = False
 data = False
-sindy_ae = False
 
 path_data = 'data/dataset_train.pkl'
 params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapted to the ground truth model)
@@ -43,6 +42,13 @@ batch_size = None  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
+# agent parameters
+gen_alpha = .25
+gen_beta = 3
+forget_rate = 0.
+perseverance_bias = 0.
+correlated_reward_agent = True
+
 # environment parameters
 n_actions = 2
 sigma = 0.1
@@ -59,13 +65,6 @@ sindy_feature_list = x_train_list + control_list
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if not data:
-  # agent parameters
-  gen_alpha = .25
-  gen_beta = 3
-  forget_rate = 0.
-  perseverance_bias = 0.
-  correlated_reward_agent = False
-
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
   agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_reward_agent)  
@@ -101,8 +100,8 @@ else:
   with open(path_data, 'rb') as f:
       dataset_train = pickle.load(f)
 
-if ensemble and n_submodels == 1:
-  Warning('Ensemble is set to True but n_submodels is set to 1. Deactivating ensemble...')
+if ensemble > -1 and n_submodels == 1:
+  Warning('Ensemble is actived but n_submodels is set to 1. Deactivating ensemble...')
   ensemble = rnn_training.ensemble_types.NONE
 
 # define model
@@ -161,7 +160,6 @@ if train:
       ensemble_type=ensemble,
       voting_type=voting_type,
       sampling_replacement=sampling_replacement,
-      sindy_ae=sindy_ae,
       evolution_interval=evolution_interval,
       n_steps_per_call=n_steps_per_call,
   )
@@ -175,13 +173,6 @@ if train:
         n_steps_per_call=1,
     )
 
-  # print adjusted beta parameter
-  # if isinstance(model, rnn.RLRNN):
-  #   print(f'beta: {np.round(model.beta.item(), 2)}')
-  # elif isinstance(model, rnn.EnsembleRNN):
-  #   beta = torch.tensor([model_i.beta for model_i in model]).reshape(1, -1)
-  #   print(f'beta: {np.round(model.vote(beta, voting_type).item(), 2)}')
-  
   print(f'Training took {time.time() - start_time:.2f} seconds.')
   
   # save trained parameters  
