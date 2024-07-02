@@ -186,17 +186,14 @@ def fit_model(
                     loss += loss_i
                 loss /= n_submodels
             
-            if n_submodels > 1 and ensemble_type != ensemble_types.NONE:
-                if ensemble_type == ensemble_types.VOTE:
-                    model_backup = EnsembleRNN(models, voting_type=voting_type)
-                    optimizer_backup = optimizers
-                elif ensemble_type == ensemble_types.AVERAGE:
+            if n_submodels > 1 and ensemble_type == ensemble_types.VOTE:
+                model_backup = EnsembleRNN(models, voting_type=voting_type)
+                optimizer_backup = optimizers
+            else:
+                if n_submodels > 1 and ensemble_type == ensemble_types.AVERAGE:
                     avg_state_dict = average_parameters(models)
                     for submodel in models:
                         submodel.load_state_dict(avg_state_dict)
-                    model_backup = models[0]
-                    optimizer_backup = optimizers[0]
-            else:
                 model_backup = models[0]
                 optimizer_backup = optimizers[0]
             
@@ -205,7 +202,7 @@ def fit_model(
                 models, optimizers = evolution_step(models, optimizers, DatasetRNN(*next(iter(dataloader)), device=model[0].device))
                 n_submodels = len(models)
             
-            # update last losses according fifo principle
+            # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
             last_losses[-1] = copy.copy(loss)
 
