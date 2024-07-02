@@ -67,6 +67,10 @@ def batch_train(
         # compute loss and optimize network
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])
         if torch.is_grad_enabled():
+            
+            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            loss += weight_reg_rnn * reg_null
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -308,8 +312,8 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
 
 
 def penalty_null_hypothesis(model, batch_size: int = 1):
-    """Compute a penalty for each subnetwork of the model based on the difference between the input and output of the layer.
-    This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place.
+    """Compute a penalty for each subnetwork of the model based on the output of the corresponding subnetwork.
+    This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place --> aka null-hypothesis.
     In this manner implemented hypothesis could be tested without model comparison but by the null-hypothesis."""
     
     reg_rnn = torch.zeros((), device=model.device)
@@ -318,17 +322,6 @@ def penalty_null_hypothesis(model, batch_size: int = 1):
     epsilon = torch.randn((batch_size, 32), device=model.device)
     for name, module in model.named_modules():
         if name.startswith('x') and not '.' in name:
-            # if module[-1].out_features == module[0].in_features:
-            #     reg_rnn += torch.sum(torch.pow(module(epsilon) - epsilon, 2))
-            # elif module[-1].out_features < module[0].in_features:
-            #     n_control_inputs = module[0].in_features - module[-1].out_features
-            #     reg_rnn += torch.sum(torch.pow(module(epsilon) - epsilon[0, :-n_control_inputs], 2))
-            # else:
-            #     raise ValueError('Output features of the RNN-subnetwork must be less or equal to input features.')
-            
-            # All updates in the RNN are conceptualized in such a way that they are added onto the old value.
-            # That means that the output of the RNN should be zero such that the null hypothesis is fulfilled.
-            # I do not want no change to the input but the output to be zero!
             reg_rnn += torch.sum(torch.pow(module(epsilon[:, :module[0].in_features]), 2))/batch_size
             i += 1
     return reg_rnn/i
