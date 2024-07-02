@@ -30,7 +30,7 @@ last_state = False
 use_lstm = False
 
 # ensemble parameters
-evolution_interval = 5
+evolution_interval = None
 sampling_replacement = False
 n_submodels = 1
 ensemble = rnn_training.ensemble_types.NONE
