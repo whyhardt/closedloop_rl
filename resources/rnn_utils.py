@@ -1,8 +1,74 @@
+import torch
+from torch.utils.data import Dataset
+
 # Add resources folder to path
 from rnn import BaseRNN, EnsembleRNN
 
 
-def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_habit, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=False):
+class DatasetRNN(Dataset):
+    def __init__(
+        self, 
+        xs: torch.Tensor, 
+        ys: torch.Tensor, 
+        sequence_length: int = None,
+        stride: int = 1,
+        device=torch.device('cpu'),
+        ):
+        """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
+        Actions can be either one-hot encoded or indexes.
+
+        Args:
+            xs (torch.Tensor): Actions and rewards in the shape (n_sessions, n_timesteps, n_features)
+            ys (torch.Tensor): Next action
+            batch_size (Optional[int], optional): Sets batch size if desired else uses n_samples as batch size.
+            device (torch.Device, optional): Torch device. If None, uses cuda if available else cpu.
+        """
+        
+        # check for type of xs and ys
+        if not isinstance(xs, torch.Tensor):
+            xs = torch.tensor(xs, dtype=torch.float32)
+        if not isinstance(ys, torch.Tensor):
+            ys = torch.tensor(ys, dtype=torch.float32)
+            
+        # check dimensions of xs and ys
+        if len(xs.shape) == 2:
+            xs = xs.unsqueeze(0)
+        if len(ys.shape) == 2:
+            ys = ys.unsqueeze(0)
+        
+        self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
+        self.stride = stride
+        
+        if sequence_length is not None:
+            xs, ys = self.set_sequences(xs, ys)
+        
+        self.xs = xs.to(device)
+        self.ys = ys.to(device)
+        
+    def set_sequences(self, xs, ys):
+        # sets sequences of length sequence_length with specified stride from the dataset
+        xs_sequences = []
+        ys_sequences = []
+        for i in range(0, max(1, xs.shape[1]-self.sequence_length), self.stride):
+            xs_sequences.append(xs[:, i:i+self.sequence_length, :])
+            ys_sequences.append(ys[:, i:i+self.sequence_length, :])
+        xs = torch.cat(xs_sequences, dim=0)
+        ys = torch.cat(ys_sequences, dim=0)
+        
+        if len(xs.shape) == 2:
+            xs = xs.unsqueeze(1)
+            ys = ys.unsqueeze(1)
+            
+        return xs, ys
+    
+    def __len__(self):
+        return self.xs.shape[0]
+    
+    def __getitem__(self, idx):
+        return self.xs[idx, :], self.ys[idx, :]
+
+
+def parameter_file_naming(params_path, use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_binary_reward, verbose=False):
     # create name for corresponding rnn
   
     if use_lstm:
@@ -10,7 +76,7 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_ha
     else:
         params_path += '_rnn'
     
-    if any([last_output, last_state, use_habit]):
+    if any([last_output, last_state]):
         params_path += '_'
     
     if last_output:
@@ -18,9 +84,6 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_ha
         
     if last_state:
         params_path += 's'
-        
-    if use_habit:
-        params_path += 'h'
     
     params_path += f'_b' + str(gen_beta).replace('.', '')
     
@@ -29,6 +92,9 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, use_ha
         
     if perseverance_bias > 0:
         params_path += f'_p' + str(perseverance_bias).replace('.', '')
+        
+    if correlated_reward:
+        params_path += '_c'
     
     if non_binary_reward:
         params_path += '_nonbinary'
