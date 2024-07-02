@@ -1,9 +1,14 @@
 import numpy as np
-from typing import Union, Iterable, List, Dict, Tuple
+from torch.nn.functional import cross_entropy, mse_loss
+import torch
+from typing import Iterable, List, Dict, Tuple, Callable, Union
+import matplotlib.pyplot as plt
 
 import pysindy as ps
 
-from bandits import *
+from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics
+from resources.rnn import EnsembleRNN
+from resources.rnn_utils import DatasetRNN
 
 
 def make_sindy_data(
@@ -65,11 +70,27 @@ def make_sindy_data(
 
 def create_dataset(
   agent: AgentNetwork,
-  environment: Environment,
+  data: Union[Environment, DatasetRNN, np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
+  shuffle: bool = False,
+  verbose: bool = False,
   ):
+  
+  if not isinstance(data, Environment):
+    if isinstance(data, (np.ndarray, torch.Tensor)) and data.ndim == 2:
+      data = [data]
+    if verbose:
+      Warning('data is not of type Environment. Checking for correct number of sessions and trials per session with respect to the given data object.')
+    if n_sessions > len(data):
+      n_sessions = len(data)
+    if not isinstance(data, DatasetRNN):
+      if n_trials_per_session > data[0].shape[0]:
+        n_trials_per_session = data[0].shape[0]
+    else:
+      if n_trials_per_session > data.xs.shape[1]:
+        n_trials_per_session = data.xs.shape[1]    
   
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
@@ -84,31 +105,35 @@ def create_dataset(
     
     for trial in range(n_trials_per_session):
       # generate trial data
-      choice = agent.get_choice()
-      reward = environment.step(choice)
+      choice = agent.get_choice(random=False)
+      if isinstance(data, Environment):
+        reward = data.step(choice)
+      elif isinstance(data, DatasetRNN):
+        reward = data.xs[session, trial, -1].item()
+      else:
+        reward = data[session][trial, -1]
+        if isinstance(reward, torch.Tensor):
+          reward = reward.item()
+        
       agent.update(choice, reward)
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
       if len(agent._model.history[key]) > 1:
-        values = np.concatenate(agent._model.history[key])#[1:])  # skip first value because it is not usable
-        # if len(values) > n_trials_per_session-1:
-        #   values = values[:n_trials_per_session-1]  # state values (start with 'x') have one value more per session because they have to be initialized
+        # TODO: resolve ugly workaround with class distinction
+        history = agent._model.history[key]
+        if isinstance(agent._model, EnsembleRNN):
+          history = history[-1]
+        values = torch.concat(history).detach().cpu().numpy()
         if key in keys_x:
           # add values of interest of one session as trajectory
-          if normalize:
-            value_min = np.min(values)
-            value_max = np.max(values)
-            values = (values - value_min) / (value_max - value_min)
           for i_action in range(agent._n_actions):
-            # x_train[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             x_train[key] += [v for v in values[:, :, i_action]]
         if key in keys_c:
           # add control signals of one session as corresponding trajectory
           if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
-            # control[index_x_train:index_x_train+(n_trials_per_session-1), :, i_key] = values[:, :, i_action]
             control[key] += [v for v in values[:, :, i_action]]
               
   # get all keys of x_train and control that have no values and remove them
@@ -125,11 +150,61 @@ def create_dataset(
     x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
   
-  return x_train_list, control_list, feature_names
+  if normalize:
+    x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
+    for i, x in enumerate(x_train_list):
+      x_train_list[i] = (x - x_min) / (x_max - x_min)
+    beta = x_max - x_min
+  else:
+    beta = 1
+  
+  if shuffle:
+    shuffle_idx = np.random.permutation(len(x_train_list))
+    x_train_list = [x_train_list[i] for i in shuffle_idx]
+    control_list = [control_list[i] for i in shuffle_idx]
+  
+  return x_train_list, control_list, feature_names, beta
 
 
-def optimize_beta():
-  raise NotImplementedError("not implemented yet")
+def optimize_beta(experiment, agent: AgentNetwork, agent_sindy: AgentSindy, plot=False):
+  # fit beta parameter of softmax by fitting on choice probability of the RNN by simple grid search
+
+  # number of observed points
+  n_points = 100
+
+  # get choice probabilities of the RNN
+  _, choice_probs_rnn = get_update_dynamics(experiment, agent)
+
+  # set prior for beta parameter; x_max seems to be a good starting point
+  # beta_range = np.linspace(x_max-1, x_max+1, n_points)
+  beta_range = np.linspace(1, 10, n_points)
+
+  # get choice probabilities of the SINDy agent for each beta in beta_range
+  choice_probs_sindy = np.zeros((len(beta_range), len(choice_probs_rnn), agent._n_actions))
+  for i, beta in enumerate(beta_range):
+      agent_sindy._beta = beta
+      _, choice_probs_sindy_beta = get_update_dynamics(experiment, agent_sindy)
+      
+      # add choice probabilities to choice_probs_sindy
+      choice_probs_sindy[i, :, :] = choice_probs_sindy_beta
+      
+  # get best beta value by minimizing the error between choice probabilities of the RNN and the SINDy agent
+  errors = np.zeros(len(beta_range))
+  for i in range(len(beta_range)):
+      errors[i] = np.sum(np.abs(choice_probs_rnn - choice_probs_sindy[i]))
+
+  # get right beta value
+  beta = beta_range[np.argmin(errors)]
+
+  if plot:
+    # plot error plot with best beta value in title
+    plt.plot(beta_range, errors)
+    plt.title(f'Error plot with best beta={beta}')
+    plt.xlabel('Beta')
+    plt.ylabel('MAE')
+    plt.show()
+
+  return beta
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
@@ -151,10 +226,10 @@ def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List
     return True
   
 
-def remove_control_features(control_variables: List[np.ndarray], feature_names_org, feature_names_new) -> List[np.ndarray]:
+def remove_control_features(control_variables: List[np.ndarray], feature_names: List[str], target_feature_names: List[str]) -> List[np.ndarray]:
   control_new = []
   for control in control_variables:
-    remaining_control_variables = [control[:, feature_names_org.index(feature)] for feature in feature_names_new]
+    remaining_control_variables = [control[:, feature_names.index(feature)] for feature in target_feature_names]
     if len(remaining_control_variables) > 0:
       control_new.append(np.stack(remaining_control_variables, axis=-1))
     else:
@@ -163,7 +238,7 @@ def remove_control_features(control_variables: List[np.ndarray], feature_names_o
   return control_new
 
 
-def extract_samples(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
   x_train_relevant = []
   control_relevant = []
   x_features = [feature for feature in feature_names if feature.startswith('x')]
@@ -181,3 +256,129 @@ def extract_samples(x_train: List[np.ndarray], control: List[np.ndarray], featur
     control_features.remove(relevant_feature)
     
   return x_train_relevant, control_relevant, x_features+control_features
+
+
+def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.feature_library.base.BaseFeatureLibrary, List[str]]]:
+  libraries = {key: None for key in library_setup.keys()}
+  feature_names = {key: [key] + library_setup[key] for key in library_setup.keys()}
+  for key in library_setup.keys():
+      library = ps.PolynomialLibrary(degree=2)
+      library.fit(np.random.rand(10, len(feature_names[key])))
+      print(library.get_feature_names_out(feature_names[key]))
+      libraries[key] = (library, feature_names[key])
+  
+  ps.ConcatLibrary([libraries[key][0] for key in libraries.keys()])
+  
+  return libraries
+
+
+def constructor_update_rule_sindy(sindy_models):
+  def update_rule_sindy(q, h, choice, prev_choice, reward):
+      # mimic behavior of rnn with sindy
+      
+      # habit network
+      if prev_choice == 1 and 'xH' in sindy_models:
+        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+      
+      # value network
+      blind_update, correlation_update, reward_update = 0, 0, 0
+      
+      if choice == 0 and 'xQc' in sindy_models:
+          # correlation update for non-chosen action
+          correlation_update = sindy_models['xQc'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+      
+      if choice == 0 and 'xQf' in sindy_models:
+          # blind update for non-chosen action
+          blind_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1] - q
+      
+      if choice == 1 and 'xQr' in sindy_models:
+          # reward-based update for chosen action
+          reward_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+      
+      return q+blind_update+correlation_update+reward_update, h
+    
+  return update_rule_sindy
+
+
+def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable = cross_entropy):
+  """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
+  This loss is not used for SINDy-Training, but for analysis purposes only.
+
+  Args:
+      model (ps.SINDy): _description_
+      x_data (DatasetRNN): _description_
+      loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
+  """
+  
+  loss = 0
+  for x, y in x_data:
+    agent_sindy.new_sess()
+    qs = np.zeros_like(y)
+    loss_session = 0
+    for t in range(x.shape[1]):
+      # get choice from agent for current state
+      # choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
+      qs[t] = agent_sindy.q.reshape(1, -1)
+      # update state of agent
+      action = np.argmax(x[t, :-1])
+      reward = x[t, -1]
+      agent_sindy.update(action, reward)
+      # compute loss
+      loss_session += loss_fn(y[t], torch.tensor(qs[t])).item()
+    loss += loss_session/x.shape[1]
+  loss /= len(x_data)
+  
+  return loss
+
+
+def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNetwork = None, z_data: np.ndarray = None, loss_fn: Callable = mse_loss):
+  """Compute the loss of the SINDy model on the data in z-coordinates.
+
+  Args:
+      agent_sindy (AgentSindy): _description_
+      z_data (np.ndarray): _description_
+      loss_fn (Callable, optional): _description_. Defaults to mse_loss.
+  """
+  
+  if agent_rnn is None and z_data is None:
+    raise ValueError('Either agent_rnn or z_data must be provided.')
+  if agent_rnn is not None and z_data is not None:
+    raise ValueError('Only one of agent_rnn or z_data must be provided.')
+  
+  if z_data is not None and len(x_data) != len(z_data):
+    raise ValueError('Length of x_data and z_data must be equal.')
+  
+  loss = 0
+  for i, data in enumerate(x_data):
+    x, y = data
+    # x, y = next(iter(x_data))
+    if z_data is not None:
+      z = z_data[i]
+    else:
+      z = torch.zeros_like(y)
+    qs = np.zeros_like(y)
+    loss_session = 0
+    agent_sindy.new_sess()
+    if agent_rnn is not None:
+      agent_rnn.new_sess()
+    
+    for t in range(x.shape[0]):
+      # get Q-value from rnn agent
+      if agent_rnn is not None:
+        z[t] = torch.tensor(agent_rnn.q)
+      # get Q-Value from sindy agent
+      qs[t] = agent_sindy.q * agent_sindy._beta
+      # update state of agent
+      action = np.argmax(x[t, :-1])
+      reward = x[t, -1]
+      agent_rnn.update(action, reward)
+      agent_sindy.update(action, reward)
+      # compute loss for current timestep
+      # TODO: z and qs are differently scaled at the moment (SINDy produces values between 0 and 1)
+      loss_session += loss_fn(z[t], torch.tensor(qs[t])).item()
+    
+    loss += loss_session/x.shape[1]
+  loss /= len(x_data)
+  
+  return loss
+    

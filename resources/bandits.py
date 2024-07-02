@@ -5,13 +5,13 @@ from typing import NamedTuple, Union, Optional, List, Dict
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from copy import copy
+from copy import copy, deepcopy
 import torch
 from torch import nn
 import torch.utils
 
-from rnn import RLRNN
-from rnn_training import DatasetRNN
+from resources.rnn import RLRNN, EnsembleRNN
+from rnn_utils import DatasetRNN
 
 # Setup so that plots will look nice
 small = 15
@@ -59,6 +59,7 @@ class AgentQ:
       n_actions: int = 2,
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
+      correlated_reward: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -69,12 +70,13 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
-    self._prev_choice = None
+    self._prev_choice = -1
     self._alpha = alpha
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseverance_bias
+    self._correlated_reward = correlated_reward
     self._q_init = 0.5
     self.new_sess()
 
@@ -84,13 +86,12 @@ class AgentQ:
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init * np.ones(self._n_actions)
+    self._prev_choice = -1
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = self._q# * self._beta
-    if self._prev_choice is not None:
-      decision_variable[self._prev_choice] += self._perseverance_bias
-    choice_probs = np.exp(decision_variable*self._beta) / np.sum(np.exp(decision_variable*self._beta))
+    decision_variable = np.exp(self.q * self._beta)
+    choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
   def get_choice(self) -> int:
@@ -109,23 +110,25 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
-    # Restore q-values toward the initial value
-    self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
-
-    # Memorize previous choice for perseveration
-    self._prev_choice = choice
+    # Restore q-values of non-chosen actions toward the initial value
+    non_chosen_action = np.arange(self._n_actions) != choice
+    self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Update chosen q for chosen action with observed reward.
     self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
     
+    # Correlated update
+    if self._correlated_reward:
+      index_correlated_update = self._n_actions - choice - 1
+      self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
+    
+    # Memorize current choice for perseveration
+    self._prev_choice = choice
+    
   @property
   def q(self):
-    # This establishes q as an externally visible attribute of the agent.
-    # For agent = AgentQ(...), you can view the q values with agent.q; however,
-    # you will not be able to modify them directly because you will be viewing
-    # a copy.
-    q = self._q.copy()# * self._beta
-    if self._prev_choice is not None:
+    q = self._q.copy()
+    if self._prev_choice != -1:
       q[self._prev_choice] += self._perseverance_bias
     return q
 
@@ -188,36 +191,35 @@ class AgentSindy:
 
   def update(self, choice: int, reward: int):
     for c in range(self._n_actions):
-      # self._q[c] = self._update_rule(self._q[c], int(choice==c), int(self._prev_choice==c), reward)
       q, h = self._update_rule(self._q[c], self._h[c], int(choice==c), int(self._prev_choice==c), reward)
-      self._q[c] = q + h
+      self._q[c] = q
       self._h[c] = h
     self._prev_choice = choice
     
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
-    # self._qf = self._q_init + np.zeros(self._n_actions)
-    # self._qr = self._q_init + np.zeros(self._n_actions)
-    # self._h = np.zeros(self._n_actions)
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
-    self._prev_choice = np.nan
+    self._prev_choice = -1
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    choice_probs = np.exp(self._q*self._beta) / np.sum(np.exp(self._q*self._beta))
+    decision_variable = np.exp(self.q * self._beta)
+    choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
-  def get_choice(self) -> int:
+  def get_choice(self, random=True) -> int:
     """Sample a choice, given the agent's current internal state."""
     choice_probs = self.get_choice_probs()
-    choice = np.random.choice(self._n_actions, p=choice_probs)
+    if random:
+      choice = np.random.choice(self._n_actions, p=choice_probs)
+    else:
+      choice = np.argmax(choice_probs)
     return choice
   
   @property
   def q(self):
-    return self._q.copy()
-    
+    return (self._q + self._h).copy()
 
 
 class AgentNetwork:
@@ -229,9 +231,9 @@ class AgentNetwork:
 
     def __init__(
       self,
-      model: RLRNN,
+      model: Union[RLRNN, EnsembleRNN],
       n_actions: int = 2,
-      habit: bool = False,
+      device = torch.device('cpu'),
       ):
         """Initialize the agent network.
 
@@ -241,55 +243,61 @@ class AgentNetwork:
         """
         
         self._q_init = 0.5
-        self._model = model.to(torch.device('cpu'))
+        if device != model.device:
+          model = model.to(device)
+        if isinstance(model, RLRNN):
+          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, model._vo, model._vs, list(model.history.keys()), device=model.device).to(model.device)
+          self._model.load_state_dict(model.state_dict())
+        else:
+          self._model = model 
         self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
-        self.habit = habit
         self.new_sess()
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
+      # self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
+      self._model.initial_state(batch_size=1, return_dict=True)
       self._xs = torch.zeros((1, 2))-1
     
-    def set_state(self, state: Dict[str, torch.Tensor]):
-      state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
-      self._state = tuple([tensor.numpy() for tensor in state])
+    # def set_state(self, state: Dict[str, torch.Tensor]):
+    #   state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
+    #   self._state = tuple([tensor.cpu().numpy() for tensor in state])
     
     def get_value(self):
       """Return the value of the agent's current state."""
-      # if self.habit:
-      #     # habit + value
-      #     return self._state[-2].reshape(-1) + self._state[-1].reshape(-1)
-      # else:
-      #   # only value
-      #   return self._state[-1].reshape(-1)
-      state = [state.numpy() for state in self._model.get_state()]
-      if self.habit:
-          # habit + value
-          value = state[-2][:, 0].reshape(-1) + state[-1][:, 0].reshape(-1)
-      else:
-        # only value
-        value = state[-1][:, 0].reshape(-1)
+      state = self._model.get_state()[-1].cpu().numpy()
+      value = state[:, 0].reshape(-1)
       return value
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
       # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
+      value = self.get_value()
+      # if all(np.abs(value) > 10):
+      #   choice_probs = np.array([0.5, 0.5])
+      # elif any(value > 10):
+      #   # TODO: this works currently only for 2 actions
+      #   choice_probs = np.zeros(self._n_actions)
+      #   choice_probs[np.argmax(value)] = 1
+      # else:
       choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
       return choice_probs
 
-    def get_choice(self):
+    def get_choice(self, random=True):
       """Sample choice."""
       choice_probs = self.get_choice_probs()
-      choice = np.random.choice(self._n_actions, p=choice_probs)
+      if random:
+        choice = np.random.choice(self._n_actions, p=choice_probs)
+      else:
+        choice = np.argmax(choice_probs)
       return choice
 
     def update(self, choice: float, reward: float):
-      self._xs = torch.tensor([[choice, reward]])
+      self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
-        self._model(self._xs, self._model.get_state())[-1]
-        self.set_state(self._model.get_state(return_dict=True))
+        self._model(self._xs, self._model.get_state())
+        # self.set_state(self._model.get_state(return_dict=True))
             
     @property
     def q(self):
@@ -302,7 +310,7 @@ class AgentNetwork:
 
 
 class EnvironmentBanditsFlips:
-  """Env for 2-armed bandit task with with reward probs that flip in blocks."""
+  """Env for 2-armed bandit task with reward probs that flip in blocks."""
 
   def __init__(
       self,
@@ -365,7 +373,8 @@ class EnvironmentBanditsDrift:
       self,
       sigma: float,
       n_actions: int = 2,
-      non_binary_rewards: bool = False,
+      non_binary_reward: bool = False,
+      correlated_reward: bool = False,
       ):
     """Initialize the environment."""
     # Check inputs
@@ -376,7 +385,8 @@ class EnvironmentBanditsDrift:
     # Initialize persistent properties
     self._sigma = sigma
     self._n_actions = n_actions
-    self._non_binary_reward = non_binary_rewards
+    self._non_binary_reward = non_binary_reward
+    self._correlated_rewards = correlated_reward
 
     # Sample new reward probabilities
     self._new_sess()
@@ -413,8 +423,13 @@ class EnvironmentBanditsDrift:
     
     # Add gaussian noise to reward probabilities
     drift = np.random.normal(loc=0, scale=self._sigma, size=self._n_actions)
-    self._reward_probs += drift
-
+    if not self._correlated_rewards:
+      self._reward_probs += drift
+    else:
+      for i in range(self._n_actions//2):
+        self._reward_probs[i] += drift[i]
+        self._reward_probs[i-1] -= drift[i]
+        
     # Fix reward probs that've drifted below 0 or above 1
     self._reward_probs = np.clip(self._reward_probs, 0, 1)
 
@@ -463,12 +478,12 @@ def run_experiment(
     experiment: A BanditSession holding choices and rewards from the session
   """
   
-  choices = np.zeros(n_trials)
-  rewards = np.zeros(n_trials)
-  qs = np.zeros((n_trials, environment.n_actions))
-  reward_probs = np.zeros((n_trials, environment.n_actions))
+  choices = np.zeros(n_trials+1)
+  rewards = np.zeros(n_trials+1)
+  qs = np.zeros((n_trials+1, environment.n_actions))
+  reward_probs = np.zeros((n_trials+1, environment.n_actions))
 
-  for trial in np.arange(n_trials):
+  for trial in range(n_trials+1):
     # First record environment reward probs
     reward_probs[trial] = environment.reward_probs
     qs[trial] = agent.q
@@ -483,11 +498,11 @@ def run_experiment(
     agent.update(choice, reward)
     
   experiment = BanditSession(n_trials=n_trials,
-                             choices=choices.astype(int),
-                             rewards=rewards,
-                             timeseries=reward_probs,
-                             q=qs)
-  return experiment
+                             choices=choices[:-1].astype(int),
+                             rewards=rewards[:-1],
+                             timeseries=reward_probs[:-1],
+                             q=qs[:-1])
+  return experiment, choices.astype(int), rewards
 
 
 def create_dataset(
@@ -495,7 +510,8 @@ def create_dataset(
   environment: Environment,
   n_trials_per_session: int,
   n_sessions: int,
-  batch_size: int = None,
+  sequence_length: int = None,
+  stride: int = 1,
   device=torch.device('cpu'),
   ):
   """Generates a behavioral dataset from a given agent and environment.
@@ -517,20 +533,21 @@ def create_dataset(
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
 
-  for sess_i in np.arange(n_sessions):
+  for session in range(n_sessions):
     agent.new_sess()
-    experiment = run_experiment(agent, environment, n_trials_per_session)
+    experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
     experiment_list.append(experiment)
     # one-hot encoding of choices
-    choices = np.eye(agent._n_actions)[experiment.choices]
-    prev_choices = np.concatenate((np.zeros((1, *choices.shape[1:])), choices[0:-1]), axis=0)
-    prev_rewards = np.concatenate(([0], experiment.rewards[0:-1]))
-    xs[:, sess_i] = np.concatenate((prev_choices, prev_rewards.reshape(-1, 1)), axis=-1)
-    ys[:, sess_i] = choices
+    choices = np.eye(agent._n_actions)[choices]
+    xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1)), axis=-1)
+    ys[:, session] = choices[1:]
 
-  # dataset = DatasetRNN(xs, ys, batch_size)
-  # use Dataset class instead
-  dataset = DatasetRNN(np.swapaxes(xs, 0, 1), np.swapaxes(ys, 0, 1), batch_size, device)
+  dataset = DatasetRNN(
+    xs=np.swapaxes(xs, 0, 1), 
+    ys=np.swapaxes(ys, 0, 1),
+    sequence_length=sequence_length,
+    stride=stride,
+    device=device)
   return dataset, experiment_list
 
 

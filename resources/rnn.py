@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+from copy import deepcopy
 from typing import Optional, Tuple, List, Union, Dict
 
 
@@ -50,10 +51,10 @@ class BaseRNN(nn.Module):
             self.history[key] = []
         
         self.set_state(
-            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float).to(self.device),
-            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float).to(self.device),
-            torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float).to(self.device),
-            (self.init_value + torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float)).to(self.device)
+            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float, device=self.device),
+            torch.zeros([batch_size, 1, self._hidden_size], dtype=torch.float, device=self.device),
+            torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device),
+            (self.init_value + torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device))
             )
         
         return self.get_state(return_dict=return_dict)
@@ -98,11 +99,15 @@ class BaseRNN(nn.Module):
         """
         
         if new_value is None:
-            new_value = torch.zeros(old_value.shape) - 1
+            new_value = torch.zeros_like(old_value) - 1
         
-        old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
-        new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
-        sample = np.concatenate([old_value, new_value], axis=1)
+        # old_value = np.expand_dims(old_value.detach().cpu().numpy(), 1)
+        # new_value = np.expand_dims(new_value.detach().cpu().numpy(), 1)
+        # sample = np.concatenate([old_value, new_value], axis=1)
+        # self.history[key].append(sample)
+        old_value = old_value.view(-1, 1, old_value.shape[-1])
+        new_value = new_value.view(-1, 1, new_value.shape[-1])
+        sample = torch.cat([old_value, new_value], dim=1)
         self.history[key].append(sample)
         
     def get_history(self, key):
@@ -115,26 +120,25 @@ class RLRNN(BaseRNN):
         n_actions, 
         hidden_size,
         init_value=0.5,
-        use_habit=False,
         last_output=False,
         last_state=False,
-        list_sindy_signals=['xQf', 'xQr', 'xH', 'ca', 'ca[k-1]', 'cr'],#, 'cQ'],
+        list_sindy_signals=['xQf', 'xQr', 'xQc', 'ca', 'ca[k-1]', 'cr'],
         device=torch.device('cpu'),
         ):
         
         super(RLRNN, self).__init__(n_actions, hidden_size, init_value, device, list_sindy_signals)
         
         # define level of recurrence
-        self._vs, self._hs, self._vo, self._ho, self._wh = last_state, last_state, last_output, last_output, use_habit
+        self._vs, self._hs, self._vo, self._ho = last_state, last_state, last_output, last_output
         
         # define general network parameters
         self.init_value = init_value
         self._n_actions = n_actions
-        self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
+        # self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
-        input_size = 2
+        input_size = 1 + 1  # Q-Value of chosen action and received reward
         if self._vo:
             input_size += self._n_actions
         if self._vs:
@@ -145,16 +149,19 @@ class RLRNN(BaseRNN):
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
         
-        # value network
-        self.habit_update = nn.Linear(n_actions, n_actions)
-        self.reward_blind_update = nn.Linear(n_actions-1, n_actions-1)
-        self.hidden_layer_value = nn.Linear(input_size, hidden_size)
-        self.reward_based_update = nn.Linear(hidden_size, 1)
+        # habit subnetwork
+        # self.xH = nn.Sequential(nn.Linear(2, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2))
         
-        # habit network
-        self.hidden_layer_habit = nn.Linear(input_size, hidden_size)
-        # self.habit_layer = nn.Linear(hidden_size, n_actions)
-        self.habit_layer = nn.Linear(n_actions, n_actions)
+        # reward-blind subnetwork
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.Linear(hidden_size, n_actions-1))
+        
+        # correlation-update subnetwork
+        self.xQc = nn.Sequential(nn.Linear(2, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        
+        # reward-based subnetwork
+        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1))
+        # self.hidden_layer_value = nn.Linear(input_size, hidden_size)
+        # self.reward_based_update = nn.Linear(hidden_size, 1)
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -169,13 +176,17 @@ class RLRNN(BaseRNN):
             torch.Tensor: updated Q-Values
         """
 
-        # first reward-blind mechanism (forgetting) for all elements
+        # 1. reward-blind mechanism (forgetting) for all non-chosen elements
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        blind_update = self.reward_blind_update(not_chosen_value)
-        self.append_timestep_sample(key='xQf', old_value=value, new_value=action*value + (1-action)*blind_update)
+        blind_update = self.xQf(not_chosen_value)
+        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
-        # now reward-based update for the chosen element        
-        # get the value of the chosen action
+        # 2. correlated reward-based update for the non-chosen element
+        inputs = torch.cat([not_chosen_value, reward], dim=-1).float()
+        correlation_update = self.xQc(inputs)
+        self.append_timestep_sample('xQc', value, value + (1-action) * correlation_update)
+        
+        # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         inputs = torch.cat([chosen_value, reward], dim=-1).float()
         
@@ -184,44 +195,13 @@ class RLRNN(BaseRNN):
         if self._vs:
             inputs = torch.cat([inputs, state], dim=-1)
         
-        next_state = self.tanh(self.hidden_layer_value(inputs))
+        reward_update = self.xQr(inputs)
+        self.append_timestep_sample('xQr', value, value + action*reward_update)
         
-        reward_update = self.reward_based_update(next_state)
-        self.append_timestep_sample('xQr', value, action*reward_update + (1-action)*value)
-        
-        next_value = action * reward_update + (1-action) * blind_update        
-        
-        # self.append_timestep_sample('cQ', value, next_value)
-        
-        return next_value, next_state
-    
-    def habit_network(self, state, habit, prev_action):
-        """this method computes the action-based updates for the Q-Values without considering the reward
-        
-        Args:
-            state (torch.Tensor): last hidden state
-            habit (torch.Tensor): last habit
-            action (torch.Tensor): chosen action
+        next_value = value + action * reward_update + (1-action) * (blind_update + correlation_update)
 
-        Returns:
-            torch.Tensor: updated habit
-        """
-        
-        inputs = prev_action
-        if self._ho:
-            inputs = torch.cat([inputs, habit], dim=-1)
-        if self._hs:
-            inputs = torch.cat([inputs, state], dim=-1)
-        
-        # next_state = self.tanh(self.hidden_layer_habit(inputs))
-        # next_habit = self.habit_layer(next_state)
-        next_state = state
-        next_habit = self.habit_layer(inputs)
-        
-        # add extracted values
-        self.append_timestep_sample('xH', habit, next_habit)
-        
-        return next_habit, next_state
+        next_state = state  # right now I am not using the state
+        return next_value, next_state
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
@@ -236,7 +216,11 @@ class RLRNN(BaseRNN):
         """
         
         if len(inputs.shape) == 2:
-            inputs = inputs.unsqueeze(1)
+            # unsqueeze time dimension
+            if batch_first:
+                inputs = inputs.unsqueeze(1)
+            else:
+                inputs = inputs.unsqueeze(0)
         
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
@@ -250,7 +234,7 @@ class RLRNN(BaseRNN):
         action_oh = torch.zeros((inputs.shape[0], inputs.shape[1], self._n_actions), dtype=torch.float, device=self.device)
         if action.shape[-1] == 1:
             for i in range(inputs.shape[1]):
-                action_oh[:, i, :] = torch.eye(self._n_actions)[action[:, i, 0].int()]
+                action_oh[:, i, :] = torch.eye(self._n_actions, device=self.device)[action[:, i, 0].int()]
             action = action_oh
             
         if prev_state is not None:
@@ -271,14 +255,15 @@ class RLRNN(BaseRNN):
             
             # compute the updates
             value, v_state = self.value_network(v_state, value, a, r)
-            logit = value
-            if self._wh:
-                habit, h_state = self.habit_network(h_state, habit, self.prev_action)
-                logit += habit
+            # 2. perseverance mechanism for previously chosen element
+            # prev_chosen_action = torch.sum(self.prev_action*value, dim=-1).view(-1, 1)
+            # habit = self.xH(prev_chosen_action)
+            # self.append_timestep_sample('xH', value, value + self.prev_action * habit)
+            logit = value #+ self.prev_action * habit
             
             self.prev_action = a
             
-            logits[t, :, :] = (self.sigmoid(logit)*self.beta).clone()
+            logits[t, :, :] = logit.clone()
             
         # add model dim again and set state
         self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))
@@ -290,9 +275,16 @@ class RLRNN(BaseRNN):
     
     
 class LSTM(BaseRNN):
-    def __init__(self, n_actions, hidden_size, init_value=0.5):
+    def __init__(
+        self, 
+        n_actions, 
+        hidden_size, 
+        init_value=0.5,
+        device=torch.device('cpu'),
+        ):
         super(LSTM, self).__init__(n_actions, hidden_size, init_value)
         
+        self.device = device
         self.init_value = init_value
         self._n_actions = n_actions
         self._hidden_size = hidden_size
@@ -323,16 +315,21 @@ class LSTM(BaseRNN):
             self.set_state(*prev_state)
         else:
             self.initial_state(batch_size=inputs.shape[1], device=self.device)
-        c0, h0, _, _ = self.get_state()
+        c0, h0, _, value = self.get_state()
         
         # forward pass
-        lstm_out, (c, h) = self.lstm(torch.concat((action, reward), dim=-1), (c0.unsqueeze(0), h0.unsqueeze(0)))
+        lstm_out, (c, h) = self.lstm(torch.concat((action, reward), dim=-1), (c0.swapaxes(0, 1), h0.swapaxes(0, 1)))
         logits = self.output_layer(lstm_out)
-        
-        self.set_state(c.squeeze(0), h.squeeze(0), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(self.device), logits)
         
         if batch_first:
             logits = logits.permute(1, 0, 2)
+        
+        # add timestep samples
+        self.append_timestep_sample('ca', action)
+        self.append_timestep_sample('cr', reward)
+        self.append_timestep_sample('xQr', value, logits[:, -1].view(-1, 1, self._n_actions))
+        
+        self.set_state(c.swapaxes(0, 1), h.swapaxes(0, 1), torch.zeros([inputs.shape[1], self._n_actions], dtype=torch.float).to(self.device), logits[:, -1].view(-1, 1, self._n_actions))
         
         return logits, self.get_state()
     
@@ -345,38 +342,54 @@ class EnsembleRNN:
     def __init__(self, model_list: List[BaseRNN], device=torch.device('cpu'), voting_type=0):
         self.device = device
         self.models = model_list
-        self.ensemble_type = voting_type
+        self.voting_type = voting_type
         self.history = {key: [] for key in self.models[0].history.keys()}
         
     def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
         if len(inputs.shape) == 2:
             # unsqueeze time dimension
-            inputs = inputs.unsqueeze(1)
+            if batch_first:
+                inputs = inputs.unsqueeze(1)
+            else:
+                inputs = inputs.unsqueeze(0)
+            
+        if batch_first:
+            inputs = inputs.permute(1, 0, 2)
             
         if prev_state is None:
             # initialize state if not provided
-            prev_state = self.initial_state(batch_size=inputs.shape[0])
-        if len(prev_state[0].shape) == 2:
+            self.initial_state(batch_size=inputs.shape[0])
+            state = self.get_state()
+        elif len(prev_state[0].shape) == 2:
             # repeat state for each model and return list of stacked states with shape (n_models, batch_size, hidden_size)
             self.set_state([prev_state for _ in range(len(self.models))])
-            prev_state = self.get_state()
+            state = self.get_state()
+        else:
+            state = prev_state
         
         logits = []
-        states = []
-        history_call = {key: [] for key in self.models[0].history.keys()}
-        for i, model in enumerate(self.models):
-            logits_i, state_i = model(inputs, [state[:, i] for state in prev_state], batch_first)
-            logits.append(logits_i)
-            states.append(state_i)
-            for key in history_call.keys():
-                history_call[key].append(model.get_history(key)[-1])
-        self.append_timestep_sample(history_call)
+        for inputs_t in inputs:
+            history_call = {key: [] for key in self.models[0].history.keys()}
+            logits_t = []
+            states = []
+            for i, model in enumerate(self.models):
+                logits_i, state_i = model(inputs_t.unsqueeze(0), [s[:, i] for s in state])
+                logits_t.append(logits_i)
+                states.append(state_i)
+                for key in history_call.keys():
+                    if len(model.get_history(key)) > 0:
+                        history_call[key].append(model.get_history(key)[-1])
+            self.set_state(states)
+            state = self.get_state()
+            logits.append(self.vote(torch.stack(logits_t, dim=1), self.voting_type).squeeze(1))
+            self.append_timestep_sample(history_call)
 
-        # TODO: Check if voting logits and single states (xQf, xQr etc) is the same
-        logits = self.vote(torch.concatenate(logits, dim=1))
-        states = self.set_state(states)
+        logits = torch.concat(logits)
         
-        return logits, states
+        if batch_first:
+            logits = logits.permute(1, 0, 2)
+        
+        return logits, self.get_state()
     
     def __iter__(self):
         return iter(self.models)
@@ -387,13 +400,14 @@ class EnsembleRNN:
     def __len__(self):
         return len(self.models)
     
-    def vote(self, values: torch.Tensor) -> torch.Tensor:
-        if self.ensemble_type == self.MEDIAN:
+    @staticmethod
+    def vote(values: torch.Tensor, voting_type) -> torch.Tensor:
+        if voting_type == 1:
             return torch.median(values, dim=1)[0].unsqueeze(1)
-        elif self.ensemble_type == self.MEAN:
+        elif voting_type == 0:
             return torch.mean(values, dim=1, keepdim=True)
         else:
-            raise ValueError(f'Invalid ensemble type {self.ensemble_type}. Must be either {self.MEAN} (mean) or {self.MEDIAN} (median).')
+            raise ValueError(f'Invalid ensemble type {voting_type}. Must be either 0 (mean) or 1 (median).')
     
     def get_voting_states(self):
         # get states that are voted for and 
@@ -403,17 +417,17 @@ class EnsembleRNN:
         # vote for all non-hidden states i.e. visible values (habit and value) and copy all hidden states of each submodel
         # non-hidden states are identified by state[i].shape[-1] == self.models[0]._n_actions
         # transform all tuples to lists
-        states = [list(state) for state in states]
+        states = [list(s) for s in states]
         states_tensor = [None for _ in range(len(states[0]))]
         voting_states = self.get_voting_states()
         for i, voting in enumerate(voting_states):
-            state = [state[i] for state in states]
+            state_all_models = [s[i] for s in states]
             if voting:
                 # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
-                new_state = self.vote(torch.concatenate(state, dim=1)).repeat(1, len(self), 1)
+                new_state = self.vote(torch.concatenate(state_all_models, dim=1), self.voting_type).repeat(1, len(self), 1)
             else:
                 # if hidden state keep the state of each model
-                new_state = torch.concatenate(state, dim=1)
+                new_state = torch.concatenate(state_all_models, dim=1)
             states_tensor[i] = new_state.clone()
         self._state = states_tensor
     
@@ -436,13 +450,16 @@ class EnsembleRNN:
         state = []
         for model in self.models:
             state.append(model.initial_state(batch_size=batch_size))
+        # state = list(zip(*state))
+        # state = [torch.concat(s, dim=1) for s in state]
+        # self._state = state
         self.set_state(state)
         return self.get_state(return_dict=return_dict)
     
     def get_history(self, key):
         if 'x' in key:
             # vote for internal values e.g. habit, reward-blind update, reward-based update
-            return self.vote(torch.stack([model.get_history(key) for model in self.models]))
+            return self.vote(torch.stack([model.get_history(key) for model in self.models]), self.voting_type)
         else:
             # control signals are equal for all models. It's sufficient to get only the first model's value
             return self.models[0].get_history(key)
@@ -450,8 +467,9 @@ class EnsembleRNN:
     def append_timestep_sample(self, history_ensemble):
         for key in history_ensemble.keys():
             if 'x' in key:
-                # vote history values
-                self.history[key].append(self.vote(torch.tensor(np.stack(history_ensemble[key], axis=1))).squeeze(1).numpy())
+                if len(history_ensemble[key]) > 0:
+                    # vote history values
+                    self.history[key].append(self.vote(torch.stack(history_ensemble[key], dim=1), self.voting_type).squeeze(1))
             elif 'c' in key:
                 # control signals are equal for all models. It's sufficient to get only the first model's value
                 self.history[key].append(history_ensemble[key][0])
