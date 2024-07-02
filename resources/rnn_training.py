@@ -41,6 +41,7 @@ def batch_train(
     n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     weight_reg_rnn: float = 0e0,
+    reg_interval: int = 5,
     ):
 
     """
@@ -68,14 +69,36 @@ def batch_train(
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])
         if torch.is_grad_enabled():
             
+            # --------------------------------------------------------------
+            # 1st approach for training with regularizations
+            # --------------------------------------------------------------
+            
+            # fit the regularization for each prediction iteration
             # null hypothesis penalty
             reg_null = penalty_null_hypothesis(model, batch_size=128)
             loss += weight_reg_rnn * reg_null
             
-            # parameter optimization
+            # --------------------------------------------------------------
+            # Leave this code block when switching between the two approaches
+            # --------------------------------------------------------------
+            
+            # parameter optimization for prediction
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            # --------------------------------------------------------------
+            # 2nd approach for training with regularizations
+            # --------------------------------------------------------------
+            
+            # fit the regularization n times before fitting the prediction again
+            # for _ in range(reg_interval):
+            #     reg_null = penalty_null_hypothesis(model, batch_size=128)
+            #     loss_reg = weight_reg_rnn * reg_null
+            #     # parameter optimization
+            #     optimizer.zero_grad()
+            #     loss_reg.backward()
+            #     optimizer.step()
     
     # --------------------------------------------------------------
     # old procedure; may be to inefficient due to big time steps
