@@ -63,21 +63,8 @@ def batch_train(
     
     # predict y and compute loss
     model.initial_state(batch_size=len(xs))
-    
-    # first, compute loss and optimize network w.r.t. regularization terms
-    # test prediction to check if 
-    if torch.is_grad_enabled():
-        for _ in range(n_iterations_reg):
-            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
-            reg_corr = penalty_correlated_update(model, batch_size=128)  # correlated update penalty
-            
-            loss = reg_null + reg_corr
-            
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
         
-    # second, compute loss and optimize network w.r.t. rnn-predictions
+    # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
     for t in range(0, xs.shape[1], n_steps_per_call):
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
         state = model.get_state(detach=True)
@@ -86,6 +73,9 @@ def batch_train(
         
         loss_sindy_x, loss_sindy_weights = None, None
         if torch.is_grad_enabled():
+            
+            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            loss += weight_reg_rnn * reg_null
             
             # if sindy_ae:
             #     # train sindy
