@@ -40,7 +40,7 @@ def batch_train(
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
-    weight_reg_rnn: float = 1e-2,
+    weight_reg_rnn: float = 0e0,
     ):
 
     """
@@ -64,13 +64,15 @@ def batch_train(
                 state_buffer = state
         model.set_state(*state_buffer)
         
-        # compute loss and optimize network
+        # compute prediction loss and optimize network
         loss = loss_fn(y_pred, ys[:, t+n_steps-1])
         if torch.is_grad_enabled():
             
-            reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            # null hypothesis penalty
+            reg_null = penalty_null_hypothesis(model, batch_size=128)
             loss += weight_reg_rnn * reg_null
             
+            # parameter optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

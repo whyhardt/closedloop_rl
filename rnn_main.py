@@ -45,9 +45,9 @@ convergence_threshold = 1e-6
 # ground truth parameters
 gen_alpha = .25
 gen_beta = 3
-forget_rate = 0.1
+forget_rate = 0.1  # possible values: 0., 0.1
 perseverance_bias = 0.
-correlated_reward_agent = True
+correlated_update = False  # possible values: True, False
 
 # environment parameters
 n_actions = 2
@@ -67,7 +67,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if not data:
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_reward_agent)  
+  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_update)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -91,7 +91,7 @@ if not data:
       gen_beta,
       forget_rate,
       perseverance_bias,
-      correlated_reward_agent,
+      correlated_update,
       non_binary_reward,
       verbose=True,
   )
