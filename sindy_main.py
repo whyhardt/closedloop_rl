@@ -34,7 +34,7 @@ gen_alpha = .25
 gen_beta = 3
 forget_rate = 0.
 perseverance_bias = 0.
-correlated_update = False
+correlated_reward_agent = False
 
 # environment parameters
 n_actions = 2
@@ -50,7 +50,7 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-z_train_list = ['xQf','xQr', 'xQc']
+z_train_list = ['xQf','xQr', 'xH']
 control_list = ['ca','ca[k-1]', 'cr']
 sindy_feature_list = z_train_list + control_list
 
@@ -59,11 +59,11 @@ if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
 
 # set up ground truth agent and environment
 environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_update)
+agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_reward_agent)
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, correlated_update, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):
