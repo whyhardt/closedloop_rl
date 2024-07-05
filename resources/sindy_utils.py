@@ -241,8 +241,8 @@ def remove_control_features(control_variables: List[np.ndarray], feature_names: 
 def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
   x_train_relevant = []
   control_relevant = []
-  x_features = [feature for feature in feature_names if feature.startswith('x')]
-  control_features = [feature for feature in feature_names if feature.startswith('c')]
+  x_features = [feature_names[0]]  #[feature for feature in feature_names if feature.startswith('x')]
+  control_features = feature_names[1:]  #[feature for feature in feature_names if feature.startswith('c')]
   for i, x, c in zip(range(len(x_train)), x_train, control):
     if relevant_feature in feature_names:
       i_relevant = control_features.index(relevant_feature)

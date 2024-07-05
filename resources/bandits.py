@@ -110,20 +110,25 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
-    # Restore q-values of non-chosen actions toward the initial value
+    # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
-    # Update chosen q for chosen action with observed reward.
-    self._q[choice] = (1 - self._alpha) * self._q[choice] + self._alpha * reward
+    # Reward-based update - Update chosen q for chosen action with observed reward
+    q_reward_update = (1 - self._alpha) * self._q[choice] + self._alpha * reward
     
-    # Correlated update
+    # Correlated update - Update non-chosen q for non-chosen action with observed reward
     if self._correlated_reward:
+      # index_correlated_update = self._n_actions - choice - 1
+      # self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
+      # alternative implementation - not dependent on reward but on reward-based update
       index_correlated_update = self._n_actions - choice - 1
-      self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
+      self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] - self._alpha * (self._q[choice] - q_reward_update) 
     
     # Memorize current choice for perseveration
     self._prev_choice = choice
+    
+    self._q[choice] = q_reward_update
     
   @property
   def q(self):
@@ -249,7 +254,8 @@ class AgentNetwork:
           self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, model._vo, model._vs, list(model.history.keys()), device=model.device).to(model.device)
           self._model.load_state_dict(model.state_dict())
         else:
-          self._model = model 
+          self._model = model
+        self._model.eval()
         self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
         self.new_sess()
@@ -589,6 +595,7 @@ def plot_session(
   timeseries_name: str,
   labels: Optional[List[str]] = None,
   title: str = '',
+  x_label = 'Trials',
   fig_ax = None,
   compare=False,
   color=None,
@@ -693,7 +700,7 @@ def plot_session(
         marker='|')
 
   if axis_info:
-    ax.set_xlabel('Trial')
+    ax.set_xlabel(x_label)
     ax.set_ylabel(timeseries_name)
     ax.set_title(title)
   else:

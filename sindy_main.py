@@ -13,7 +13,7 @@ from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
 from resources.sindy_utils import create_dataset, check_library_setup, constructor_update_rule_sindy, sindy_loss_x, sindy_loss_z
 from resources.rnn_utils import parameter_file_naming
-from resources.sindy_training import fit_model, setup_sindy_agent, datafilter_setup, library_setup
+from resources.sindy_training import fit_model, setup_sindy_agent
 
 warnings.filterwarnings("ignore")
 
@@ -30,11 +30,11 @@ n_trials_per_session = 200
 n_sessions = 32
 
 # ground truth parameters
-gen_alpha = .25
-gen_beta = 3
-forget_rate = 0.
-perseverance_bias = 0.
-correlated_update = False
+alpha = .25
+beta = 3
+forget_rate = 0.1
+perseveration_bias = 0.25
+correlated_update = True
 
 # environment parameters
 n_actions = 2
@@ -50,20 +50,40 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-z_train_list = ['xQf','xQr', 'xQc']
-control_list = ['ca','ca[k-1]', 'cr']
+z_train_list = ['xQf','xQr', 'xQc', 'xH']
+control_list = ['ca','ca[k-1]', 'cr', 'cQr']
 sindy_feature_list = z_train_list + control_list
+
+# library setup aka which terms are allowed as control inputs in each SINDy model
+# key is the SINDy submodel name, value is a list of allowed control inputs
+library_setup = {
+    'xQf': [],
+    'xQc': ['cQr'],
+    'xQr': ['cr'],
+    'xH': []
+}
+
+# data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
+# key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
+# Example:
+# 'xQf': ['ca', 0] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf'
+datafilter_setup = {
+    'xQf': ['ca', 0],
+    'xQc': ['ca', 0],
+    'xQr': ['ca', 1],
+    'xH': ['ca[k-1]', 1]
+}
 
 if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
     raise ValueError('Library setup does not match feature list.')
 
 # set up ground truth agent and environment
 environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-agent = AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_update)
+agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, correlated_update, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, beta, forget_rate, perseveration_bias, correlated_update, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):
@@ -127,9 +147,15 @@ qs = np.concatenate(list_qs, axis=0)
 def normalize(qs):
     return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-# qs = normalize(qs)
+qs = normalize(qs)
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+# turn the x labels off for all but the last subplot
+for i in range(3):
+    axs[i].set_xticklabels([])
+    axs[i].set_xlabel('')
+    axs[i].set_xlim(0, n_trials_per_session)
+    # axs[i].set_ylim(0, 1)    
 
 reward_probs = np.stack([experiment_test.timeseries[:, i] for i in range(n_actions)], axis=0)
 plot_session(
@@ -142,6 +168,7 @@ plot_session(
     color=['tab:purple', 'tab:cyan'],
     binary=not non_binary_reward,
     fig_ax=(fig, axs[0]),
+    x_label='',
     )
 
 plot_session(
@@ -154,6 +181,7 @@ plot_session(
     labels=labels,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[1]),
+    x_label='',
     )
 
 plot_session(
@@ -165,10 +193,11 @@ plot_session(
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
+    x_label='',
     )
 
 dqs_arms = -1*np.diff(qs, axis=2)
-# dqs_arms = normalize(dqs_arms)
+dqs_arms = normalize(dqs_arms)
 
 plot_session(
     compare=True,

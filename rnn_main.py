@@ -36,18 +36,18 @@ ensemble = rnn_training.ensemble_types.NONE
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
-epochs = 100
+epochs = 1000
 n_steps_per_call = 16  # None for full sequence
-batch_size = None  # None for one batch per epoch
+batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
 # ground truth parameters
-gen_alpha = .25
-gen_beta = 3
+alpha = .25
+beta = 3
 forget_rate = 0.1  # possible values: 0., 0.1
-perseverance_bias = 0.
-correlated_update = False  # possible values: True, False
+perseveration_bias = 0.25
+correlated_update = True  # possible values: True, False
 
 # environment parameters
 n_actions = 2
@@ -58,8 +58,8 @@ correlated_reward = False
 non_binary_reward = False
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr', 'xQc']
-control_list = ['ca','ca[k-1]', 'cr']
+x_train_list = ['xQf','xQr', 'xQc', 'xH']
+control_list = ['ca','ca[k-1]', 'cr', 'cQr']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -67,7 +67,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if not data:
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(gen_alpha, gen_beta, n_actions, forget_rate, perseverance_bias, correlated_update)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -88,9 +88,9 @@ if not data:
       use_lstm,
       last_output,
       last_state,
-      gen_beta,
+      beta,
       forget_rate,
-      perseverance_bias,
+      perseveration_bias,
       correlated_update,
       non_binary_reward,
       verbose=True,
@@ -122,6 +122,7 @@ else:
       last_state=last_state,
       device=device,
       list_sindy_signals=sindy_feature_list,
+      dropout=0.5,
       ).to(device)
            for _ in range(n_submodels)]
 
@@ -150,6 +151,8 @@ if train:
   
   #Fit the hybrid RNN
   print('Training the hybrid RNN...')
+  for m in model:
+    m.train()
   model, optimizer_rnn, _ = rnn_training.fit_model(
       model=model,
       dataset=dataset_train,
@@ -167,6 +170,11 @@ if train:
   
   # validate model
   print('\nValidating the trained hybrid RNN on a test dataset...')
+  if isinstance(model, (list, rnn.EnsembleRNN)):
+    for m in model:
+      m.eval()
+  else:
+    model.eval()  
   with torch.no_grad():
     rnn_training.fit_model(
         model=model,
