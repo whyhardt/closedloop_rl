@@ -115,20 +115,20 @@ class AgentQ:
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Reward-based update - Update chosen q for chosen action with observed reward
-    q_reward_update = (1 - self._alpha) * self._q[choice] + self._alpha * reward
+    q_reward_update = - self._alpha * self._q[choice] + self._alpha * reward
     
     # Correlated update - Update non-chosen q for non-chosen action with observed reward
     if self._correlated_reward:
       # index_correlated_update = self._n_actions - choice - 1
       # self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
       # alternative implementation - not dependent on reward but on reward-based update
-      index_correlated_update = self._n_actions - choice - 1
-      self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] - self._alpha * (self._q[choice] - q_reward_update) 
+      index_correlated_update = self._n_actions-1 - choice
+      self._q[index_correlated_update] -= 0.5*q_reward_update
     
     # Memorize current choice for perseveration
     self._prev_choice = choice
     
-    self._q[choice] = q_reward_update
+    self._q[choice] += q_reward_update
     
   @property
   def q(self):
@@ -173,13 +173,15 @@ class AgentSindy:
       self,
       n_actions: int=2,
       beta: float=1.,
+      deterministic: bool=False,
       ):
 
     self._q_init = 0.5
+    self._deterministic = deterministic
     self._beta = beta
     self._n_actions = n_actions
     self._prev_choice = None
-        
+
     self._update_rule = lambda q, choice, reward: q[choice] + reward
     self._update_rule_formula = None
     
@@ -195,11 +197,25 @@ class AgentSindy:
       return f'{self._update_rule}'
 
   def update(self, choice: int, reward: int):
+    # the chosen action must be updated first and the non-chosen actions afterwards 
+    # necessary due to spillover effects from chosen action to non-chosen actions
+    
+    # 1. update chosen action
+    reward_update, action_update = self._update_rule(self._q[choice], self._h[choice], 1, int(self._prev_choice==choice), reward, 0)
+    reward_update = (reward_update - self._q[choice])[0]
+    self._q[choice] += reward_update
+    self._h[choice] = action_update
+    
+    # 2. update non-chosen actions
     for c in range(self._n_actions):
-      q, h = self._update_rule(self._q[c], self._h[c], int(choice==c), int(self._prev_choice==c), reward)
+      if c == choice:
+        continue
+      q, h = self._update_rule(self._q[c], self._h[c], 0, int(self._prev_choice==c), reward, reward_update)
       self._q[c] = q
       self._h[c] = h
-    self._prev_choice = choice
+    
+    # remaining operations
+    self._prev_choice = choice  # memorize choice for next update
     
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
@@ -213,13 +229,13 @@ class AgentSindy:
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
-  def get_choice(self, random=True) -> int:
+  def get_choice(self) -> int:
     """Sample a choice, given the agent's current internal state."""
     choice_probs = self.get_choice_probs()
-    if random:
-      choice = np.random.choice(self._n_actions, p=choice_probs)
-    else:
+    if self._deterministic:
       choice = np.argmax(choice_probs)
+    else:
+      choice = np.random.choice(self._n_actions, p=choice_probs)
     return choice
   
   @property
@@ -239,6 +255,7 @@ class AgentNetwork:
       model: Union[RLRNN, EnsembleRNN],
       n_actions: int = 2,
       device = torch.device('cpu'),
+      deterministic: bool = False,
       ):
         """Initialize the agent network.
 
@@ -247,6 +264,7 @@ class AgentNetwork:
             n_actions: number of permitted actions (default = 2)
         """
         
+        self._deterministic = deterministic
         self._q_init = 0.5
         if device != model.device:
           model = model.to(device)
@@ -278,26 +296,17 @@ class AgentNetwork:
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      # choice_probs = torch.nn.functional.softmax(self.get_value(), dim=-1).view(-1)
       value = self.get_value()
-      # if all(np.abs(value) > 10):
-      #   choice_probs = np.array([0.5, 0.5])
-      # elif any(value > 10):
-      #   # TODO: this works currently only for 2 actions
-      #   choice_probs = np.zeros(self._n_actions)
-      #   choice_probs[np.argmax(value)] = 1
-      # else:
-      choice_probs = np.exp(self.get_value()) / np.sum(np.exp(self.get_value()))
+      choice_probs = np.exp(value) / np.sum(np.exp(value))
       return choice_probs
 
-    def get_choice(self, random=True):
+    def get_choice(self):
       """Sample choice."""
       choice_probs = self.get_choice_probs()
-      if random:
-        choice = np.random.choice(self._n_actions, p=choice_probs)
+      if self._deterministic:
+        return np.argmax(choice_probs)
       else:
-        choice = np.argmax(choice_probs)
-      return choice
+        return np.random.choice(self._n_actions, p=choice_probs)
 
     def update(self, choice: float, reward: float):
       self._xs = torch.tensor([[choice, reward]], device=self._model.device)

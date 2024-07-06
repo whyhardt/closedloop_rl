@@ -27,6 +27,7 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_lstm = False
+dropout = 0.25
 
 # ensemble parameters
 evolution_interval = 5
@@ -36,24 +37,24 @@ ensemble = rnn_training.ensemble_types.NONE
 voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
 
 # training parameters
+n_trials_per_session = 200
+n_sessions = 256
 epochs = 1000
-n_steps_per_call = 16  # None for full sequence
+n_steps_per_call = 8  # None for full sequence
 batch_size = 256  # None for one batch per epoch
-learning_rate = 1e-2
+learning_rate = 1e-3
 convergence_threshold = 1e-6
 
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0.1  # possible values: 0., 0.1
-perseveration_bias = 0.25
+forget_rate = 0.  # possible values: 0., 0.1
+perseveration_bias = 0.
 correlated_update = True  # possible values: True, False
 
 # environment parameters
 n_actions = 2
-sigma = 0.1
-n_trials_per_session = 200
-n_sessions = 256
+sigma = 0.25
 correlated_reward = False
 non_binary_reward = False
 
@@ -122,7 +123,7 @@ else:
       last_state=last_state,
       device=device,
       list_sindy_signals=sindy_feature_list,
-      dropout=0.5,
+      dropout=dropout,
       ).to(device)
            for _ in range(n_submodels)]
 
@@ -205,10 +206,10 @@ else:
   )
 
 # Synthesize a dataset using the fitted network
-environment = bandits.EnvironmentBanditsDrift(0.1)
+environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
 model.set_device(torch.device('cpu'))
 model.to(torch.device('cpu'))
-rnn_agent = bandits.AgentNetwork(model, n_actions=2)
+rnn_agent = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
 
 # Analysis
 session_id = 0

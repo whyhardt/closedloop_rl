@@ -32,13 +32,13 @@ n_sessions = 32
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0.1
-perseveration_bias = 0.25
+forget_rate = 0.
+perseveration_bias = 0.
 correlated_update = True
 
 # environment parameters
 n_actions = 2
-sigma = .1
+sigma = .25
 non_binary_reward = False
 correlated_reward = False
 
@@ -95,7 +95,7 @@ elif isinstance(state_dict, list):
         model_list.append(deepcopy(rnn))
         model_list[-1].load_state_dict(state_dict_i)
     rnn = EnsembleRNN(model_list, voting_type=voting_type)
-agent_rnn = AgentNetwork(rnn, n_actions)
+agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
 z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
@@ -104,10 +104,10 @@ update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
 print(f'Beta for SINDy: {beta}')
 agent_sindy._beta = beta
-loss_x = sindy_loss_x(agent_sindy, dataset_test)
-loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)
-print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
-print(f'Loss for SINDy in z-coordinates: {np.round(loss_z, 4)}')
+# loss_x = sindy_loss_x(agent_sindy, dataset_test)
+# loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)
+# print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
+# print(f'Loss for SINDy in z-coordinates: {np.round(loss_z, 4)}')
 # dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
 # --------------------------------------------------------------

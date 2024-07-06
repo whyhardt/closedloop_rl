@@ -100,7 +100,7 @@ def setup_sindy_agent(
     comparison_agent: AgentNetwork = None,
     verbose: bool = False
     ):
-    agent_sindy = AgentSindy(n_actions)
+    agent_sindy = AgentSindy(n_actions, deterministic=True)
     agent_sindy.set_update_rule(update_rule)
     if optimize_beta:
         beta = optimize_beta_func(experiment, comparison_agent, agent_sindy, plot=False)
