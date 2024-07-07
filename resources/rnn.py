@@ -424,10 +424,10 @@ class EnsembleRNN:
             state_all_models = [s[i] for s in states]
             if voting:
                 # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
-                new_state = self.vote(torch.concatenate(state_all_models, dim=1), self.voting_type).repeat(1, len(self), 1)
+                new_state = self.vote(torch.concat(state_all_models, dim=1), self.voting_type).repeat(1, len(self), 1)
             else:
                 # if hidden state keep the state of each model
-                new_state = torch.concatenate(state_all_models, dim=1)
+                new_state = torch.concat(state_all_models, dim=1)
             states_tensor[i] = new_state.clone()
         self._state = states_tensor
     
