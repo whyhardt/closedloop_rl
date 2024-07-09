@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 # warnings.filterwarnings("ignore")
 
 # RL libraries
-sys.path.append('resources')  # add source directoy to path
+sys.path.append('/Users/sebastian/Library/Mobile Documents/com~apple~CloudDocs/Cognitive Science/24 SoSe/Lab Rotation RNN/closedloop_rl/resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
