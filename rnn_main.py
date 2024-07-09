@@ -43,11 +43,11 @@ learning_rate = 1e-2
 convergence_threshold = 1e-6
 
 # ground truth parameters
-gen_alpha = .25
-gen_beta = 3
-forget_rate = 0.1  # possible values: 0., 0.1
+gen_alpha = 0.1 # between 0 and 1
+gen_beta = 10 # between 1 and 100?
+forget_rate = 0.5  # possible values: 0., 0.1
 perseverance_bias = 0.
-correlated_update = False  # possible values: True, False
+correlated_update = True  # possible values: True, False
 
 # environment parameters
 n_actions = 2
