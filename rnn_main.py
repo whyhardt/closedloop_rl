@@ -44,9 +44,9 @@ convergence_threshold = 1e-6
 
 # ground truth parameters
 gen_alpha = 0.1 # between 0 and 1
-gen_beta = 10 # between 1 and 100?
-forget_rate = 0.5  # possible values: 0., 0.1
-perseverance_bias = 0.
+gen_beta = 1 # between 1 and 100?
+forget_rate = 0.1  # possible values: 0., 0.1
+perseverance_bias = 0.8
 correlated_update = True  # possible values: True, False
 
 # environment parameters
