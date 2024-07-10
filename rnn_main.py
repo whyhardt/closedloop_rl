@@ -31,24 +31,24 @@ use_lstm = False
 
 # ensemble parameters
 evolution_interval = None
-sampling_replacement = False
-n_submodels = 1
-ensemble = rnn_training.ensemble_types.NONE
-voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
+sampling_replacement = True
+n_submodels = 4
+ensemble = rnn_training.ensemble_types.AVERAGE
+voting_type = rnn.EnsembleRNN.MEAN 
 
 # training parameters
-epochs = 100
-n_steps_per_call = 16  # None for full sequence
-batch_size = None  # None for one batch per epoch
+epochs = 5
+n_steps_per_call = 16 
+batch_size = None 
 learning_rate = 1e-2
 convergence_threshold = 1e-6
 
 # ground truth parameters
 gen_alpha = .25
-gen_beta = 3
-forget_rate = 0.1  # possible values: 0., 0.1
+gen_beta = 1 
+forget_rate = 0.1  
 perseverance_bias = 0.
-correlated_update = False  # possible values: True, False
+correlated_update = False  
 
 # environment parameters
 n_actions = 2
