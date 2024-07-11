@@ -169,6 +169,9 @@ class RLRNN(BaseRNN):
         # reward-based subnetwork
         self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
+        # learning rate subnetwork
+        self.xLR = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
         
@@ -251,6 +254,7 @@ class RLRNN(BaseRNN):
         for t, a, r in zip(timesteps, action, reward):
             self.append_timestep_sample('ca', a)
             self.append_timestep_sample('cr', r)
+            self.append_timestep_sample('c(1-r)', 1-r)
             self.append_timestep_sample('ca[k-1]', self.prev_action)
             
             # compute the updates

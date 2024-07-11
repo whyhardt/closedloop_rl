@@ -30,18 +30,18 @@ use_lstm = False
 dropout = 0.25
 
 # ensemble parameters
-evolution_interval = 5
+evolution_interval = 1
 sampling_replacement = False
 n_submodels = 1
-ensemble = rnn_training.ensemble_types.NONE
-voting_type = rnn.EnsembleRNN.MEDIAN  # necessary if ensemble==True
+ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE, .BOOTSTRAP, .VOTE
+voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
 n_trials_per_session = 200
 n_sessions = 256
 epochs = 1000
 n_steps_per_call = 8  # None for full sequence
-batch_size = 256  # None for one batch per epoch
+batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
 convergence_threshold = 1e-6
 
@@ -50,7 +50,7 @@ alpha = .25
 beta = 3
 forget_rate = 0.  # possible values: 0., 0.1
 perseveration_bias = 0.
-correlated_update = True  # possible values: True, False
+correlated_update = False  # possible values: True, False
 
 # environment parameters
 n_actions = 2
@@ -60,7 +60,7 @@ non_binary_reward = False
 
 # tracked variables in the RNN
 x_train_list = ['xQf','xQr', 'xQc', 'xH']
-control_list = ['ca','ca[k-1]', 'cr', 'cQr']
+control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -104,7 +104,7 @@ else:
 
 if ensemble > -1 and n_submodels == 1:
   Warning('Ensemble is actived but n_submodels is set to 1. Deactivating ensemble...')
-  ensemble = rnn_training.ensemble_types.NONE
+  ensemble = rnn_training.ensembleTypes.NONE
 
 # define model
 if use_lstm:
@@ -279,17 +279,17 @@ bandits.plot_session(
     fig_ax=(fig, axs[2]),
     )
 
-dqs_arms = normalize(-1*np.diff(qs, axis=2))
+# dqs_arms = normalize(-1*np.diff(qs, axis=2))
 
-bandits.plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=dqs_arms[:, :, 0],
-    timeseries_name='dQ/dActions',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[3]),
-    )
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=dqs_arms[:, :, 0],
+#     timeseries_name='dQ/dActions',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
 
 plt.show()

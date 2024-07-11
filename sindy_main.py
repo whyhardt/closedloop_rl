@@ -23,7 +23,6 @@ polynomial_degree = 1
 regularization = 1e-1
 sindy_ensemble = False
 library_ensemble = False
-library = ps.PolynomialLibrary(degree=polynomial_degree, include_interaction=True)
 
 # training dataset parameters
 n_trials_per_session = 200
@@ -34,7 +33,7 @@ alpha = .25
 beta = 3
 forget_rate = 0.
 perseveration_bias = 0.
-correlated_update = True
+correlated_update = False
 
 # environment parameters
 n_actions = 2
@@ -51,7 +50,7 @@ voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
 z_train_list = ['xQf','xQr', 'xQc', 'xH']
-control_list = ['ca','ca[k-1]', 'cr', 'cQr']
+control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = z_train_list + control_list
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -59,7 +58,7 @@ sindy_feature_list = z_train_list + control_list
 library_setup = {
     'xQf': [],
     'xQc': ['cQr'],
-    'xQr': ['cr'],
+    'xQr': ['cr', 'c(1-r)'],
     'xH': []
 }
 
@@ -74,7 +73,7 @@ datafilter_setup = {
     'xH': ['ca[k-1]', 1]
 }
 
-if not check_library_setup(library_setup, sindy_feature_list, verbose=False):
+if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
     raise ValueError('Library setup does not match feature list.')
 
 # set up ground truth agent and environment
@@ -99,7 +98,7 @@ agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
 z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
-sindy_models = fit_model(z_train, control, feature_names, library, library_setup, datafilter_setup, True, False, threshold, regularization)
+sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
 print(f'Beta for SINDy: {beta}')
@@ -193,22 +192,21 @@ plot_session(
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
-    x_label='',
     )
 
-dqs_arms = -1*np.diff(qs, axis=2)
-dqs_arms = normalize(dqs_arms)
+# dqs_arms = -1*np.diff(qs, axis=2)
+# dqs_arms = normalize(dqs_arms)
 
-plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=dqs_arms[:, :, 0],
-    timeseries_name='dQ/dActions',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[3]),
-    )
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=dqs_arms[:, :, 0],
+#     timeseries_name='dQ/dActions',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
 
 plt.show()
 

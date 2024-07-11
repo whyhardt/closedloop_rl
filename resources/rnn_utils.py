@@ -41,9 +41,9 @@ class DatasetRNN(Dataset):
         
         if sequence_length is not None:
             xs, ys = self.set_sequences(xs, ys)
-        
-        self.xs = xs.to(device)
-        self.ys = ys.to(device)
+        self.device = device
+        self.xs = xs
+        self.ys = ys
         
     def set_sequences(self, xs, ys):
         # sets sequences of length sequence_length with specified stride from the dataset

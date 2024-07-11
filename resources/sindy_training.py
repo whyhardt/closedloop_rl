@@ -11,7 +11,7 @@ def fit_model(
     x_train: List[np.ndarray], 
     control: List[np.ndarray] = None, 
     feature_names: List[str] = None, 
-    library: ps.feature_library.base.BaseFeatureLibrary = None, 
+    polynomial_degree: int = 1, 
     library_setup: Dict[str, List[str]] = {},
     filter_setup: Dict[str, Tuple[str, float]] = {},
     verbose: bool = False,
@@ -36,10 +36,6 @@ def fit_model(
         if feature not in library_setup:
             library_setup[feature] = []
             
-    # setup library
-    if library is None:
-        library = ps.PolynomialLibrary(degree=2)
-    
     x_train = np.stack(x_train, axis=0)
     control = np.stack(control, axis=0)
     
@@ -72,7 +68,7 @@ def fit_model(
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
             optimizer=ps.STLSQ(threshold=optimizer_threshold, verbose=True, alpha=optimizer_alpha),
-            feature_library=library,
+            feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
             feature_names=feature_names_i,
         )

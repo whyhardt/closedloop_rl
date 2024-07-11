@@ -283,22 +283,22 @@ def constructor_update_rule_sindy(sindy_models):
       
       # habit network
       if prev_choice == 1 and 'xH' in sindy_models:
-        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+        h = sindy_models['xH'].predict(np.array([q]), u=np.array([prev_choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network
       blind_update, correlation_update, reward_update = 0, 0, 0
       
       if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
-          reward_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward, 1-reward]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
           # blind update for non-chosen action
-          blind_update = sindy_models['xQf'].simulate(q, t=2, u=np.array([0]).reshape(1, 1))[-1] - q
+          blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQc' in sindy_models:
           # correlation update for non-chosen action
-          correlation_update = sindy_models['xQc'].simulate(q+blind_update, t=2, u=np.array([spillover_update]).reshape(1, 1))[-1] - q
+          correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update[0]]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
       
       return q+blind_update+correlation_update+reward_update, h
     

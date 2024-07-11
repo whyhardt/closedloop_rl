@@ -71,7 +71,8 @@ class AgentQ:
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
     self._prev_choice = -1
-    self._alpha = alpha
+    self._alpha_r = alpha
+    self._alpha_p = alpha+.1
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
@@ -80,7 +81,8 @@ class AgentQ:
     self._q_init = 0.5
     self.new_sess()
 
-    _check_in_0_1_range(alpha, 'alpha')
+    _check_in_0_1_range(self._alpha_r, 'alpha_r')
+    _check_in_0_1_range(self._alpha_p, 'alpha_p')
     _check_in_0_1_range(forget_rate, 'forget_rate')
 
   def new_sess(self):
@@ -115,7 +117,8 @@ class AgentQ:
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Reward-based update - Update chosen q for chosen action with observed reward
-    q_reward_update = - self._alpha * self._q[choice] + self._alpha * reward
+    alpha = self._alpha_r if reward == 1 else self._alpha_p
+    q_reward_update = - alpha * self._q[choice] + alpha * reward
     
     # Correlated update - Update non-chosen q for non-chosen action with observed reward
     if self._correlated_reward:
