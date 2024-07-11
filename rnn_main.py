@@ -241,7 +241,7 @@ def normalize(qs):
   return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
 qs = normalize(qs)
-fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+fig, axs = plt.subplots(3, 1, figsize=(20, 10))
 
 reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
 bandits.plot_session(

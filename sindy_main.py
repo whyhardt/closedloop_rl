@@ -148,9 +148,9 @@ def normalize(qs):
 
 qs = normalize(qs)
 
-fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+fig, axs = plt.subplots(3, 1, figsize=(20, 10))
 # turn the x labels off for all but the last subplot
-for i in range(3):
+for i in range(2):
     axs[i].set_xticklabels([])
     axs[i].set_xlabel('')
     axs[i].set_xlim(0, n_trials_per_session)
