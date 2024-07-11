@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 1
+polynomial_degree = 2
 regularization = 1e-1
 sindy_ensemble = False
 library_ensemble = False
@@ -34,6 +34,7 @@ beta = 3
 forget_rate = 0.
 perseveration_bias = 0.
 correlated_update = False
+non_fixed_lr = False
 
 # environment parameters
 n_actions = 2
@@ -82,7 +83,7 @@ agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlat
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, beta, forget_rate, perseveration_bias, correlated_update, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, beta, forget_rate, perseveration_bias, correlated_update, non_fixed_lr, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):

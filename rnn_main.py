@@ -16,7 +16,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
 train = True
-checkpoint = False
+checkpoint = True
 data = False
 
 path_data = 'data/dataset_train.pkl'
@@ -48,9 +48,10 @@ convergence_threshold = 1e-6
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0.  # possible values: 0., 0.1
+forget_rate = 0. # possible values: 0., 0.1
 perseveration_bias = 0.
 correlated_update = False  # possible values: True, False
+non_fixed_lr = False
 
 # environment parameters
 n_actions = 2
@@ -68,7 +69,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if not data:
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, non_fixed_lr)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -93,6 +94,7 @@ if not data:
       forget_rate,
       perseveration_bias,
       correlated_update,
+      non_fixed_lr,
       non_binary_reward,
       verbose=True,
   )

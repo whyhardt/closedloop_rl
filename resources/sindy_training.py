@@ -68,6 +68,7 @@ def fit_model(
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
             optimizer=ps.STLSQ(threshold=optimizer_threshold, verbose=True, alpha=optimizer_alpha),
+            # optimizer=
             feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
             feature_names=feature_names_i,
