@@ -231,18 +231,18 @@ def fit_model(
                     loss += loss_i
                 loss /= len(models)
             
-            if n_submodels > 1 and ensemble_type == ensembleTypes.VOTE:
+            if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
                 optimizer_backup = optimizers
             else:
-                if n_submodels > 1 and ensemble_type == ensembleTypes.AVERAGE:
+                if len(models) > 1 and ensemble_type == ensembleTypes.AVERAGE:
                     avg_state_dict = average_parameters(models)
                     for submodel in models:
                         submodel.load_state_dict(avg_state_dict)
                 model_backup = models[0]
                 optimizer_backup = optimizers[0]
             
-            if n_submodels > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
+            if len(models) > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
                 # make sure that evolution interval is big enough so that the ensemble model can be trained effectively before evolution
                 xs, ys = next(iter(dataloader))
                 # check if current population is bigger than n_submodels (relevant for first evolution step)
@@ -253,9 +253,6 @@ def fit_model(
                     n_best, n_children = None, None
                 models, optimizers = evolution_step(models, optimizers, xs.to(dataloader.dataset.device), ys.to(dataloader.dataset.device), n_best, n_children)
                 n_submodels = len(models)
-            
-            if np.isinf(loss):
-                print('smth wrong')
             
             # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
@@ -321,7 +318,7 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
     losses = torch.zeros(len(models))
     for i, model in enumerate(models):
         with torch.no_grad():
-            _, _, loss = batch_train(model, xs, ys, stride=-1, keep_predictions=True)
+            _, _, loss = batch_train(model, xs, ys)
             losses[i] = loss
 
     # sort models by loss

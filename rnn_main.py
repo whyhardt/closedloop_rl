@@ -27,14 +27,14 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_lstm = False
-dropout = 0.
+dropout = 0.25
 
 # ensemble parameters
-evolution_interval = 4
+evolution_interval = 10
 sampling_replacement = False
 n_submodels = 1
 init_population = 1
-ensemble = rnn_training.ensembleTypes.VOTE  # Options; .NONE (just picking best submodel), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
+ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE (just picking best submodel), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
@@ -49,10 +49,10 @@ convergence_threshold = 1e-6
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0. # possible values: 0., 0.1
+forget_rate = 0.1 # possible values: 0., 0.1
 perseveration_bias = 0.
-correlated_update = False  # possible values: True, False TODO: Change to spillover-value
-non_fixed_lr = False
+correlated_update = True  # possible values: True, False TODO: Change to spillover-value
+non_fixed_lr = True
 
 # environment parameters
 n_actions = 2
