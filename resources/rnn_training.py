@@ -60,6 +60,9 @@ def batch_train(
     state = model.get_state(detach=True)
     for t in range(0, xs.shape[1], stride):
         n_steps = min(xs.shape[1]-t, n_steps_per_call)
+        # get state for the next time step - adjust to stride parameter
+        # _, state = model(xs[:, t], state, batch_first=True)
+        # state_buffer = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
         # compute prediction loss and optimize network
@@ -69,7 +72,7 @@ def batch_train(
                 loss += loss_fn(y_pred[:, i], ys[:, t+i])
             loss /= i
         else:
-            loss = loss_fn(y_pred[:, -1], ys[:, t+n_steps-1])
+            loss = loss_fn(y_pred[:, -1], ys[:, (t)+(n_steps-1)])
         if torch.is_grad_enabled():
             
             # null hypothesis penalty
@@ -82,7 +85,7 @@ def batch_train(
             optimizer.step()
 
         # run model with updated parameters from start until t+stride to get the next state for the next iteration
-        if t+1+stride < xs.shape[1]:
+        if t+stride < xs.shape[1]:
             with torch.no_grad():
                 model.eval()
                 model(xs[:, :t+1+stride], batch_first=True)
@@ -90,7 +93,9 @@ def batch_train(
             state = model.get_state(detach=True)
         else:
             break
-        
+        # state = state_buffer
+    if torch.isinf(loss):
+                print('smth wrong')
     # --------------------------------------------------------------
     # old procedure; may be too data inefficient due to big time steps
     # --------------------------------------------------------------
@@ -226,7 +231,8 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[i],
-                        n_steps_per_call=n_steps_per_call
+                        n_steps_per_call=n_steps_per_call,
+                        keep_predictions=True,
                         # loss_fn = categorical_log_likelihood
                     )
                     loss += loss_i
@@ -254,6 +260,9 @@ def fit_model(
                     n_best, n_children = None, None
                 models, optimizers = evolution_step(models, optimizers, xs.to(dataloader.dataset.device), ys.to(dataloader.dataset.device), n_best, n_children)
                 n_submodels = len(models)
+            
+            if np.isinf(loss):
+                print('smth wrong')
             
             # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
