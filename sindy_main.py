@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.03
 polynomial_degree = 1
-regularization = 1e-1
+regularization = 1
 sindy_ensemble = False
 library_ensemble = False
 
@@ -33,12 +33,12 @@ alpha = .25
 beta = 3
 forget_rate = 0.1
 perseveration_bias = 0.
-correlated_update = False
+correlated_update = True
 non_fixed_lr = True
 
 # environment parameters
 n_actions = 2
-sigma = .25
+sigma = .1
 non_binary_reward = False
 correlated_reward = False
 
@@ -147,7 +147,7 @@ qs = np.concatenate(list_qs, axis=0)
 def normalize(qs):
     return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-qs = normalize(qs)
+# qs = normalize(qs)
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 # turn the x labels off for all but the last subplot
@@ -196,12 +196,25 @@ plot_session(
     x_label='',
     )
 
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 1],
+#     timeseries_name='Q Arm 1',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
+
+dqs_t = np.diff(qs, axis=1)
+
 plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
-    timeseries=qs[:, :, 1],
-    timeseries_name='Q Arm 1',
+    timeseries=dqs_t[:, :, 0],
+    timeseries_name='dQ/dt',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[3]),

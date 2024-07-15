@@ -36,6 +36,12 @@ class DatasetRNN(Dataset):
         if len(ys.shape) == 2:
             ys = ys.unsqueeze(0)
         
+        # normalize data
+        # x_std = xs.std(dim=(0, 1))
+        # x_mean = xs.mean(dim=(0, 1))
+        # xs = (xs - x_mean) / x_std
+        # ys = (ys - x_mean) / x_std
+        
         self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
         self.stride = stride
         

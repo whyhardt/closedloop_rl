@@ -27,11 +27,11 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_lstm = False
-dropout = 0.25
+dropout = 0.
 
 # ensemble parameters
 evolution_interval = 4
-sampling_replacement = True
+sampling_replacement = False
 n_submodels = 1
 init_population = 1
 ensemble = rnn_training.ensembleTypes.VOTE  # Options; .NONE (just picking best submodel), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
@@ -41,7 +41,7 @@ voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only fo
 n_trials_per_session = 200
 n_sessions = 256
 epochs = 100
-n_steps_per_call = 8  # None for full sequence
+n_steps_per_call = 2  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
 convergence_threshold = 1e-6
@@ -50,13 +50,13 @@ convergence_threshold = 1e-6
 alpha = .25
 beta = 3
 forget_rate = 0. # possible values: 0., 0.1
-perseveration_bias = 0.25
+perseveration_bias = 0.
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
-non_fixed_lr = True
+non_fixed_lr = False
 
 # environment parameters
 n_actions = 2
-sigma = 0.25
+sigma = 0.1
 correlated_reward = False
 non_binary_reward = False
 
@@ -117,7 +117,7 @@ if use_lstm:
   model = rnn.LSTM(
       n_actions=n_actions, 
       hidden_size=hidden_size, 
-      init_value=0.5,
+      init_value=0.,
       device=device,
       ).to(device)
 else:
@@ -285,12 +285,25 @@ bandits.plot_session(
     fig_ax=(fig, axs[2]),
     )
 
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 1],
+#     timeseries_name='Q Arm 1',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
+
+dqs_t = np.diff(qs, axis=1)
+
 bandits.plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
-    timeseries=qs[:, :, 1],
-    timeseries_name='Q Arm 1',
+    timeseries=dqs_t[:, :, 0],
+    timeseries_name='dQ/dt',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[3]),
