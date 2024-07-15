@@ -151,7 +151,7 @@ class RLRNN(BaseRNN):
         self._hidden_size = hidden_size
         
         # define input size according to arguments (network configuration)
-        input_size = 1 + 1  # Q-Value of chosen action and received reward
+        input_size = 1 + 1  # Q-Value and received reward
         # if self._vo:
         #     input_size += self._n_actions
         # if self._vs:
@@ -170,7 +170,7 @@ class RLRNN(BaseRNN):
         self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # learning rate subnetwork
-        self.xLR = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # self.xLR = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
     def value_network(self, state, value, action, reward):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
@@ -243,7 +243,7 @@ class RLRNN(BaseRNN):
         if prev_state is not None:
             self.set_state(*prev_state)
         else:
-            self.initial_state(batch_size=inputs.shape[1], device=self.device)
+            self.initial_state(batch_size=inputs.shape[1])
         h_state, v_state, habit, value = self.get_state()
         # remove model dim for forward pass -> only one model
         h_state = h_state.squeeze(1)
@@ -322,7 +322,7 @@ class LSTM(BaseRNN):
         if prev_state is not None:
             self.set_state(*prev_state)
         else:
-            self.initial_state(batch_size=inputs.shape[1], device=self.device)
+            self.initial_state(batch_size=inputs.shape[1])
         c0, h0, _, value = self.get_state()
         
         # forward pass
@@ -493,3 +493,11 @@ class EnsembleRNN:
             model.set_device(device)
         self.device = device
         return self
+    
+    def eval(self):
+        for model in self.models:
+            model.eval()
+            
+    def train(self):
+        for model in self.models:
+            model.train()

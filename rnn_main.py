@@ -16,7 +16,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
 train = True
-checkpoint = True
+checkpoint = False
 data = False
 
 path_data = 'data/dataset_train.pkl'
@@ -30,16 +30,17 @@ use_lstm = False
 dropout = 0.25
 
 # ensemble parameters
-evolution_interval = 1
-sampling_replacement = False
-n_submodels = 1
-ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE, .BOOTSTRAP, .VOTE
+evolution_interval = 4
+sampling_replacement = True
+n_submodels = 4
+init_population = 16
+ensemble = rnn_training.ensembleTypes.VOTE  # Options; .NONE (just picking best submodel), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
 n_trials_per_session = 200
 n_sessions = 256
-epochs = 1000
+epochs = 100
 n_steps_per_call = 8  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
@@ -48,10 +49,10 @@ convergence_threshold = 1e-6
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0. # possible values: 0., 0.1
+forget_rate = 0.1 # possible values: 0., 0.1
 perseveration_bias = 0.
-correlated_update = False  # possible values: True, False
-non_fixed_lr = False
+correlated_update = False  # possible values: True, False TODO: Change to spillover-value
+non_fixed_lr = True
 
 # environment parameters
 n_actions = 2
@@ -65,6 +66,9 @@ control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+if init_population < n_submodels:
+  raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
 
 if not data:
   # setup
@@ -127,7 +131,7 @@ else:
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
       ).to(device)
-           for _ in range(n_submodels)]
+           for _ in range(init_population)]
 
 optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
 
@@ -171,22 +175,6 @@ if train:
       n_steps_per_call=n_steps_per_call,
   )
   
-  # validate model
-  print('\nValidating the trained hybrid RNN on a test dataset...')
-  if isinstance(model, (list, rnn.EnsembleRNN)):
-    for m in model:
-      m.eval()
-  else:
-    model.eval()  
-  with torch.no_grad():
-    rnn_training.fit_model(
-        model=model,
-        dataset=dataset_test,
-        n_steps_per_call=1,
-    )
-
-  print(f'Training took {time.time() - start_time:.2f} seconds.')
-  
   # save trained parameters  
   state_dict = {
     'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
@@ -195,7 +183,22 @@ if train:
   torch.save(state_dict, params_path)
   
   print(f'Saved RNN parameters to file {params_path}.')
+  
+  # validate model
+  print('\nValidating the trained hybrid RNN on a test dataset...')
+  if isinstance(model, list):
+    for m in model:
+      m.eval()
+  else:
+    model.eval()
+  with torch.no_grad():
+    rnn_training.fit_model(
+        model=model,
+        dataset=dataset_test,
+        n_steps_per_call=1,
+    )
 
+  print(f'Training took {time.time() - start_time:.2f} seconds.')
 else:
   model, _, _ = rnn_training.fit_model(
       model=model,
@@ -242,8 +245,9 @@ qs = np.concatenate(list_qs, axis=0)
 def normalize(qs):
   return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-qs = normalize(qs)
-fig, axs = plt.subplots(3, 1, figsize=(20, 10))
+# qs = normalize(qs)
+
+fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
 reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
 bandits.plot_session(
@@ -275,10 +279,21 @@ bandits.plot_session(
     choices=choices,
     rewards=rewards,
     timeseries=qs[:, :, 0],
-    timeseries_name='Q-Values',
+    timeseries_name='Q Arm 0',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
+    )
+
+bandits.plot_session(
+    compare=True,
+    choices=choices,
+    rewards=rewards,
+    timeseries=qs[:, :, 1],
+    timeseries_name='Q Arm 1',
+    color=colors,
+    binary=not non_binary_reward,
+    fig_ax=(fig, axs[3]),
     )
 
 # dqs_arms = normalize(-1*np.diff(qs, axis=2))

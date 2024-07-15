@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 2
+polynomial_degree = 1
 regularization = 1e-1
 sindy_ensemble = False
 library_ensemble = False
@@ -31,10 +31,10 @@ n_sessions = 32
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0.
+forget_rate = 0.1
 perseveration_bias = 0.
 correlated_update = False
-non_fixed_lr = False
+non_fixed_lr = True
 
 # environment parameters
 n_actions = 2
@@ -149,9 +149,9 @@ def normalize(qs):
 
 qs = normalize(qs)
 
-fig, axs = plt.subplots(3, 1, figsize=(20, 10))
+fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 # turn the x labels off for all but the last subplot
-for i in range(2):
+for i in range(4):
     axs[i].set_xticklabels([])
     axs[i].set_xlabel('')
     axs[i].set_xlim(0, n_trials_per_session)
@@ -189,10 +189,22 @@ plot_session(
     choices=choices,
     rewards=rewards,
     timeseries=qs[:, :, 0],
-    timeseries_name='Q-Values',
+    timeseries_name='Q Arm 0',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[2]),
+    x_label='',
+    )
+
+plot_session(
+    compare=True,
+    choices=choices,
+    rewards=rewards,
+    timeseries=qs[:, :, 1],
+    timeseries_name='Q Arm 1',
+    color=colors,
+    binary=not non_binary_reward,
+    fig_ax=(fig, axs[3]),
     )
 
 # dqs_arms = -1*np.diff(qs, axis=2)
