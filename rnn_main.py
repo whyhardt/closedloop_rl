@@ -27,7 +27,7 @@ hidden_size = 4
 last_output = False
 last_state = False
 use_lstm = False
-dropout = 0.25
+dropout = 0.
 
 # ensemble parameters
 evolution_interval = 10
@@ -38,10 +38,10 @@ ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE (just picking best 
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
-n_trials_per_session = 200
+n_trials_per_session = 400
 n_sessions = 256
-epochs = 100
-n_steps_per_call = 2  # None for full sequence
+epochs = 1000
+n_steps_per_call = 8  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
 convergence_threshold = 1e-6
@@ -49,10 +49,10 @@ convergence_threshold = 1e-6
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0.1 # possible values: 0., 0.1
+forget_rate = 0. # possible values: 0., 0.1
 perseveration_bias = 0.
-correlated_update = True  # possible values: True, False TODO: Change to spillover-value
-non_fixed_lr = True
+correlated_update = False  # possible values: True, False TODO: Change to spillover-value
+regret = True
 
 # environment parameters
 n_actions = 2
@@ -73,7 +73,7 @@ if init_population < n_submodels:
 if not data:
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, non_fixed_lr)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -98,7 +98,7 @@ if not data:
       forget_rate,
       perseveration_bias,
       correlated_update,
-      non_fixed_lr,
+      regret,
       non_binary_reward,
       verbose=True,
   )

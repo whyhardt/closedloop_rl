@@ -60,7 +60,7 @@ class AgentQ:
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
       correlated_reward: bool = False,
-      non_fixed_lr: bool = False,
+      regret: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -73,7 +73,7 @@ class AgentQ:
     """
     self._prev_choice = -1
     self._alpha_r = alpha
-    self._alpha_p = alpha+.1 if non_fixed_lr else alpha
+    self._alpha_p = alpha+.3 if regret else alpha
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
