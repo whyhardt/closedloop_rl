@@ -171,21 +171,21 @@ class RLRNN(BaseRNN):
         
         # alternative architecture 1: batchnorm in beginning
         
-        # # action-based subnetwork
-        # self.xH = nn.Sequential(nn.BatchNorm1d(1+hidden_size), nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # action-based subnetwork
+        self.xH = nn.Sequential(nn.BatchNorm1d(1+hidden_size), nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # # reward-blind subnetwork
-        # self.xQf = nn.Sequential(nn.BatchNorm1d(n_actions-1+hidden_size), nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
+        # reward-blind subnetwork
+        self.xQf = nn.Sequential(nn.BatchNorm1d(n_actions-1+hidden_size), nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
         
-        # # spillover subnetwork
-        # self.xQc = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # spillover subnetwork
+        self.xQc = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # # reward-based subnetwork
-        # self.xQr = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # reward-based subnetwork
+        self.xQr = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # alternative architecture 2: No batchnorm in beginning
         
-        # # action-based subnetwork
+        # # # action-based subnetwork
         # self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # # reward-blind subnetwork
@@ -200,16 +200,16 @@ class RLRNN(BaseRNN):
         # alternative architecture 3: No batchnorm and no hidden state in beginning
         
         # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # self.xH = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
+        # # reward-blind subnetwork
+        # self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
         
-        # spillover subnetwork
-        self.xQc = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # spillover subnetwork
+        # self.xQc = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # reward-based subnetwork
+        # self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # learning rate subnetwork
         # self.xLR = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
@@ -234,14 +234,14 @@ class RLRNN(BaseRNN):
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
         
         # 1. reward-blind update for all non-chosen elements
-        # not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        # inputs = torch.concat([not_chosen_value], dim=-1).float()
-        # blind_update, blind_state = self.subnetwork('xQf', inputs) 
-        # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
+        blind_update, blind_state = self.subnetwork('xQf', inputs) 
+        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
-        inputs = torch.concat([chosen_value, reward], dim=-1).float()
+        inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
         reward_update, reward_state = self.subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the correlation update
@@ -322,7 +322,7 @@ class RLRNN(BaseRNN):
             # habit, h_state = self.action_network(h_state, habit, a)
             # logit += self.prev_action * habit
             
-            self.prev_action = a#torch.argmax(logit)
+            self.prev_action = a
             
             logits[t, :, :] = logit.clone()
             

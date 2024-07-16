@@ -38,8 +38,8 @@ ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE (just picking best 
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
-n_trials_per_session = 400
-n_sessions = 256
+n_trials_per_session = 50
+n_sessions = 1024
 epochs = 1000
 n_steps_per_call = 8  # None for full sequence
 batch_size = None  # None for one batch per epoch
@@ -49,10 +49,10 @@ convergence_threshold = 1e-6
 # ground truth parameters
 alpha = .25
 beta = 3
-forget_rate = 0. # possible values: 0., 0.1
+forget_rate = 0.1 # possible values: 0., 0.1
 perseveration_bias = 0.
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
-regret = True
+regret = False
 
 # environment parameters
 n_actions = 2

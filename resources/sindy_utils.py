@@ -76,6 +76,7 @@ def create_dataset(
   normalize: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
+  trimming: int = 0,
   ):
   
   if not isinstance(data, Environment):
@@ -124,7 +125,7 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = torch.concat(history).detach().cpu().numpy()
+        values = torch.concat(history).detach().cpu().numpy()[trimming:]
         if key in keys_x:
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
