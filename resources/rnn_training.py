@@ -1,5 +1,7 @@
 import sys
 
+import json
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler
@@ -46,6 +48,13 @@ def batch_train(
     keep_predictions: bool = False,
     ):
 
+    # Try using imported weight_reg_rnn value
+    with open('resources/input_to_rnn_training.json') as file:
+        trace_input = json.load(file)
+
+    weight_reg_rnn: float = trace_input['weight_reg_rnn']
+    
+    print(weight_reg_rnn)
     """
     Trains a model with the given batch.
     """

@@ -244,56 +244,56 @@ qs = np.concatenate(list_qs, axis=0)
 def normalize(qs):
   return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-# qs = normalize(qs)
+qs = normalize(qs)
 
-fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+# fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
-reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
-bandits.plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=reward_probs,
-    timeseries_name='Reward Probs',
-    labels=[f'Arm {a}' for a in range(n_actions)],
-    color=['tab:purple', 'tab:cyan'],
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[0]),
-    )
+# reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=reward_probs,
+#     timeseries_name='Reward Probs',
+#     labels=[f'Arm {a}' for a in range(n_actions)],
+#     color=['tab:purple', 'tab:cyan'],
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[0]),
+#     )
 
-bandits.plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=probs[:, :, 0],
-    timeseries_name='Choice Probs',
-    color=colors,
-    labels=['Ground Truth', 'RNN'],
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[1]),
-    )
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=probs[:, :, 0],
+#     timeseries_name='Choice Probs',
+#     color=colors,
+#     labels=['Ground Truth', 'RNN'],
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[1]),
+#     )
 
-bandits.plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=qs[:, :, 0],
-    timeseries_name='Q Arm 0',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[2]),
-    )
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 0],
+#     timeseries_name='Q Arm 0',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[2]),
+#     )
 
-bandits.plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=qs[:, :, 1],
-    timeseries_name='Q Arm 1',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[3]),
-    )
+# bandits.plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 1],
+#     timeseries_name='Q Arm 1',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
 
 # dqs_arms = normalize(-1*np.diff(qs, axis=2))
 
@@ -308,4 +308,4 @@ bandits.plot_session(
 #     fig_ax=(fig, axs[3]),
 #     )
 
-plt.show()
+# plt.show()
