@@ -286,7 +286,8 @@ class RLRNN(BaseRNN):
             prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)
             # habit = self.xH(prev_chosen_action)
             # prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)
-            habit, h_state = self.subnetwork('xH', torch.concat([prev_chosen_action, h_state[:, 0]], dim=-1))
+            inputs = prev_chosen_action  #torch.concat([prev_chosen_action, h_state[:, 0]], dim=-1)
+            habit, h_state = self.subnetwork('xH', inputs)
             h_state = h_state.unsqueeze(1)
             self.append_timestep_sample('xH', value, value + self.prev_action * habit)
             logit += self.prev_action * habit

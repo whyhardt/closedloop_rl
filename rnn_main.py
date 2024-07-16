@@ -50,9 +50,8 @@ convergence_threshold = 1e-6
 alpha = .25
 beta = 3
 forget_rate = 0. # possible values: 0., 0.1
-perseveration_bias = 0.25
+perseveration_bias = 0.
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
-non_fixed_lr = True
 
 # environment parameters
 n_actions = 2
@@ -73,7 +72,7 @@ if init_population < n_submodels:
 if not data:
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, non_fixed_lr)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)  
 
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
@@ -98,7 +97,7 @@ if not data:
       forget_rate,
       perseveration_bias,
       correlated_update,
-      non_fixed_lr,
+      False,
       non_binary_reward,
       verbose=True,
   )
