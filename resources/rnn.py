@@ -173,16 +173,16 @@ class RLRNN(BaseRNN):
         #     input_size += self._hidden_size
         
         # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
+        self.xH = nn.Sequential(nn.Linear(1, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
         
         # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Tanh(), nn.Dropout(dropout))
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Tanh(), nn.Dropout(dropout))
         
         # spillover subnetwork
-        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
+        self.xQc = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
         
         # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
+        self.xQr = nn.Sequential(nn.Linear(input_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Tanh(), nn.Dropout(dropout))
         
         # learning rate subnetwork
         # self.xLR = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
@@ -203,22 +203,24 @@ class RLRNN(BaseRNN):
         """
         
         # get back previous states (same order as in return statement)
+        blind_update, reward_update, spillover_update = 0, 0, 0
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
         
         # 1. reward-blind update for all non-chosen elements
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        blind_update, blind_state = self.subnetwork('xQf', torch.concat((not_chosen_value, blind_state), dim=-1))  # 
+        inputs = not_chosen_value  # torch.concat((not_chosen_value, blind_state), dim=-1)
+        blind_update, blind_state = self.subnetwork('xQf', inputs) 
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 3. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
-        inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
+        inputs = torch.concat([chosen_value, reward], dim=-1).float()
         reward_update, reward_state = self.subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the correlation update
         
         # 2. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
-        inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
+        inputs = torch.cat([not_chosen_value+blind_update, reward_update], dim=-1).float()
         spillover_update, spillover_state = self.subnetwork('xQc', inputs)
         self.append_timestep_sample('xQc', value+(1-action)*blind_update, value+(1-action)*blind_update + (1-action) * spillover_update)
         
