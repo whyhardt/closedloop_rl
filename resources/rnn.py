@@ -171,31 +171,31 @@ class RLRNN(BaseRNN):
         
         # alternative architecture 1: batchnorm in beginning
         
-        # action-based subnetwork
-        self.xH = nn.Sequential(nn.BatchNorm1d(1+hidden_size), nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # action-based subnetwork
+        # self.xH = nn.Sequential(nn.BatchNorm1d(1+hidden_size), nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.BatchNorm1d(n_actions-1+hidden_size), nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
+        # # reward-blind subnetwork
+        # self.xQf = nn.Sequential(nn.BatchNorm1d(n_actions-1+hidden_size), nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
         
-        # spillover subnetwork
-        self.xQc = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # spillover subnetwork
+        # self.xQc = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # reward-based subnetwork
+        # self.xQr = nn.Sequential(nn.BatchNorm1d(input_size+hidden_size), nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # alternative architecture 2: No batchnorm in beginning
         
-        # # # action-based subnetwork
-        # self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # # action-based subnetwork
+        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # # reward-blind subnetwork
-        # self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
+        # reward-blind subnetwork
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
         
-        # # spillover subnetwork
-        # self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # spillover subnetwork
+        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
-        # # reward-based subnetwork
-        # self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        # reward-based subnetwork
+        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # alternative architecture 3: No batchnorm and no hidden state in beginning
         
