@@ -11,4 +11,6 @@ model = ps.SINDy(
 )
 
 model.fit(array, t=1, multiple_trajectories=True)
-model.print()
+model.set_params()
+print(array[0])
+print(model.predict(array[0][-1]))

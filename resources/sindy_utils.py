@@ -105,7 +105,7 @@ def create_dataset(
     
     for trial in range(n_trials_per_session):
       # generate trial data
-      choice = agent.get_choice(random=False)
+      choice = agent.get_choice()
       if isinstance(data, Environment):
         reward = data.step(choice)
       elif isinstance(data, DatasetRNN):
@@ -129,7 +129,7 @@ def create_dataset(
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
-        if key in keys_c:
+        elif key in keys_c:
           # add control signals of one session as corresponding trajectory
           if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
@@ -151,10 +151,15 @@ def create_dataset(
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
   
   if normalize:
+    index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
+    # compute scaling parameters
     x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
-    for i, x in enumerate(x_train_list):
-      x_train_list[i] = (x - x_min) / (x_max - x_min)
     beta = x_max - x_min
+    # normalize data (TODO: find better solution for cQr)
+    for i in range(len(x_train_list)):
+      x_train_list[i] = (x_train_list[i] - x_min) / beta
+      if 'cQr' in keys_c:
+        control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
   else:
     beta = 1
   
@@ -241,8 +246,8 @@ def remove_control_features(control_variables: List[np.ndarray], feature_names: 
 def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
   x_train_relevant = []
   control_relevant = []
-  x_features = [feature for feature in feature_names if feature.startswith('x')]
-  control_features = [feature for feature in feature_names if feature.startswith('c')]
+  x_features = [feature_names[0]]  #[feature for feature in feature_names if feature.startswith('x')]
+  control_features = feature_names[1:]  #[feature for feature in feature_names if feature.startswith('c')]
   for i, x, c in zip(range(len(x_train)), x_train, control):
     if relevant_feature in feature_names:
       i_relevant = control_features.index(relevant_feature)
@@ -273,16 +278,17 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, prev_choice, reward):
+  def update_rule_sindy(q, h, choice, prev_choice, reward, spillover_update):
       # mimic behavior of rnn with sindy
       
       # habit network
       if prev_choice == 1 and 'xH' in sindy_models:
-        h = sindy_models['xH'].simulate(q, t=2, u=np.array([prev_choice]).reshape(1, 1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+        h = sindy_models['xH'].predict(np.array([q]), u=np.array([prev_choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network
       blind_update, correlation_update, reward_update = 0, 0, 0
       
+<<<<<<< HEAD
       if choice == 0 and 'xQc' in sindy_models:
           # correlation update for non-chosen action
           correlation_update = sindy_models['xQc'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
@@ -294,6 +300,19 @@ def constructor_update_rule_sindy(sindy_models):
       if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
           reward_update = sindy_models['xQr'].simulate(q, t=2, u=np.array([reward]).reshape(1, 1))[-1] - q
+=======
+      if choice == 1 and 'xQr' in sindy_models:
+          # reward-based update for chosen action
+          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward, 1-reward]).reshape(1, -1))[-1] - q
+      
+      if choice == 0 and 'xQf' in sindy_models:
+          # blind update for non-chosen action
+          blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+      
+      if choice == 0 and 'xQc' in sindy_models:
+          # correlation update for non-chosen action
+          correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update[0]]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
+>>>>>>> main
       
       return q+blind_update+correlation_update+reward_update, h
     
