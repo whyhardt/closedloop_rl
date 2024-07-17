@@ -185,8 +185,8 @@ class RLRNN(BaseRNN):
         
         # alternative architecture 2: No batchnorm in beginning
         
-        # # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(n_actions+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions), nn.Dropout(dropout))
+        # action-based subnetwork
+        self.xH = nn.Sequential(nn.Linear(n_actions*2+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
         
         # reward-blind subnetwork
         self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
@@ -256,15 +256,12 @@ class RLRNN(BaseRNN):
     
     def action_network(self, state, value, action):
         # action based update for previously chosen element
-        # habit = self.xH(torch.ones((inputs.shape[1], 1), dtype=torch.float, device=self.device))
-        # prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)
-        # habit = self.xH(prev_chosen_action)
-        # TODO: Try different alternatives (only state, constant+state, habit+state)
         # prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)  
-        inputs = torch.concat([action, state[:, 0]], dim=-1)
+        # prev_chosen_value = self.prev_action*value
+        inputs = torch.concat([action, value, state[:, 0]], dim=-1)
         action_update, state = self.subnetwork('xH', inputs)
-        # value = value + action_update  # * self.prev_action
-        return action_update, state.unsqueeze(1)
+        value = self.prev_action * value + self.prev_action * action_update  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        return value, state.unsqueeze(1)
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
@@ -320,8 +317,8 @@ class RLRNN(BaseRNN):
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
             action_value, action_state = self.action_network(action_state, action_value, a)
-            self.append_timestep_sample('xH', reward_value, reward_value + self.prev_action*action_value)
-            logit = reward_value + self.prev_action*action_value
+            self.append_timestep_sample('xH', reward_value, reward_value + action_value)
+            logit = reward_value + action_value
             
             self.prev_action = a
             
