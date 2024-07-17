@@ -45,3 +45,7 @@ for value in values:
     update_weight_reg_rnn(new_weight)
 
 print(trace_df)
+
+output_sindy = subprocess.run(['python', '/Users/sebastian/Library/Mobile Documents/com~apple~CloudDocs/Cognitive Science/24 SoSe/Lab Rotation RNN/closedloop_rl/sindy_main.py'], capture_output=True, text=True)
+output_sindy_string = output_sindy.stdout
+print(output_sindy_string)
