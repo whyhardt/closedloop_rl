@@ -186,7 +186,7 @@ class RLRNN(BaseRNN):
         # alternative architecture 2: No batchnorm in beginning
         
         # # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        self.xH = nn.Sequential(nn.Linear(n_actions+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions), nn.Dropout(dropout))
         
         # reward-blind subnetwork
         self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
@@ -234,10 +234,10 @@ class RLRNN(BaseRNN):
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
         
         # 1. reward-blind update for all non-chosen elements
-        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
-        blind_update, blind_state = self.subnetwork('xQf', inputs) 
-        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        # not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        # inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
+        # blind_update, blind_state = self.subnetwork('xQf', inputs) 
+        # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
@@ -254,16 +254,17 @@ class RLRNN(BaseRNN):
         next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)
     
-    def action_network(self, state, habit, action):
+    def action_network(self, state, value, action):
         # action based update for previously chosen element
         # habit = self.xH(torch.ones((inputs.shape[1], 1), dtype=torch.float, device=self.device))
         # prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)
         # habit = self.xH(prev_chosen_action)
-        prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)
-        habit, h_state = self.subnetwork('xH', torch.concat([prev_chosen_action, h_state[:, 0]], dim=-1))
-        h_state = h_state.unsqueeze(1)
-        self.append_timestep_sample('xH', 0, self.prev_action * habit)
-        return habit, h_state
+        # TODO: Try different alternatives (only state, constant+state, habit+state)
+        # prev_chosen_action = torch.sum(self.prev_action*habit, dim=-1).view(-1, 1)  
+        inputs = torch.concat([action, state[:, 0]], dim=-1)
+        action_update, state = self.subnetwork('xH', inputs)
+        # value = value + action_update  # * self.prev_action
+        return action_update, state.unsqueeze(1)
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
@@ -303,12 +304,12 @@ class RLRNN(BaseRNN):
             self.set_state(*prev_state)
         else:
             self.initial_state(batch_size=inputs.shape[1])
-        h_state, v_state, habit, value = self.get_state()
+        action_state, reward_state, action_value, reward_value = self.get_state()
         # remove model dim for forward pass -> only one model
-        h_state = h_state.squeeze(1)
-        v_state = v_state.squeeze(1)
-        habit = habit.squeeze(1)
-        value = value.squeeze(1)
+        action_state = action_state.squeeze(1)
+        reward_state = reward_state.squeeze(1)
+        action_value = action_value.squeeze(1)
+        reward_value = reward_value.squeeze(1)
         
         for t, a, r in zip(timesteps, action, reward):
             self.append_timestep_sample('ca', a)
@@ -317,17 +318,17 @@ class RLRNN(BaseRNN):
             self.append_timestep_sample('ca[k-1]', self.prev_action)
             
             # compute the updates
-            value, v_state = self.value_network(v_state, value, a, r)
-            logit = value
-            # habit, h_state = self.action_network(h_state, habit, a)
-            # logit += self.prev_action * habit
+            reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
+            action_value, action_state = self.action_network(action_state, action_value, a)
+            self.append_timestep_sample('xH', reward_value, reward_value + self.prev_action*action_value)
+            logit = reward_value + self.prev_action*action_value
             
             self.prev_action = a
             
             logits[t, :, :] = logit.clone()
             
         # add model dim again and set state
-        self.set_state(h_state.unsqueeze(1), v_state.unsqueeze(1), habit.unsqueeze(1), value.unsqueeze(1))
+        self.set_state(action_state.unsqueeze(1), reward_state.unsqueeze(1), action_value.unsqueeze(1), reward_value.unsqueeze(1))
         
         if batch_first:
             logits = logits.permute(1, 0, 2)

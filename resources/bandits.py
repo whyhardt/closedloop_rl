@@ -88,7 +88,8 @@ class AgentQ:
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
-    self._q = self._q_init * np.ones(self._n_actions)
+    self._q = self._q_init + np.zeros(self._n_actions)
+    self._h = np.zeros(self._n_actions)
     self._prev_choice = -1
 
   def get_choice_probs(self) -> np.ndarray:
@@ -129,6 +130,10 @@ class AgentQ:
       index_correlated_update = self._n_actions-1 - choice
       self._q[index_correlated_update] -= 0.5*q_reward_update
     
+    if self._prev_choice != -1:
+      self._h = np.zeros(self._n_actions)
+      self._h[self._prev_choice] += self._perseverance_bias
+    
     # Memorize current choice for perseveration
     self._prev_choice = choice
     
@@ -136,9 +141,7 @@ class AgentQ:
     
   @property
   def q(self):
-    q = self._q.copy()
-    if self._prev_choice != -1:
-      q[self._prev_choice] += self._perseverance_bias
+    q = (self._q + self._h).copy()
     return q
 
 
@@ -205,14 +208,15 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    reward_update, action_update = self._update_rule(self._q[choice], self._h[choice], 1, int(self._prev_choice==choice), reward, 0)
-    reward_update = (reward_update - self._q[choice])[0]
-    self._q[choice] += reward_update
-    self._h[choice] = action_update
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, int(self._prev_choice==choice), reward, 0)
+    reward_update = (q - self._q[choice])
+    self._q[choice] = q
+    self._h[choice] = h
     
     # 2. update non-chosen actions
     for c in range(self._n_actions):
       if c == choice:
+        # skip already updated chosen action
         continue
       q, h = self._update_rule(self._q[c], self._h[c], 0, int(self._prev_choice==c), reward, reward_update)
       self._q[c] = q
@@ -284,18 +288,13 @@ class AgentNetwork:
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      # self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
-      self._model.initial_state(batch_size=1, return_dict=True)
+      self._model.initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
-    
-    # def set_state(self, state: Dict[str, torch.Tensor]):
-    #   state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
-    #   self._state = tuple([tensor.cpu().numpy() for tensor in state])
-    
+
     def get_value(self):
       """Return the value of the agent's current state."""
-      state = self._model.get_state()[-1].cpu().numpy()
-      value = state[:, 0].reshape(-1)
+      state = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
+      value = state[0, 0]
       return value
     
     def get_choice_probs(self) -> np.ndarray:
