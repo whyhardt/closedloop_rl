@@ -204,7 +204,7 @@ class RLRNN(BaseRNN):
         
         # 2. reward-based update for the chosen element
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
-        inputs = torch.concat([chosen_value, reward], dim=-1).float()
+        inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
         reward_update, reward_state = self.subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr', value, value + action*reward_update)
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update

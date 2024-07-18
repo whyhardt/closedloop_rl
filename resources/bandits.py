@@ -119,6 +119,7 @@ class AgentQ:
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Reward-based update - Update chosen q for chosen action with observed reward
+    # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_r if reward == 1 else self._alpha_p
     q_reward_update = - alpha * self._q[choice] + alpha * reward
     

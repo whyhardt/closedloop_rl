@@ -24,7 +24,7 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 
 # rnn parameters
 hidden_size = 4
-dropout = 0.25
+dropout = 0.
 use_lstm = False
 
 # ensemble parameters
@@ -40,17 +40,17 @@ n_trials_per_session = 100
 n_sessions = 1024
 epochs = 1000
 n_steps_per_call = 8  # None for full sequence
-batch_size = 256  # None for one batch per epoch
+batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
 convergence_threshold = 1e-6
 
 # ground truth parameters
 alpha = 0.25
 beta = 3
-forget_rate = 0.2 # possible values: 0., 0.1
-perseveration_bias = 0.25
+forget_rate = 0. # possible values: 0., 0.1
+perseveration_bias = 0.
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
-regret = False
+regret = True
 
 # environment parameters
 n_actions = 2
