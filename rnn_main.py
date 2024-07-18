@@ -24,10 +24,8 @@ params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapt
 
 # rnn parameters
 hidden_size = 4
-last_output = False
-last_state = False
+dropout = 0.25
 use_lstm = False
-dropout = 0.
 
 # ensemble parameters
 evolution_interval = 10
@@ -38,18 +36,18 @@ ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE (just picking best 
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
-n_trials_per_session = 50
+n_trials_per_session = 100
 n_sessions = 1024
 epochs = 1000
 n_steps_per_call = 8  # None for full sequence
-batch_size = None  # None for one batch per epoch
+batch_size = 256  # None for one batch per epoch
 learning_rate = 1e-3
 convergence_threshold = 1e-6
 
 # ground truth parameters
-alpha = .25
+alpha = 0.25
 beta = 3
-forget_rate = 0. # possible values: 0., 0.1
+forget_rate = 0.2 # possible values: 0., 0.1
 perseveration_bias = 0.25
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
 regret = False
@@ -62,7 +60,7 @@ non_binary_reward = False
 
 # tracked variables in the RNN
 x_train_list = ['xQf','xQr', 'xQc', 'xH']
-control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
+control_list = ['ca', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = x_train_list + control_list
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -72,9 +70,11 @@ if init_population < n_submodels:
 
 if not data:
   # setup
+  print('Setting up the environment and agent...')
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
   agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
 
+  print('Creating the dataset...')
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
       environment=environment,
@@ -92,8 +92,7 @@ if not data:
   params_path = rnn_utils.parameter_file_naming(
       'params/params',
       use_lstm,
-      last_output,
-      last_state,
+      alpha,
       beta,
       forget_rate,
       perseveration_bias,
@@ -105,6 +104,7 @@ if not data:
   
 else:
   # load data
+  print('Loading dataset...')
   with open(path_data, 'rb') as f:
       dataset_train = pickle.load(f)
 
@@ -113,6 +113,7 @@ if ensemble > -1 and n_submodels == 1:
   ensemble = rnn_training.ensembleTypes.NONE
 
 # define model
+print('Setting up the RNN model...')
 if use_lstm:
   model = rnn.LSTM(
       n_actions=n_actions, 
@@ -125,8 +126,6 @@ else:
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
-      last_output=last_output,
-      last_state=last_state,
       device=device,
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,

@@ -20,8 +20,8 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.03
 polynomial_degree = 1
-regularization = 1
-sindy_ensemble = True
+regularization = 1e-2
+sindy_ensemble = False
 library_ensemble = False
 
 # training dataset parameters
@@ -31,7 +31,7 @@ n_sessions = 1
 # ground truth parameters
 alpha = 0.25
 beta = 3
-forget_rate = 0.
+forget_rate = 0.2
 perseveration_bias = 0.25
 correlated_update = False
 regret = False
@@ -71,7 +71,7 @@ datafilter_setup = {
     'xQf': ['ca', 0],
     'xQc': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    'xH': ['ca', 1]
 }
 
 if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -83,7 +83,7 @@ agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlat
 dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):

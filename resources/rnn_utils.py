@@ -74,7 +74,7 @@ class DatasetRNN(Dataset):
         return self.xs[idx, :], self.ys[idx, :]
 
 
-def parameter_file_naming(params_path, use_lstm, last_output, last_state, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_fixed_lr, non_binary_reward, verbose=False):
+def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_fixed_lr, non_binary_reward, verbose=False):
     # create name for corresponding rnn
   
     if use_lstm:
@@ -82,14 +82,8 @@ def parameter_file_naming(params_path, use_lstm, last_output, last_state, gen_be
     else:
         params_path += '_rnn'
     
-    if any([last_output, last_state]):
-        params_path += '_'
-    
-    if last_output:
-        params_path += 'o'
-        
-    if last_state:
-        params_path += 's'
+    if gen_alpha > 0:
+        params_path += f'_a' + str(gen_alpha).replace('.', '')
     
     params_path += f'_b' + str(gen_beta).replace('.', '')
     
