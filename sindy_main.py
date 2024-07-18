@@ -31,9 +31,9 @@ n_sessions = 1
 # ground truth parameters
 alpha = 0.25
 beta = 3
-forget_rate = 0.2
-perseveration_bias = 0.25
-correlated_update = False
+forget_rate = 0.
+perseveration_bias = 0.
+correlated_update = True
 regret = False
 
 # environment parameters
@@ -59,7 +59,7 @@ sindy_feature_list = z_train_list + control_list
 library_setup = {
     'xQf': [],
     'xQc': ['cQr'],
-    'xQr': ['cr', 'c(1-r)'],
+    'xQr': ['cr'],#, 'c(1-r)'],
     'xH': []
 }
 
@@ -147,7 +147,7 @@ qs = np.concatenate(list_qs, axis=0)
 def normalize(qs):
     return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-qs = normalize(qs)
+# qs = normalize(qs)
 
 fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 # turn the x labels off for all but the last subplot

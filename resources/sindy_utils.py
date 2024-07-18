@@ -158,6 +158,7 @@ def create_dataset(
     beta = x_max - x_min
     # normalize data (TODO: find better solution for cQr)
     for i in range(len(x_train_list)):
+      # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
       x_train_list[i] = (x_train_list[i] - x_min) / beta
       if 'cQr' in keys_c:
         control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
@@ -291,7 +292,7 @@ def constructor_update_rule_sindy(sindy_models):
       # value network      
       if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
-          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward, 1-reward]).reshape(1, -1))[-1] - q
+          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward]).reshape(1, -1))[-1] - q  # , 1-reward
       
       if choice == 0 and 'xQf' in sindy_models:
           # blind update for non-chosen action
@@ -299,7 +300,7 @@ def constructor_update_rule_sindy(sindy_models):
       
       if choice == 0 and 'xQc' in sindy_models:
           # correlation update for non-chosen action
-          correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update[0]]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
+          correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
       
       return q+blind_update+correlation_update+reward_update, action_update
     

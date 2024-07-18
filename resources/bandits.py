@@ -71,8 +71,8 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
-    self._alpha_r = alpha
-    self._alpha_p = alpha*2 if regret else alpha
+    self._alpha_reward = alpha
+    self._alpha_penalty = alpha*2 if regret else alpha
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
@@ -81,8 +81,8 @@ class AgentQ:
     self._q_init = 0.5
     self.new_sess()
 
-    _check_in_0_1_range(self._alpha_r, 'alpha_r')
-    _check_in_0_1_range(self._alpha_p, 'alpha_p')
+    _check_in_0_1_range(self._alpha_reward, 'alpha_r')
+    _check_in_0_1_range(self._alpha_penalty, 'alpha_p')
     _check_in_0_1_range(forget_rate, 'forget_rate')
 
   def new_sess(self):
@@ -120,18 +120,13 @@ class AgentQ:
 
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
-    alpha = self._alpha_r if reward == 1 else self._alpha_p
+    alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
     q_reward_update = - alpha * self._q[choice] + alpha * reward
+    self._q[choice] += q_reward_update
     
     # Correlated update - Update non-chosen q for non-chosen action with observed reward
     if self._correlated_reward:
-      # index_correlated_update = self._n_actions - choice - 1
-      # self._q[index_correlated_update] = (1 - self._alpha) * self._q[index_correlated_update] + self._alpha * (1 - reward) 
-      # alternative implementation - not dependent on reward but on reward-based update
-      index_correlated_update = self._n_actions-1 - choice
-      self._q[index_correlated_update] -= 0.5*q_reward_update
-    
-    self._q[choice] += q_reward_update
+      self._q[self._n_actions-1] -= 0.5*q_reward_update
     
     # Action-based updates
     self._h = np.zeros(self._n_actions)
