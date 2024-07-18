@@ -148,77 +148,77 @@ def normalize(qs):
 
 qs = normalize(qs)
 
-fig, axs = plt.subplots(4, 1, figsize=(20, 10))
-# turn the x labels off for all but the last subplot
-for i in range(4):
-    axs[i].set_xticklabels([])
-    axs[i].set_xlabel('')
-    axs[i].set_xlim(0, n_trials_per_session)
-    # axs[i].set_ylim(0, 1)    
+# fig, axs = plt.subplots(4, 1, figsize=(20, 10))
+# # turn the x labels off for all but the last subplot
+# for i in range(4):
+#     axs[i].set_xticklabels([])
+#     axs[i].set_xlabel('')
+#     axs[i].set_xlim(0, n_trials_per_session)
+#     # axs[i].set_ylim(0, 1)    
 
-reward_probs = np.stack([experiment_test.timeseries[:, i] for i in range(n_actions)], axis=0)
-plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=reward_probs,
-    timeseries_name='Reward Probs',
-    labels=[f'Arm {a}' for a in range(n_actions)],
-    color=['tab:purple', 'tab:cyan'],
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[0]),
-    x_label='',
-    )
-
-plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=probs[:, :, 0],
-    timeseries_name='Choice Probs',
-    color=colors,
-    labels=labels,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[1]),
-    x_label='',
-    )
-
-plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=qs[:, :, 0],
-    timeseries_name='Q Arm 0',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[2]),
-    x_label='',
-    )
-
-plot_session(
-    compare=True,
-    choices=choices,
-    rewards=rewards,
-    timeseries=qs[:, :, 1],
-    timeseries_name='Q Arm 1',
-    color=colors,
-    binary=not non_binary_reward,
-    fig_ax=(fig, axs[3]),
-    )
-
-# dqs_arms = -1*np.diff(qs, axis=2)
-# dqs_arms = normalize(dqs_arms)
+# reward_probs = np.stack([experiment_test.timeseries[:, i] for i in range(n_actions)], axis=0)
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=reward_probs,
+#     timeseries_name='Reward Probs',
+#     labels=[f'Arm {a}' for a in range(n_actions)],
+#     color=['tab:purple', 'tab:cyan'],
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[0]),
+#     x_label='',
+#     )
 
 # plot_session(
 #     compare=True,
 #     choices=choices,
 #     rewards=rewards,
-#     timeseries=dqs_arms[:, :, 0],
-#     timeseries_name='dQ/dActions',
+#     timeseries=probs[:, :, 0],
+#     timeseries_name='Choice Probs',
+#     color=colors,
+#     labels=labels,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[1]),
+#     x_label='',
+#     )
+
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 0],
+#     timeseries_name='Q Arm 0',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[2]),
+#     x_label='',
+#     )
+
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 1],
+#     timeseries_name='Q Arm 1',
 #     color=colors,
 #     binary=not non_binary_reward,
 #     fig_ax=(fig, axs[3]),
 #     )
 
-plt.show()
+# # dqs_arms = -1*np.diff(qs, axis=2)
+# # dqs_arms = normalize(dqs_arms)
+
+# # plot_session(
+# #     compare=True,
+# #     choices=choices,
+# #     rewards=rewards,
+# #     timeseries=dqs_arms[:, :, 0],
+# #     timeseries_name='dQ/dActions',
+# #     color=colors,
+# #     binary=not non_binary_reward,
+# #     fig_ax=(fig, axs[3]),
+# #     )
+
+# plt.show()
 

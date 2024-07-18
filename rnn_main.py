@@ -53,6 +53,12 @@ forget_rate = 0. # possible values: 0., 0.1
 perseveration_bias = 0.
 correlated_update = False  # possible values: True, False TODO: Change to spillover-value
 
+print('alpha = ', alpha)
+print('beta = ', beta)
+print('forget_rate = ', forget_rate)
+print('perseveration_bias = ', perseveration_bias)
+print('correlated_update = ', correlated_update)
+
 # environment parameters
 n_actions = 2
 sigma = 0.25
