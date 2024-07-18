@@ -166,16 +166,16 @@ class RLRNN(BaseRNN):
         input_size = 1 + 1  # Q-Value and received reward
         
         # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
         
         # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1), nn.Dropout(dropout))
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1))#, nn.Dropout(dropout))
         
         # spillover subnetwork
-        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
         
         # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1), nn.Dropout(dropout))
+        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
 
         self.n_subnetworks = self.count_subnetworks()
         
