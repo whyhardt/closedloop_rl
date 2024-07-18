@@ -210,9 +210,9 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
         
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
-        # inputs = torch.cat([not_chosen_value+blind_update, reward_update], dim=-1).float()
-        # spillover_update, spillover_state = self.subnetwork('xQc', inputs)
-        # self.append_timestep_sample('xQc', value+(1-action)*blind_update, value+(1-action)*blind_update + (1-action) * spillover_update)
+        inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
+        spillover_update, spillover_state = self.subnetwork('xQc', inputs)
+        self.append_timestep_sample('xQc', value+(1-action)*blind_update, value+(1-action)*blind_update + (1-action) * spillover_update)
         
         next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)
