@@ -50,7 +50,7 @@ voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
 z_train_list = ['xQf','xQr', 'xQc', 'xH']
-control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
+control_list = ['ca','cr', 'c(1-r)', 'cQr']
 sindy_feature_list = z_train_list + control_list
 
 # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -70,7 +70,7 @@ datafilter_setup = {
     'xQf': ['ca', 0],
     'xQc': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    'xH': ['ca', 1]
 }
 
 if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
