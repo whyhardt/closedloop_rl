@@ -58,7 +58,7 @@ sindy_feature_list = z_train_list + control_list
 library_setup = {
     'xQf': [],
     'xQc': ['cQr'],
-    'xQr': ['cr', 'c(1-r)'],
+    'xQr': ['cr'],
     'xH': []
 }
 

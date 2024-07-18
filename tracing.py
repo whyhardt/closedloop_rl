@@ -10,7 +10,7 @@ input_path = 'resources/input_to_rnn_training.json'
 output_path = 'trace_data/trace_df.csv'
 
 # Create a df 
-trace_df = pd.DataFrame(columns =['reg_method','weight', 'loss','forget_rate' ,'xQf', 'alpha', 'xQr','correlated_update', 'xQc', 'perseveration_bias', 'xH', 'beta', 'sindy_beta'])
+trace_df = pd.DataFrame(columns =['reg_method','weight', 'loss','forget_rate' ,'xQf', 'alpha', 'xQr','correlated_update', 'perseveration_bias', 'xH', 'beta', 'sindy_beta'])
 
 # Regularization method. change this if you change the reg method in rnn_training
 reg_method = '2nd_approach'
@@ -133,8 +133,8 @@ try:
             correlated_update = correlated_update.group(1) == 'True'
 
             # xQc of sindy
-            xQc = re.search(r'\(xQc\)\[k\+1\] = ([^\n]+)', output_sindy_string)
-            xQc = xQc.group(1).strip()    
+            # xQc = re.search(r'\(xQc\)\[k\+1\] = ([^\n]+)', output_sindy_string)
+            # xQc = xQc.group(1).strip()    
 
             # perseveration_bias
             perseveration_bias = re.search(r'perseveration_bias\s*=\s*([\d\.]+)', output_rnn_string)  
@@ -153,7 +153,7 @@ try:
             sindy_beta = float(sindy_beta.group(1))
 
             # add all values 
-            trace_df.loc[len(trace_df.index)] = [reg_method, weight_reg_rnn, loss_value, forget_rate, xQf, alpha, xQr, correlated_update, xQc, perseveration_bias, xH, beta, sindy_beta]
+            trace_df.loc[len(trace_df.index)] = [reg_method, weight_reg_rnn, loss_value, forget_rate, xQf, alpha, xQr, correlated_update, perseveration_bias, xH, beta, sindy_beta]
 
             # Update the weight in the json file 
             new_weight = value
