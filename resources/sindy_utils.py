@@ -278,12 +278,12 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, prev_choice, reward, spillover_update):
+  def update_rule_sindy(q, h, choice, reward, spillover_update):
       # mimic behavior of rnn with sindy
       
       # habit network
-      if prev_choice == 1 and 'xH' in sindy_models:
-        h = sindy_models['xH'].predict(np.array([q]), u=np.array([prev_choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+      if choice == 1 and 'xH' in sindy_models:
+        h = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network
       blind_update, correlation_update, reward_update = 0, 0, 0
