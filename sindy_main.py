@@ -20,25 +20,25 @@ warnings.filterwarnings("ignore")
 # sindy parameters
 threshold = 0.03
 polynomial_degree = 1
-regularization = 1e-1
+regularization = 1e-2
 sindy_ensemble = False
 library_ensemble = False
 
 # training dataset parameters
-n_trials_per_session = 200
-n_sessions = 32
+n_trials_per_session = 6400
+n_sessions = 1
 
 # ground truth parameters
-alpha = .25
+alpha = 0.25
 beta = 3
-forget_rate = 0.1
-perseveration_bias = 0.
+forget_rate = 0.2
+perseveration_bias = 0.25
 correlated_update = False
-non_fixed_lr = True
+regret = False
 
 # environment parameters
 n_actions = 2
-sigma = .25
+sigma = .1
 non_binary_reward = False
 correlated_reward = False
 
@@ -71,7 +71,7 @@ datafilter_setup = {
     'xQf': ['ca', 0],
     'xQc': ['ca', 0],
     'xQr': ['ca', 1],
-    'xH': ['ca[k-1]', 1]
+    'xH': ['ca', 1]
 }
 
 if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -80,10 +80,10 @@ if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
 # set up ground truth agent and environment
 environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
 agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)
-dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, n_trials_per_session, 1)
+dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
 # set up rnn agent and expose q-values to train sindy
-params_path = parameter_file_naming('params/params', use_lstm, last_output, last_state, beta, forget_rate, perseveration_bias, correlated_update, non_fixed_lr, non_binary_reward, verbose=True)
+params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
 state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
 rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
 if isinstance(state_dict, dict):
@@ -98,7 +98,7 @@ elif isinstance(state_dict, list):
 agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
 # create dataset for sindy training, fit sindy, set up sindy agent
-z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False)
+z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
 sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
@@ -154,7 +154,7 @@ fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 for i in range(4):
     axs[i].set_xticklabels([])
     axs[i].set_xlabel('')
-    axs[i].set_xlim(0, n_trials_per_session)
+    axs[i].set_xlim(0, 200)
     # axs[i].set_ylim(0, 1)    
 
 reward_probs = np.stack([experiment_test.timeseries[:, i] for i in range(n_actions)], axis=0)
@@ -196,12 +196,25 @@ plot_session(
     x_label='',
     )
 
+# plot_session(
+#     compare=True,
+#     choices=choices,
+#     rewards=rewards,
+#     timeseries=qs[:, :, 1],
+#     timeseries_name='Q Arm 1',
+#     color=colors,
+#     binary=not non_binary_reward,
+#     fig_ax=(fig, axs[3]),
+#     )
+
+dqs_t = np.diff(qs, axis=1)
+
 plot_session(
     compare=True,
     choices=choices,
     rewards=rewards,
-    timeseries=qs[:, :, 1],
-    timeseries_name='Q Arm 1',
+    timeseries=dqs_t[:, :, 0],
+    timeseries_name='dQ/dt',
     color=colors,
     binary=not non_binary_reward,
     fig_ax=(fig, axs[3]),

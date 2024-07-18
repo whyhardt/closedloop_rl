@@ -76,6 +76,7 @@ def create_dataset(
   normalize: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
+  trimming: int = 0,
   ):
   
   if not isinstance(data, Environment):
@@ -124,7 +125,7 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = torch.concat(history).detach().cpu().numpy()
+        values = torch.concat(history).detach().cpu().numpy()[trimming:]
         if key in keys_x:
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
@@ -278,16 +279,16 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, prev_choice, reward, spillover_update):
+  def update_rule_sindy(q, h, choice, reward, spillover_update):
       # mimic behavior of rnn with sindy
       
-      # habit network
-      if prev_choice == 1 and 'xH' in sindy_models:
-        h = sindy_models['xH'].predict(np.array([q]), u=np.array([prev_choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
+      blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
       
-      # value network
-      blind_update, correlation_update, reward_update = 0, 0, 0
+      # action network
+      if choice == 1 and 'xH' in sindy_models:
+        action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
+      # value network      
       if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
           reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward, 1-reward]).reshape(1, -1))[-1] - q
@@ -300,7 +301,7 @@ def constructor_update_rule_sindy(sindy_models):
           # correlation update for non-chosen action
           correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update[0]]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
       
-      return q+blind_update+correlation_update+reward_update, h
+      return q+blind_update+correlation_update+reward_update, action_update
     
   return update_rule_sindy
 

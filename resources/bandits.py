@@ -60,7 +60,7 @@ class AgentQ:
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
       correlated_reward: bool = False,
-      non_fixed_lr: bool = False,
+      regret: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -71,9 +71,8 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
-    self._prev_choice = -1
     self._alpha_r = alpha
-    self._alpha_p = alpha+.1 if non_fixed_lr else alpha
+    self._alpha_p = alpha*2 if regret else alpha
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
@@ -88,8 +87,8 @@ class AgentQ:
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
-    self._q = self._q_init * np.ones(self._n_actions)
-    self._prev_choice = -1
+    self._q = self._q_init + np.zeros(self._n_actions)
+    self._h = np.zeros(self._n_actions)
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
@@ -113,6 +112,8 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
+    # Reward-and-Value-based updates
+    
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
@@ -129,16 +130,15 @@ class AgentQ:
       index_correlated_update = self._n_actions-1 - choice
       self._q[index_correlated_update] -= 0.5*q_reward_update
     
-    # Memorize current choice for perseveration
-    self._prev_choice = choice
-    
     self._q[choice] += q_reward_update
+    
+    # Action-based updates
+    self._h = np.zeros(self._n_actions)
+    self._h[choice] += self._perseverance_bias
     
   @property
   def q(self):
-    q = self._q.copy()
-    if self._prev_choice != -1:
-      q[self._prev_choice] += self._perseverance_bias
+    q = (self._q + self._h).copy()
     return q
 
 
@@ -205,22 +205,20 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    reward_update, action_update = self._update_rule(self._q[choice], self._h[choice], 1, int(self._prev_choice==choice), reward, 0)
-    reward_update = (reward_update - self._q[choice])[0]
-    self._q[choice] += reward_update
-    self._h[choice] = action_update
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, 0)
+    reward_update = (q - self._q[choice])
+    self._q[choice] = q
+    self._h[choice] = h
     
     # 2. update non-chosen actions
     for c in range(self._n_actions):
       if c == choice:
+        # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, int(self._prev_choice==c), reward, reward_update)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, reward_update)
       self._q[c] = q
       self._h[c] = h
-    
-    # remaining operations
-    self._prev_choice = choice  # memorize choice for next update
-    
+          
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
@@ -284,18 +282,13 @@ class AgentNetwork:
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      # self.set_state(self._model.initial_state(batch_size=1, return_dict=True))
-      self._model.initial_state(batch_size=1, return_dict=True)
+      self._model.initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
-    
-    # def set_state(self, state: Dict[str, torch.Tensor]):
-    #   state = [v for k, v in state.items() if not 'hidden' in k]  # get only the non-hidden states i.e. habit and value
-    #   self._state = tuple([tensor.cpu().numpy() for tensor in state])
-    
+
     def get_value(self):
       """Return the value of the agent's current state."""
-      state = self._model.get_state()[-1].cpu().numpy()
-      value = state[:, 0].reshape(-1)
+      state = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
+      value = state[0, 0]
       return value
     
     def get_choice_probs(self) -> np.ndarray:
@@ -316,7 +309,6 @@ class AgentNetwork:
       self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
-        # self.set_state(self._model.get_state(return_dict=True))
             
     @property
     def q(self):

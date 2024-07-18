@@ -38,84 +38,77 @@ def batch_train(
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
-    n_steps_per_call: int = -1,
+    n_steps_per_call: int = None,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     weight_reg_rnn: float = 0e0,
-    stride: int = 1,
-    keep_predictions: bool = False,
     ):
 
     """
     Trains a model with the given batch.
     """
     
-    if stride == -1:
-        stride = xs.shape[1]
-    
-    if n_steps_per_call is None or n_steps_per_call == -1:
+    if n_steps_per_call is None:
         n_steps_per_call = xs.shape[1]
     
     # predict y and compute loss
     model.initial_state(batch_size=len(xs))
     state = model.get_state(detach=True)
-    for t in range(0, xs.shape[1], stride):
-        n_steps = min(xs.shape[1]-t, n_steps_per_call)
-        # get state for the next time step - adjust to stride parameter
-        # _, state = model(xs[:, t], state, batch_first=True)
-        # state_buffer = model.get_state(detach=True)
-        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
+    
+    # for t in range(xs.shape[1]):
+    #     n_steps = min(xs.shape[1]-t, n_steps_per_call)
+    #     # for step in range(n_steps):
+    #     y_pred = torch.zeros((xs.shape[0], n_steps, model._n_actions), device=model.device)
+    #     y_pred[:, 0] = model(xs[:, t], state, batch_first=True)[0].squeeze(1)
+    #     state_buffer = model.get_state(detach=True)
+    #     y_pred[:, 1:] = model(xs[:, t+1:t+n_steps], state, batch_first=True)[0]
+        # state = model.get_state()
+        # if step == 0:
+        #     # save state for next big iteration
+        #     state_buffer = state
+        # model.set_state(*state_buffer)
         
-        # compute prediction loss and optimize network
-        if keep_predictions:
-            loss = 0
-            for i in range(y_pred.shape[1]):
-                loss += loss_fn(y_pred[:, i], ys[:, t+i])
-            loss /= i
-        else:
-            loss = loss_fn(y_pred[:, -1], ys[:, (t)+(n_steps-1)])
-        if torch.is_grad_enabled():
+        # # compute prediction loss and optimize network
+        # loss = 0
+        # for i in range(n_steps):
+        #     loss += loss_fn(y_pred[:, i], ys[:, t+i])
+        # loss /= n_steps
+        # # loss = loss_fn(y_pred, ys[:, t+n_steps-1])
+        # if torch.is_grad_enabled():
             
             # null hypothesis penalty
             # reg_null = penalty_null_hypothesis(model, batch_size=128)
             # loss += weight_reg_rnn * reg_null
             
             # parameter optimization
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-        # run model with updated parameters from start until t+stride to get the next state for the next iteration
-        if t+stride < xs.shape[1]:
-            with torch.no_grad():
-                model.eval()
-                model(xs[:, :t+1+stride], batch_first=True)
-                model.train()
-            state = model.get_state(detach=True)
-        else:
-            break
+        #     optimizer.zero_grad()
+        #     loss.backward()
+        #     optimizer.step()
         # state = state_buffer
-    if torch.isinf(loss):
-                print('smth wrong')
     # --------------------------------------------------------------
-    # old procedure; may be too data inefficient due to big time steps
+    # old procedure; may be to inefficient due to big time steps
     # --------------------------------------------------------------
     
-    # # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
-    # for t in range(0, xs.shape[1], n_steps_per_call):
-    #     n_steps = min(xs.shape[1]-t, n_steps_per_call)
-    #     state = model.get_state(detach=True)
-    #     y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
-    #     loss = loss_fn(y_pred, ys[:, t+n_steps-1])
+    # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
+    for t in range(0, xs.shape[1]-1, n_steps_per_call):
+        n_steps = min(xs.shape[1]-t-1, n_steps_per_call)
+        state = model.get_state(detach=True)
+        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
         
-    #     if torch.is_grad_enabled():
+        loss = loss_fn(y_pred, xs[:, t+n_steps, :-1])
+        # loss = 0
+        # for i in range(n_steps):
+        #     loss += loss_fn(y_pred[:, i], ys[:, t+i])
+        # loss /= n_steps
+         
+        if torch.is_grad_enabled():
             
-    #         # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
-    #         # loss += weight_reg_rnn * reg_null
+            # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
+            # loss += weight_reg_rnn * reg_null
             
-    #         # backpropagation
-    #         optimizer.zero_grad()
-    #         loss.backward(retain_graph=True)
-    #         optimizer.step()
+            # backpropagation
+            optimizer.zero_grad()
+            loss.backward(retain_graph=True)
+            optimizer.step()
     
     return model, optimizer, loss.item()
     
@@ -232,24 +225,24 @@ def fit_model(
                         ys=ys,
                         optimizer=optimizers[i],
                         n_steps_per_call=n_steps_per_call,
-                        keep_predictions=True,
+                        # keep_predictions=True,
                         # loss_fn = categorical_log_likelihood
                     )
                     loss += loss_i
                 loss /= len(models)
             
-            if n_submodels > 1 and ensemble_type == ensembleTypes.VOTE:
+            if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
                 optimizer_backup = optimizers
             else:
-                if n_submodels > 1 and ensemble_type == ensembleTypes.AVERAGE:
+                if len(models) > 1 and ensemble_type == ensembleTypes.AVERAGE:
                     avg_state_dict = average_parameters(models)
                     for submodel in models:
                         submodel.load_state_dict(avg_state_dict)
                 model_backup = models[0]
                 optimizer_backup = optimizers[0]
             
-            if n_submodels > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
+            if len(models) > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
                 # make sure that evolution interval is big enough so that the ensemble model can be trained effectively before evolution
                 xs, ys = next(iter(dataloader))
                 # check if current population is bigger than n_submodels (relevant for first evolution step)
@@ -260,9 +253,6 @@ def fit_model(
                     n_best, n_children = None, None
                 models, optimizers = evolution_step(models, optimizers, xs.to(dataloader.dataset.device), ys.to(dataloader.dataset.device), n_best, n_children)
                 n_submodels = len(models)
-            
-            if np.isinf(loss):
-                print('smth wrong')
             
             # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
@@ -328,7 +318,7 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
     losses = torch.zeros(len(models))
     for i, model in enumerate(models):
         with torch.no_grad():
-            _, _, loss = batch_train(model, xs, ys, stride=-1, keep_predictions=True)
+            _, _, loss = batch_train(model, xs, ys)
             losses[i] = loss
 
     # sort models by loss
