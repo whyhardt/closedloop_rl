@@ -50,7 +50,7 @@ use_lstm = False
 voting_type = EnsembleRNN.MEDIAN
 
 # tracked variables in the RNN
-z_train_list = ['xQf','xQr', 'xQc', 'xH']
+z_train_list = ['xQf','xQr_r', 'xQr_p', 'xQc', 'xH']
 control_list = ['ca','ca[k-1]', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = z_train_list + control_list
 
@@ -59,7 +59,8 @@ sindy_feature_list = z_train_list + control_list
 library_setup = {
     'xQf': [],
     'xQc': ['cQr'],
-    'xQr': ['cr', 'c(1-r)'],
+    'xQr_r': [],
+    'xQr_p': [],
     'xH': []
 }
 
@@ -70,7 +71,8 @@ library_setup = {
 datafilter_setup = {
     'xQf': ['ca', 0],
     'xQc': ['ca', 0],
-    'xQr': ['ca', 1],
+    'xQr_r': [['ca', 1], ['cr', 1]],
+    'xQr_p': [['ca', 1], ['cr', 0]],
     'xH': ['ca', 1]
 }
 

@@ -163,7 +163,7 @@ class RLRNN(BaseRNN):
         
         self.sigmoid = nn.Sigmoid()
         # define input size according to arguments (network configuration)
-        input_size = 1 + 1  # Q-Value and received reward
+        input_size = 1+1  # Q-Value and received reward
         
         # action-based subnetwork
         self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
@@ -176,6 +176,9 @@ class RLRNN(BaseRNN):
         
         # reward-based subnetwork
         self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        
+        # reward-based subnetwork
+        self.xQp = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
 
         self.n_subnetworks = self.count_subnetworks()
         
@@ -205,11 +208,22 @@ class RLRNN(BaseRNN):
         # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
+        # penalty = 1-reward
+        
+        # 2.1 in case of reward
         inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
         reward_update, reward_state = self.subnetwork('xQr', inputs)
-        self.append_timestep_sample('xQr', value, value + action*reward_update)
+        self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)
+        self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
         
+        # 2.2 in case of penalty
+        # inputs = torch.concat([chosen_value, penalty, reward_state], dim=-1).float()
+        # reward_update, reward_state_1 = self.subnetwork('xQp', inputs)
+        # self.append_timestep_sample('xQr', value, value)
+        # self.append_timestep_sample('xQp', value, value + action*reward_update)
+        # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
+
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
         # inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
         # spillover_update, spillover_state = self.subnetwork('xQc', inputs)

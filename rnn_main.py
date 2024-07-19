@@ -59,7 +59,7 @@ correlated_reward = False
 non_binary_reward = False
 
 # tracked variables in the RNN
-x_train_list = ['xQf','xQr', 'xQc', 'xH']
+x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xQc', 'xH']
 control_list = ['ca', 'cr', 'c(1-r)', 'cQr']
 sindy_feature_list = x_train_list + control_list
 

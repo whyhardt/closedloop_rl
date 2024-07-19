@@ -54,7 +54,11 @@ def fit_model(
         
         # filter target variable and control features according to filter conditions
         if x_feature in filter_setup:
-            x_train_i, control_i, feature_names_i = conditional_filtering(x_train_i, control_i, feature_names_i, filter_setup[x_feature][0], filter_setup[x_feature][1])
+            if not isinstance(filter_setup[x_feature][0], list):
+                # check that filter_setup[x_feature] is a list of filter-conditions 
+                filter_setup[x_feature] = [filter_setup[x_feature]]
+            for filter_condition in filter_setup[x_feature]:
+                x_train_i, control_i, feature_names_i = conditional_filtering(x_train_i, control_i, feature_names_i, filter_condition[0], filter_condition[1])
         
         # remove unnecessary control features according to library setup
         control_i = remove_control_features(control_i, feature_names_i[1:], library_setup[x_feature])
