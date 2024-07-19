@@ -292,7 +292,7 @@ def constructor_update_rule_sindy(sindy_models):
       # value network      
       if choice == 1 and 'xQr' in sindy_models:
           # reward-based update for chosen action
-          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward]).reshape(1, -1))[-1] - q  # , 1-reward
+          reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([reward]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
           # blind update for non-chosen action

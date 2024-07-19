@@ -33,8 +33,8 @@ alpha = 0.25
 beta = 3
 forget_rate = 0.
 perseveration_bias = 0.
-correlated_update = True
-regret = False
+correlated_update = False
+regret = True
 
 # environment parameters
 n_actions = 2
@@ -59,7 +59,7 @@ sindy_feature_list = z_train_list + control_list
 library_setup = {
     'xQf': [],
     'xQc': ['cQr'],
-    'xQr': ['cr'],#, 'c(1-r)'],
+    'xQr': ['cr', 'c(1-r)'],
     'xH': []
 }
 

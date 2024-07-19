@@ -49,8 +49,8 @@ alpha = 0.25
 beta = 3
 forget_rate = 0. # possible values: 0., 0.1
 perseveration_bias = 0.
-correlated_update = True  # possible values: True, False TODO: Change to spillover-value
-regret = False
+correlated_update = False  # possible values: True, False TODO: Change to spillover-value
+regret = True
 
 # environment parameters
 n_actions = 2
