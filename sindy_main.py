@@ -31,8 +31,8 @@ n_sessions = 1
 # ground truth parameters
 alpha = 0.25
 beta = 3
-forget_rate = 0.
-perseveration_bias = 0.
+forget_rate = 0.1
+perseveration_bias = 0.25
 correlated_update = False
 regret = True
 

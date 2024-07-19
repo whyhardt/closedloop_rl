@@ -176,9 +176,6 @@ class RLRNN(BaseRNN):
         
         # reward-based subnetwork
         self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
-        
-        # reward-based subnetwork
-        self.xQp = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
 
         self.n_subnetworks = self.count_subnetworks()
         
@@ -203,26 +200,16 @@ class RLRNN(BaseRNN):
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         
         # 1. reward-blind update for all non-chosen elements
-        # inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
-        # blind_update, blind_state = self.subnetwork('xQf', inputs) 
-        # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
+        blind_update, blind_state = self.subnetwork('xQf', inputs) 
+        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
-        # penalty = 1-reward
-        
-        # 2.1 in case of reward
         inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
         reward_update, reward_state = self.subnetwork('xQr', inputs)
-        self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)
-        self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)
+        self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
+        self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
-        
-        # 2.2 in case of penalty
-        # inputs = torch.concat([chosen_value, penalty, reward_state], dim=-1).float()
-        # reward_update, reward_state_1 = self.subnetwork('xQp', inputs)
-        # self.append_timestep_sample('xQr', value, value)
-        # self.append_timestep_sample('xQp', value, value + action*reward_update)
-        # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
 
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
         # inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
@@ -235,9 +222,9 @@ class RLRNN(BaseRNN):
     def action_network(self, state, value, action):
         # action based update for previously chosen element
         chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
-        # inputs = torch.concat([chosen_value, state[:, 0]], dim=-1)
-        # action_update, state = self.subnetwork('xH', inputs)
-        # value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        inputs = torch.concat([chosen_value, state[:, 0]], dim=-1)
+        action_update, state = self.subnetwork('xH', inputs)
+        value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
         return value, state.unsqueeze(1)
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
