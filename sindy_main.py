@@ -64,16 +64,20 @@ library_setup = {
     'xH': []
 }
 
-# data-filter setup aka which samples are allowed as training samples in each SINDy model corresponding to the given filter condition
-# key is the SINDy submodel name, value is a list with the first element being the feature name to be used as a filter and the second element being the filter condition
+# data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
+# key is the SINDy submodel name, value is a list with a triplet of values: 
+#   1. str: feature name to be used as a filter
+#   2. numeric: the numeric filter condition
+#   3. bool: remove feature from control inputs
+# Can also be a list of list of triplets for multiple filter conditions
 # Example:
-# 'xQf': ['ca', 0] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf'
+# 'xQf': ['ca', 0, True] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf' and the control parameter 'ca' is removed for training the model
 datafilter_setup = {
-    'xQf': ['ca', 0],
-    'xQc': ['ca', 0],
-    'xQr_r': [['ca', 1], ['cr', 1]],
-    'xQr_p': [['ca', 1], ['cr', 0]],
-    'xH': ['ca', 1]
+    'xQf': ['ca', 0, True],
+    'xQc': ['ca', 0, True],
+    'xQr_r': [['ca', 1, True], ['cr', 1, False]],
+    'xQr_p': [['ca', 1, True], ['cr', 0, False]],
+    'xH': ['ca', 1, True]
 }
 
 if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
