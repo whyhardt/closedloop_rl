@@ -40,7 +40,7 @@ voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only fo
 # training parameters
 n_trials_per_session = 200
 n_sessions = 256
-epochs = 100
+epochs = 500
 n_steps_per_call = 8  # None for full sequence
 batch_size = None  # None for one batch per epoch
 learning_rate = 1e-3
