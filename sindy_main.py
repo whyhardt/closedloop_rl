@@ -19,8 +19,8 @@ warnings.filterwarnings("ignore")
 
 # sindy parameters
 threshold = 0.03
-polynomial_degree = 1
-regularization = 1e-2
+polynomial_degree = 2
+regularization = 1
 sindy_ensemble = False
 library_ensemble = False
 
@@ -31,10 +31,10 @@ n_sessions = 1
 # ground truth parameters
 alpha = 0.25
 beta = 3
-forget_rate = 0.1
-perseveration_bias = 0.25
-correlated_update = False
-regret = True
+forget_rate = 0.
+perseveration_bias = 0.
+correlated_update = True
+regret = False
 
 # environment parameters
 n_actions = 2

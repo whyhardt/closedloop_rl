@@ -166,16 +166,16 @@ class RLRNN(BaseRNN):
         input_size = 1+1  # Q-Value and received reward
         
         # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))
         
         # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1))#, nn.Dropout(dropout))
+        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1))
         
         # spillover subnetwork
-        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))
         
         # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))
 
         self.n_subnetworks = self.count_subnetworks()
         
@@ -200,9 +200,9 @@ class RLRNN(BaseRNN):
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
         
         # 1. reward-blind update for all non-chosen elements
-        inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
-        blind_update, blind_state = self.subnetwork('xQf', inputs) 
-        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        # inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
+        # blind_update, blind_state = self.subnetwork('xQf', inputs) 
+        # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
         inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
@@ -212,19 +212,19 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
 
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
-        # inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
-        # spillover_update, spillover_state = self.subnetwork('xQc', inputs)
-        # self.append_timestep_sample('xQc', value+(1-action)*blind_update, value+(1-action)*blind_update + (1-action) * spillover_update)
+        inputs = torch.cat([not_chosen_value, reward_update, spillover_state], dim=-1).float()
+        spillover_update, spillover_state = self.subnetwork('xQc', inputs)
+        self.append_timestep_sample('xQc', value, value + (1-action) * spillover_update)
         
         next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)
     
     def action_network(self, state, value, action):
         # action based update for previously chosen element
-        chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
-        inputs = torch.concat([chosen_value, state[:, 0]], dim=-1)
-        action_update, state = self.subnetwork('xH', inputs)
-        value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        # chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
+        # inputs = torch.concat([chosen_value, state[:, 0]], dim=-1)
+        # action_update, state = self.subnetwork('xH', inputs)
+        # value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
         return value, state.unsqueeze(1)
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
