@@ -25,8 +25,8 @@ sindy_ensemble = False
 library_ensemble = False
 
 # training dataset parameters
-n_trials_per_session = 6400
-n_sessions = 1
+n_trials_per_session = 200
+n_sessions = 10
 
 # ground truth parameters
 alpha = 0.25
@@ -108,7 +108,7 @@ z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n
 sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
 update_rule_sindy = constructor_update_rule_sindy(sindy_models)
 agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
-print(f'Beta for SINDy: {beta}')
+print(f'\nBeta for SINDy: {beta}')
 agent_sindy._beta = beta
 # loss_x = sindy_loss_x(agent_sindy, dataset_test)
 # loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)

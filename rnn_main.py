@@ -16,7 +16,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 
 # train model
 train = True
-checkpoint = False
+checkpoint = True
 data = False
 
 path_data = 'data/dataset_train.pkl'
@@ -28,7 +28,7 @@ dropout = 0.25
 use_lstm = False
 
 # ensemble parameters
-evolution_interval = 10
+evolution_interval = 100
 sampling_replacement = False
 n_submodels = 1
 init_population = 1
@@ -36,12 +36,12 @@ ensemble = rnn_training.ensembleTypes.NONE  # Options; .NONE (just picking best 
 voting_type = rnn.EnsembleRNN.MEDIAN  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
 # training parameters
-n_trials_per_session = 100
-n_sessions = 1024
-epochs = 1000
+n_trials_per_session = 50
+n_sessions = 4096
+epochs = 5000
 n_steps_per_call = 8  # None for full sequence
-batch_size = 256  # None for one batch per epoch
-learning_rate = 1e-3
+batch_size = None  # None for one batch per epoch
+learning_rate = 1e-4
 convergence_threshold = 1e-6
 
 # ground truth parameters
@@ -54,7 +54,7 @@ regret = True
 
 # environment parameters
 n_actions = 2
-sigma = 0.1
+sigma = 0.2
 correlated_reward = False
 non_binary_reward = False
 
@@ -70,11 +70,11 @@ if init_population < n_submodels:
 
 if not data:
   # setup
-  print('Setting up the environment and agent...')
+  print('Set up the environment and agent.')
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
   agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
 
-  print('Creating the dataset...')
+  print('Creating the dataset...', end='\r')
   dataset_train, experiment_list_train = bandits.create_dataset(
       agent=agent,
       environment=environment,
@@ -82,12 +82,21 @@ if not data:
       n_sessions=n_sessions,
       device=device)
 
+  dataset_val, experiment_list_val = bandits.create_dataset(
+      agent=agent,
+      environment=environment,
+      n_trials_per_session=50,
+      n_sessions=16,
+      device=device)
+  
   dataset_test, experiment_list_test = bandits.create_dataset(
       agent=agent,
       environment=environment,
       n_trials_per_session=200,
       n_sessions=1024,
       device=device)
+  
+  print('Created dataset.')
   
   params_path = rnn_utils.parameter_file_naming(
       'params/params',
@@ -109,11 +118,10 @@ else:
       dataset_train = pickle.load(f)
 
 if ensemble > -1 and n_submodels == 1:
-  Warning('Ensemble is actived but n_submodels is set to 1. Deactivating ensemble...')
+  Warning('Ensemble is actived but n_submodels is set to 1. Deactivated ensemble.')
   ensemble = rnn_training.ensembleTypes.NONE
 
 # define model
-print('Setting up the RNN model...')
 if use_lstm:
   model = rnn.LSTM(
       n_actions=n_actions, 
@@ -133,6 +141,8 @@ else:
            for _ in range(init_population)]
 
 optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
+
+print('Set up the RNN model.')
 
 if checkpoint:
     # load trained parameters
@@ -161,7 +171,8 @@ if train:
     m.train()
   model, optimizer_rnn, _ = rnn_training.fit_model(
       model=model,
-      dataset=dataset_train,
+      dataset_train=dataset_train,
+      dataset_test=dataset_val,
       optimizer=optimizer_rnn,
       convergence_threshold=convergence_threshold,
       epochs=epochs,
@@ -184,7 +195,7 @@ if train:
   print(f'Saved RNN parameters to file {params_path}.')
   
   # validate model
-  print('\nValidating the trained hybrid RNN on a test dataset...')
+  print('\nTesting the trained hybrid RNN on a test dataset...')
   if isinstance(model, list):
     for m in model:
       m.eval()
@@ -193,21 +204,23 @@ if train:
   with torch.no_grad():
     rnn_training.fit_model(
         model=model,
-        dataset=dataset_test,
+        dataset_train=dataset_test,
+        dataset_test=None,
         n_steps_per_call=1,
     )
 
   print(f'Training took {time.time() - start_time:.2f} seconds.')
-else:
-  model, _, _ = rnn_training.fit_model(
-      model=model,
-      dataset=dataset_train,
-      epochs=0,
-      n_submodels=n_submodels,
-      ensemble_type=ensemble,
-      voting_type=voting_type,
-      verbose=True
-  )
+# else:
+#   model, _, _ = rnn_training.fit_model(
+#       model=model,
+#       dataset_train=dataset_train,
+#       dataset_test=None,
+#       epochs=0,
+#       n_submodels=n_submodels,
+#       ensemble_type=ensemble,
+#       voting_type=voting_type,
+#       verbose=True
+#   )
 
 # Synthesize a dataset using the fitted network
 environment = bandits.EnvironmentBanditsDrift(sigma=sigma)

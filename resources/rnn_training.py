@@ -115,7 +115,8 @@ def batch_train(
 
 def fit_model(
     model: Union[BaseRNN, EnsembleRNN],
-    dataset: DatasetRNN,
+    dataset_train: DatasetRNN,
+    dataset_test: DatasetRNN,
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
@@ -155,15 +156,18 @@ def fit_model(
     
     # initialize dataloader
     if batch_size is None:
-        batch_size = len(dataset)
+        batch_size = len(dataset_train)
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     if not sampling_replacement:
         # if no ensemble model is used, use normaler dataloader instance with sampling without replacement
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     else:
         # if ensemble model is used, use random sampler with replacement
-        sampler = RandomSampler(dataset, replacement=True, num_samples=batch_size)
-        dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+        sampler = RandomSampler(dataset_train, replacement=True, num_samples=batch_size)
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
+        
+    if dataset_test is not None:
+        dataloader_test = DataLoader(dataset_test, batch_size=len(dataset_test))
     
     # initialize training    
     model_backup = model
@@ -175,7 +179,7 @@ def fit_model(
             avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
         return avg_state_dict
     
-    loss = torch.inf
+    loss_train = torch.inf
     if epochs == 0:
         continue_training = False
         msg = 'No training epochs specified. Model will not be trained.'
@@ -195,16 +199,17 @@ def fit_model(
         try:
             t_start = time.time()
             n_calls_to_train_model += 1
-            loss = 0
+            loss_train = 0
+            loss_test = 0
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
                 with torch.no_grad():
                     # get next batch
-                    xs, ys = next(iter(dataloader))
+                    xs, ys = next(iter(dataloader_train))
                     xs = xs.to(models.device)
                     ys = ys.to(models.device)
                     # train model
-                    _, _, loss = batch_train(
+                    _, _, loss_train = batch_train(
                         model=models,
                         xs=xs,
                         ys=ys,
@@ -215,7 +220,7 @@ def fit_model(
             else:
                 for i in range(len(models)):
                     # get next batch
-                    xs, ys = next(iter(dataloader))
+                    xs, ys = next(iter(dataloader_train))
                     xs = xs.to(models[i].device)
                     ys = ys.to(models[i].device)
                     # train model
@@ -228,8 +233,28 @@ def fit_model(
                         # keep_predictions=True,
                         # loss_fn = categorical_log_likelihood
                     )
-                    loss += loss_i
-                loss /= len(models)
+                    loss_train += loss_i
+                    
+                    if dataset_test is not None:
+                        models[i].eval()
+                        with torch.no_grad():
+                            xs, ys = next(iter(dataloader_test))
+                            xs = xs.to(models[i].device)
+                            ys = ys.to(models[i].device)
+                            # train model
+                            models[i], optimizers[i], loss_i = batch_train(
+                                model=models[i],
+                                xs=xs,
+                                ys=ys,
+                                optimizer=optimizers[i],
+                                n_steps_per_call=n_steps_per_call,
+                                # keep_predictions=True,
+                                # loss_fn = categorical_log_likelihood
+                            )
+                        models[i].train()    
+                        loss_test += loss_i
+                loss_train /= len(models)
+                loss_test /= len(models)
             
             if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
@@ -244,19 +269,19 @@ def fit_model(
             
             if len(models) > 1 and evolution_interval is not None and n_calls_to_train_model % evolution_interval == 0:
                 # make sure that evolution interval is big enough so that the ensemble model can be trained effectively before evolution
-                xs, ys = next(iter(dataloader))
+                xs, ys = next(iter(dataloader_train))
                 # check if current population is bigger than n_submodels (relevant for first evolution step)
                 if len(models) > n_submodels:
                     n_best = n_submodels
                     n_children = 1
                 else:
                     n_best, n_children = None, None
-                models, optimizers = evolution_step(models, optimizers, xs.to(dataloader.dataset.device), ys.to(dataloader.dataset.device), n_best, n_children)
+                models, optimizers = evolution_step(models, optimizers, xs.to(dataloader_train.dataset.device), ys.to(dataloader_train.dataset.device), n_best, n_children)
                 n_submodels = len(models)
             
             # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
-            last_losses[-1] = copy.copy(loss)
+            last_losses[-1] = copy.copy(loss_train)
 
             # check for convergence
             # convergence_value = torch.abs(loss - loss_new) / loss
@@ -272,7 +297,9 @@ def fit_model(
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss_train:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'                
+                if dataset_test is not None:
+                    msg += f'; Test loss: {loss_test:.7f}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -292,7 +319,7 @@ def fit_model(
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         
-    return model_backup, optimizer_backup, loss
+    return model_backup, optimizer_backup, loss_train
 
 
 def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimizer], xs, ys, n_best: int = None, n_children: int = None):

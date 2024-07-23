@@ -119,22 +119,33 @@ class BaseRNN(nn.Module):
     def get_history(self, key):
         return self.history[key]
     
-    def subnetwork(self, key, inputs):
-        if hasattr(self, key):
-            # get hidden state (linear layer + activation + dropout)
-            hidden_state = getattr(self, key)[:3](inputs)
-            # get output variable (rest of subnetwork)
-            output = getattr(self, key)[3:](hidden_state)
-            return output, hidden_state
-        else:
-            raise ValueError(f'Invalid key {key}.')
-        
     def count_subnetworks(self):
         n_subnetworks = 0
         for name, module in self.named_modules():
             if name.startswith('x') and not '.' in name:
                 n_subnetworks += 1
         return n_subnetworks
+    
+    def call_subnetwork(self, key, inputs, layer_hidden_state=3):
+        if hasattr(self, key):
+            # get hidden state (linear layer + activation + dropout)
+            hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
+            # get output variable (rest of subnetwork)
+            output = getattr(self, key)[layer_hidden_state:](hidden_state)
+            return output, hidden_state
+        else:
+            raise ValueError(f'Invalid key {key}.')
+    
+    def setup_subnetwork(self, input_size, hidden_size, dropout):
+        return nn.Sequential(
+            nn.Linear(input_size+hidden_size, hidden_size), 
+            nn.BatchNorm1d(hidden_size),
+            nn.Tanh(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, 1),
+            nn.Tanh(),
+            # nn.BatchNorm1d(1),
+            )
     
 
 class RLRNN(BaseRNN):
@@ -164,18 +175,18 @@ class RLRNN(BaseRNN):
         self.sigmoid = nn.Sigmoid()
         # define input size according to arguments (network configuration)
         input_size = 1+1  # Q-Value and received reward
-        
+                
         # action-based subnetwork
-        self.xH = nn.Sequential(nn.Linear(1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xH = self.setup_subnetwork(1, hidden_size, dropout)
         
         # reward-blind subnetwork
-        self.xQf = nn.Sequential(nn.Linear(n_actions-1+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, n_actions-1))#, nn.Dropout(dropout))
+        self.xQf = self.setup_subnetwork(n_actions-1, hidden_size, dropout)
         
         # spillover subnetwork
-        self.xQc = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size), nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xQc = self.setup_subnetwork(input_size, hidden_size, dropout)
         
         # reward-based subnetwork
-        self.xQr = nn.Sequential(nn.Linear(input_size+hidden_size, hidden_size), nn.Tanh(), nn.BatchNorm1d(hidden_size),  nn.Dropout(dropout), nn.Linear(hidden_size, 1))#, nn.Dropout(dropout))
+        self.xQr = self.setup_subnetwork(input_size, hidden_size, dropout) 
 
         self.n_subnetworks = self.count_subnetworks()
         
@@ -201,12 +212,12 @@ class RLRNN(BaseRNN):
         
         # 1. reward-blind update for all non-chosen elements
         inputs = torch.concat([not_chosen_value, blind_state], dim=-1).float()
-        blind_update, blind_state = self.subnetwork('xQf', inputs) 
+        blind_update, blind_state = self.call_subnetwork('xQf', inputs) 
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
         inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
-        reward_update, reward_state = self.subnetwork('xQr', inputs)
+        reward_update, reward_state = self.call_subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
         self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
         self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
@@ -223,7 +234,7 @@ class RLRNN(BaseRNN):
         # action based update for previously chosen element
         chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
         inputs = torch.concat([chosen_value, state[:, 0]], dim=-1)
-        action_update, state = self.subnetwork('xH', inputs)
+        action_update, state = self.call_subnetwork('xH', inputs)
         value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
         return value, state.unsqueeze(1)
     
@@ -275,7 +286,7 @@ class RLRNN(BaseRNN):
         for t, a, r in zip(timesteps, action, reward):
             self.append_timestep_sample('ca', a)
             self.append_timestep_sample('cr', r)
-            self.append_timestep_sample('c(1-r)', 1-r)
+            # self.append_timestep_sample('c(1-r)', 1-r)
             
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
