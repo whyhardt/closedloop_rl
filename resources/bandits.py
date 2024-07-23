@@ -121,7 +121,7 @@ class AgentQ:
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
-    reward_update = - alpha * self._q[choice]**2 + alpha * reward
+    reward_update = - alpha * self._q[choice] + alpha * reward
     # q_reward_update = - alpha * self._q[choice] - alpha**2 * self._q[choice]**2 + alpha * reward
     
     self._q[choice] += reward_update
