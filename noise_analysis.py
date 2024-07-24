@@ -126,7 +126,8 @@ def main(
 
     coeffs = coeffs_ground_truth + coeffs
     df = pd.DataFrame(np.stack(coeffs), columns=features_data)
-    df.to_csv('noise_analysis/noise_analysis_recovered_params.csv')
+    # df.to_csv('noise_analysis/noise_analysis_recovered_params.csv')
+    df.to_csv('noise_analysis_recovered_params.csv')
 
     print(df)
 
@@ -137,13 +138,15 @@ def main(
     df_without_ground_truth = df[df['n_submodels'] != 0]
     for b in betas:
         sns.boxplot(x='n_submodels', y='loss', data=df_without_ground_truth[df_without_ground_truth['beta'] == b])
-        plt.savefig(f'noise_analysis/plots/noise_analysis_loss_beta_{int(b)}.png')
+        # plt.savefig(f'noise_analysis/plots/noise_analysis_loss_beta_{int(b)}.png')
+        plt.savefig(f'noise_analysis_loss_beta_{int(b)}.png')
         plt.close()
 
     # get mean and std grouped by beta and n_submodels
     grouped = df.groupby(['beta', 'n_submodels'])
     group_stats = grouped.aggregate(['mean', 'std']).reset_index()
-    group_stats.to_csv('noise_analysis/noise_analysis_group_stats.csv')
+    # group_stats.to_csv('noise_analysis/noise_analysis_group_stats.csv')
+    group_stats.to_csv('noise_analysis_group_stats.csv')
 
     print(group_stats)
 
@@ -185,7 +188,8 @@ def main(
                 if j == 0:
                     ax.set_ylabel(coeff)
 
-        plt.savefig(f'noise_analysis/plots/noise_analysis_coeffs_beta_{int(b)}.png')
+        # plt.savefig(f'noise_analysis/plots/noise_analysis_coeffs_beta_{int(b)}.png')
+        plt.savefig(f'noise_analysis_coeffs_beta_{int(b)}.png')
         plt.close(fig)
         
         
