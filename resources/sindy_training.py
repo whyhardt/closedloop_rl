@@ -3,8 +3,8 @@ import numpy as np
 
 import pysindy as ps
 
-from sindy_utils import remove_control_features, conditional_filtering, optimize_beta as optimize_beta_func
-from bandits import AgentNetwork, AgentSindy, BanditSession
+from resources.sindy_utils import remove_control_features, conditional_filtering, optimize_beta as optimize_beta_func
+from resources.bandits import AgentNetwork, AgentSindy, BanditSession
 
 
 def fit_model(

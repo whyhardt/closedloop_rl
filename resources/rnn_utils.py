@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 
 # Add resources folder to path
-from rnn import BaseRNN, EnsembleRNN
+from resources.rnn import BaseRNN, EnsembleRNN
 
 
 class DatasetRNN(Dataset):

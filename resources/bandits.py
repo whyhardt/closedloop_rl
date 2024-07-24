@@ -11,7 +11,7 @@ from torch import nn
 import torch.utils
 
 from resources.rnn import RLRNN, EnsembleRNN
-from rnn_utils import DatasetRNN
+from resources.rnn_utils import DatasetRNN
 
 # Setup so that plots will look nice
 small = 15
