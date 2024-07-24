@@ -64,7 +64,7 @@ def main(
   ):
 
   if not os.path.exists('params'):
-    os.path.makedirs('params')
+    os.makedirs('params')
 
   # tracked variables in the RNN
   x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
