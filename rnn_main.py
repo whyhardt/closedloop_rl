@@ -32,6 +32,11 @@ def main(
   voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
   # training parameters
+  dataset_train = None,
+  dataset_val = None,
+  dataset_test = None,
+  experiment_list_test = None,
+  
   n_trials_per_session = 50,
   n_sessions = 4096,
   epochs = 1024,
@@ -47,20 +52,15 @@ def main(
   perseveration_bias = 0.25,
   correlated_update = False,
   regret = True,
+  
+  # environment parameters
+  n_actions = 2,
+  sigma = 0.2,
+  correlated_reward = False,
+  non_binary_reward = False,
 
   analysis: bool = False,
   ):
-  # train model
-  data = False
-
-  path_data = 'data/dataset_train.pkl'
-  params_path = 'params/params_lstm_b3.pkl'  # overwritten if data is False (adapted to the ground truth model)
-
-  # environment parameters
-  n_actions = 2
-  sigma = 0.2
-  correlated_reward = False
-  non_binary_reward = False
 
   # tracked variables in the RNN
   x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
@@ -74,54 +74,52 @@ def main(
   elif init_population < n_submodels:
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
 
-  if not data:
-    # setup
-    environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
-    print('Setup of the environment and agent complete.')
-    
-    print('Creating the dataset...', end='\r')
-    dataset_train, experiment_list_train = bandits.create_dataset(
+  # setup
+  environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
+  print('Setup of the environment and agent complete.')
+
+  if dataset_train is None:    
+    print('Creating the training dataset...', end='\r')
+    dataset_train, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=n_trials_per_session,
         n_sessions=n_sessions,
-        device=device)
+        device=device)    
 
-    dataset_val, experiment_list_val = bandits.create_dataset(
+  if dataset_val is None:
+    print('Creating the validation dataset...', end='\r')
+    dataset_val, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=50,
         n_sessions=16,
         device=device)
     
+  if dataset_test is None:
+    print('Creating the test dataset...', end='\r')
     dataset_test, experiment_list_test = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=200,
-        n_sessions=1024,
+        n_sessions=128,
         device=device)
-    
-    print('Created dataset.')
-    
-    params_path = rnn_utils.parameter_file_naming(
-        'params/params',
-        use_lstm,
-        alpha,
-        beta,
-        forget_rate,
-        perseveration_bias,
-        correlated_update,
-        regret,
-        non_binary_reward,
-        verbose=True,
-    )
-    
-  else:
-    # load data
-    print('Loading dataset...')
-    with open(path_data, 'rb') as f:
-        dataset_train = pickle.load(f)
+  
+  print('Setup of datasets complete.')
+  
+  params_path = rnn_utils.parameter_file_naming(
+      'params/params',
+      use_lstm,
+      alpha,
+      beta,
+      forget_rate,
+      perseveration_bias,
+      correlated_update,
+      regret,
+      non_binary_reward,
+      verbose=True,
+  )
 
   if ensemble > -1 and n_submodels == 1:
     Warning('Ensemble is actived but n_submodels is set to 1. Deactivated ensemble.')
