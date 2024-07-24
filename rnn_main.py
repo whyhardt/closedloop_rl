@@ -113,8 +113,7 @@ def main(
   print('Setup of datasets complete.')
   
   params_path = rnn_utils.parameter_file_naming(
-      'params',
-      # 'params/params',
+      'params/params',
       use_lstm,
       alpha,
       beta,
