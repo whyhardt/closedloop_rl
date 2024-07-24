@@ -280,7 +280,7 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward, spillover_update):
+  def update_rule_sindy(q, h, choice, reward, dQr):
       # mimic behavior of rnn with sindy
       
       blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
@@ -292,19 +292,19 @@ def constructor_update_rule_sindy(sindy_models):
       # value network      
       if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
         # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([dQr]).reshape(1, -1))[-1] - q
       
       if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
         # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([dQr]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
         # blind update for non-chosen action
         blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
-      if choice == 0 and 'xQc' in sindy_models:
-        # correlation update for non-chosen action
-        correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
+      # if choice == 0 and 'xQc' in sindy_models:
+      #   # correlation update for non-chosen action
+      #   correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
       
       return q+blind_update+correlation_update+reward_update, action_update
     

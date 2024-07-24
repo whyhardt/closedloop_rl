@@ -15,7 +15,7 @@ from resources.rnn_utils import DatasetRNN
 
 # ensemble types
 class ensembleTypes(NamedTuple):
-    NONE = -1
+    BEST = -1
     VOTE = 0
     AVERAGE = 1
 
@@ -123,7 +123,7 @@ def fit_model(
     batch_size: int = None,
     sampling_replacement: bool = False,
     n_submodels: int = 1,
-    ensemble_type: int = ensembleTypes.NONE,
+    ensemble_type: int = ensembleTypes.BEST,
     voting_type: int = EnsembleRNN.MEDIAN,
     evolution_interval: int = None, verbose: bool = True,
     n_steps_per_call: int = None,
@@ -174,10 +174,27 @@ def fit_model(
     optimizer_backup = optimizers[0]
     
     def average_parameters(models):
-        avg_state_dict = {key: None for key in models[0].state_dict().keys()}
-        for key in avg_state_dict.keys():
-            avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
-        return avg_state_dict
+        # avg_state_dict = {key: None for key in models[0].state_dict().keys()}
+        # for key in avg_state_dict.keys():
+        #     avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
+        # return avg_state_dict
+        
+        averaged_model = copy.deepcopy(models[0])
+
+        # Initialize the parameters to zero
+        for param in averaged_model.parameters():
+            param.data.zero_()
+        
+        # Sum the parameters of all submodels
+        for model in models:
+            for avg_param, submodel_param in zip(averaged_model.parameters(), model.parameters()):
+                avg_param.data.add_(submodel_param.data)
+
+        # Average the parameters
+        for param in averaged_model.parameters():
+            param.data.div_(len(models))
+        
+        return averaged_model.state_dict()
     
     loss_train = torch.inf
     if epochs == 0:
@@ -299,7 +316,7 @@ def fit_model(
             if verbose:
                 msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss_train:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'                
                 if dataset_test is not None:
-                    msg += f'; Test loss: {loss_test:.7f}'
+                    msg += f'; Validation loss: {loss_test:.7f}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -316,6 +333,8 @@ def fit_model(
         model_backup = EnsembleRNN(models, voting_type=voting_type, device=models[0].device)
         optimizer_backup = optimizers
     else:
+        avg_state_dict = average_parameters(models)
+        models[0].load_state_dict(avg_state_dict)
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         

@@ -74,6 +74,24 @@ class DatasetRNN(Dataset):
         return self.xs[idx, :], self.ys[idx, :]
 
 
+def load_checkpoint(params_path, model, optimizer, voting_type=None):
+    # load trained parameters
+    state_dict = torch.load(params_path, map_location=torch.device('cpu'))
+    state_dict_model = state_dict['model']
+    state_dict_optimizer = state_dict['optimizer']
+    if isinstance(state_dict_model, dict):
+      for m, o in zip(model, optimizer):
+        m.load_state_dict(state_dict_model)
+        o.load_state_dict(state_dict_optimizer)
+    elif isinstance(state_dict_model, list):
+        print('Loading ensemble model...')
+        for i, state_dict_model_i, state_dict_optim_i in zip(len(state_dict_model), state_dict_model, state_dict_optimizer):
+            model[i].load_state_dict(state_dict_model_i)
+            optimizer[i].load_state_dict(state_dict_optim_i)
+        model = EnsembleRNN(model, voting_type=voting_type)
+    return model, optimizer
+
+
 def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_fixed_lr, non_binary_reward, verbose=False):
     # create name for corresponding rnn
   

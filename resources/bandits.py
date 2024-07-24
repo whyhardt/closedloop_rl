@@ -203,7 +203,7 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, 0)
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, )
     reward_update = (q - self._q[choice])
     self._q[choice] = q
     self._h[choice] = h
@@ -213,7 +213,7 @@ class AgentSindy:
       if c == choice:
         # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, reward_update)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, 0)
       self._q[c] = q
       self._h[c] = h
           

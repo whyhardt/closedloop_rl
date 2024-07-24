@@ -26,9 +26,7 @@ class BaseRNN(nn.Module):
                
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
-        
-        self.prev_action = torch.zeros((1, n_actions), dtype=torch.float)
-        
+                
         # session history; used for sindy training; training variables start with 'x' and control parameters with 'c' 
         self.history = {key: [] for key in list_sindy_signals}
         
@@ -46,9 +44,7 @@ class BaseRNN(nn.Module):
         Returns:
             Tuple[torch.Tensor]: initial hidden state
         """
-        
-        self.prev_action = torch.zeros((batch_size, self._n_actions), dtype=torch.float).to(self.device)
-        
+                
         for key in self.history.keys():
             self.history[key] = []
         
@@ -169,13 +165,14 @@ class RLRNN(BaseRNN):
         # define general network parameters
         self.init_value = init_value
         self._n_actions = n_actions
-        # self.beta = nn.Parameter(torch.tensor(1., dtype=torch.float32, requires_grad=True))
         self._hidden_size = hidden_size
+        # prev_update carries information about the last two reward-based updates
+        # may be used by the RNN in the hidden state to compute e.g. momentum
+        self._prev_update = torch.zeros((2, n_actions), dtype=torch.float)
         
-        self.sigmoid = nn.Sigmoid()
         # define input size according to arguments (network configuration)
         input_size = 1+1  # Q-Value and received reward
-                
+
         # action-based subnetwork
         self.xH = self.setup_subnetwork(1, hidden_size, dropout)
         
@@ -220,8 +217,13 @@ class RLRNN(BaseRNN):
         reward_update, reward_state = self.call_subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
         self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
-        self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
-
+        self.append_timestep_sample('cdQr[k-2]', self._prev_update[:, 0])  # add the previous reward update as a history-based control signal
+        self.append_timestep_sample('cdQr[k-1]', self._prev_update[:, 1])  # add the previous reward update as a history-based control signal
+        # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
+        # update previous reward-based updates
+        self._prev_update[:, 0] = self._prev_update[:, 1]
+        self._prev_update[:, 1] = action*reward_update
+        
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
         # inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
         # spillover_update, spillover_state = self.subnetwork('xQc', inputs)
@@ -303,6 +305,10 @@ class RLRNN(BaseRNN):
             logits = logits.permute(1, 0, 2)
             
         return logits, self.get_state()
+
+    def initial_state(self, batch_size=1, return_dict=False):
+        self._prev_update = torch.zeros((batch_size, 2, self._n_actions), dtype=torch.float).to(self.device)
+        return super().initial_state(batch_size, return_dict)
     
     
 class LSTM(BaseRNN):
