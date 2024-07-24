@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import numpy as np
 import torch
@@ -22,6 +24,12 @@ def main(
     n_submodels = [1, 2, 3],#8, 16, 32]
     epochs = 1,
     ):
+    
+    if not os.path.exists('noise_analysis'):
+        os.makedirs('noise_analysis')
+    if not os.path.exists('noise_analysis/plots'):
+        os.makedirs('noise_analysis/plots')
+    
     # ground truth parameters
     alpha = 0.25
     forget_rate = 0.1
