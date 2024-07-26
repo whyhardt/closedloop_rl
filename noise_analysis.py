@@ -30,6 +30,10 @@ def main(
     if not os.path.exists('noise_analysis/plots'):
         os.makedirs('noise_analysis/plots')
     
+    path_params_recovered = 'noise_analysis/noise_analysis_recovered_params.csv'
+    path_group_stats = 'noise_analysis/noise_analysis_group_stats.csv'
+    path_plots = 'noise_analysis/plots/'
+    
     # ground truth parameters
     alpha = 0.25
     forget_rate = 0.1
@@ -55,6 +59,9 @@ def main(
     features_data = ['beta', 'n_submodels', 'loss'] + ['beta_approx'] + feature_xQf + feature_xQr_r + feature_xQr_p + feature_xH
     coeffs_ground_truth = [np.array([0, 0, 0, 0] + coeffs_xQf + coeffs_xQr_r + coeffs_xQr_p + coeffs_xH)]
 
+    df = pd.DataFrame(coeffs_ground_truth[0].reshape(1, -1), columns=features_data)
+    df.to_csv(path_params_recovered, index=False)
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     coeffs = []
@@ -124,9 +131,16 @@ def main(
                 coeffs_bni = [b, n, loss_test] + list(coeffs_bni)
                 coeffs.append(np.round(np.array(coeffs_bni), 3))
 
-    coeffs = coeffs_ground_truth + coeffs
-    df = pd.DataFrame(np.stack(coeffs), columns=features_data)
-    df.to_csv('noise_analysis/noise_analysis_recovered_params.csv')
+                # save coefficients after each iteration to checkpoint progress
+                df = pd.read_csv(path_params_recovered)
+                coeffs_saved = df.to_numpy()
+                coeffs_saved = np.vstack([coeffs_saved, coeffs_bni])
+                df = pd.DataFrame(coeffs_saved, columns=features_data)
+                df.to_csv(path_params_recovered, index=False)
+                
+    # coeffs = coeffs_ground_truth + coeffs
+    # df = pd.DataFrame(np.stack(coeffs), columns=features_data)
+    # df.to_csv()
 
     print(df)
 

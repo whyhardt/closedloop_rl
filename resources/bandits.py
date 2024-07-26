@@ -58,7 +58,7 @@ class AgentQ:
       beta: float = 3.,
       n_actions: int = 2,
       forget_rate: float = 0.,
-      perseverance_bias: float = 0.,
+      perseveration_bias: float = 0.,
       correlated_reward: bool = False,
       regret: bool = False,
       ):
@@ -76,7 +76,7 @@ class AgentQ:
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
-    self._perseverance_bias = perseverance_bias
+    self._perseverance_bias = perseveration_bias
     self._correlated_reward = correlated_reward
     self._q_init = 0.5
     self.new_sess()
@@ -182,7 +182,7 @@ class AgentSindy:
     self._deterministic = deterministic
     self._beta = beta
     self._n_actions = n_actions
-    self._prev_choice = None
+    self._prev_updates = np.zeros((2, n_actions))
 
     self._update_rule = lambda q, choice, reward: q[choice] + reward
     self._update_rule_formula = None
@@ -203,8 +203,13 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, )
-    reward_update = (q - self._q[choice])
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, self._prev_updates[:, choice])
+    self._prev_updates[0] = self._prev_updates[1]
+    for i in range(self._n_actions):
+      if i == choice:
+        self._prev_updates[1, i] = self._q[choice] - q
+      else:
+        self._prev_updates[1, i] = 0
     self._q[choice] = q
     self._h[choice] = h
     
@@ -216,12 +221,12 @@ class AgentSindy:
       q, h = self._update_rule(self._q[c], self._h[c], 0, reward, 0)
       self._q[c] = q
       self._h[c] = h
-          
+      
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
-    self._prev_choice = -1
+    self._prev_updates = np.zeros((2, self._n_actions))
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""

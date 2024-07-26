@@ -62,8 +62,8 @@ def main(
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': ['cdQr[k-1]', 'cdQr[k-2]'],
-        'xQr_p': ['cdQr[k-1]', 'cdQr[k-2]'],
+        'xQr_r': ['cdQr[k-2]', 'cdQr[k-1]'],
+        'xQr_p': ['cdQr[k-2]', 'cdQr[k-1]'],
         'xH': []
     }
 
@@ -156,7 +156,7 @@ def main(
         def normalize(qs):
             return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-        # qs = normalize(qs)
+        qs = normalize(qs)
 
         fig, axs = plt.subplots(4, 1, figsize=(20, 10))
         # turn the x labels off for all but the last subplot
@@ -264,5 +264,5 @@ def main(
 
 if __name__=='__main__':
     main(
-        analysis=False,
+        analysis=True,
     )

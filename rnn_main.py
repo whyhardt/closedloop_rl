@@ -33,11 +33,11 @@ def main(
   voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
   # training parameters
+  # dataset parameters (if None, they will be created)
   dataset_train = None,
   dataset_val = None,
   dataset_test = None,
   experiment_list_test = None,
-  
   n_trials_per_session = 50,
   n_sessions = 4096,
   epochs = 1024,
@@ -337,7 +337,8 @@ def main(
 
 if __name__=='__main__':
   main(
-    n_submodels=8,
+    checkpoint=False,
+    n_submodels=4,
     epochs=1024,
     sampling_replacement=True,
     ensemble=rnn_training.ensembleTypes.AVERAGE,
