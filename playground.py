@@ -1,31 +1,39 @@
-import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 from scipy.stats import norm
 
-df = pd.read_csv('params.csv')
+
+df = pd.read_csv('noise_analysis/noise_analysis_recovered_params.csv')
+
 print(df)
+
+submodels = df['n_submodels'].unique()
+submodels = submodels[submodels != 0]
+betas = df['beta'].unique()
+betas = betas[betas != 0]
+df_without_ground_truth = df[df['n_submodels'] != 0]
+for i, b in enumerate(betas):
+    sns.boxplot(x='n_submodels', y='loss', data=df_without_ground_truth[df_without_ground_truth['beta'] == b])
+plt.ylim(0.25, 1.0)
+# plt.ylabel('Loss')
+plt.savefig(f'noise_analysis/plots/noise_analysis_loss.png')
+plt.close()
 
 # get mean and std grouped by beta and n_submodels
 grouped = df.groupby(['beta', 'n_submodels'])
 group_stats = grouped.aggregate(['mean', 'std']).reset_index()
+group_stats.to_csv('noise_analysis/noise_analysis_group_stats.csv')
 
 print(group_stats)
 
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-# make matrix of plots for each beta
+# Plot matrix of plots for each beta
 # the columns are the n_submodels
 # the rows are the coefficients given by the columns of the dataframe
-# each plot shows on the x-axis the real value given in the group (0, 0) and a normal distribution given by the mean and std of one n_submodel
-
-# Plotting
+# each plot shows on the x-axis the real value given in the group (0, 0) and a normal distribution given by the mean and std of the respective n_submodels model
 real_values = df[df['beta'] == 0]  # Extracting real values from group (0, 0)
 coefficients = real_values.columns[3:]  # Extracting coefficients
-submodels = group_stats['n_submodels'].unique()
-submodels = submodels[submodels != 0]
-betas = df['beta'].unique()
-betas = betas[betas != 0]
 
 for b in betas:
     fig, axes = plt.subplots(nrows=len(coefficients), ncols=len(submodels), figsize=(15, 10), constrained_layout=True)
@@ -49,10 +57,6 @@ for b in betas:
             # turn off x labels for all but the last row
             if i != len(coefficients) - 1:
                 ax.set_xticklabels([])
-            else:
-                # set x labels to the real value and real value +- 1
-                # ax.set_xticks([real_value-1, real_value, real_value+1])
-                pass
             ax.set_yticklabels([])
             
             # ax.set_title(f'{coeff} - Submodel {submodel}')
@@ -61,8 +65,6 @@ for b in betas:
                 ax.set_title(f'n_submodels {int(submodel)}')
             if j == 0:
                 ax.set_ylabel(coeff)
-            # ax.legend()
 
-    plt.savefig(f'noise_analysis/plots/noise_analysis_coeffs_beta_{b}.png')
+    plt.savefig(f'noise_analysis/plots/noise_analysis_coeffs_beta_{int(b)}.png')
     plt.close(fig)
-    

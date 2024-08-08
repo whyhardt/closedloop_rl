@@ -3,3 +3,4 @@ resources/__pycache__/*
 params/*
 noise_analysis/*
 __pycache__/*
+playground.py
