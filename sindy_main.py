@@ -33,6 +33,10 @@ def main(
     correlated_update = False,
     regret = True,
     
+    # environment parameters
+    sigma = 0.2,
+    non_binary_reward = False,
+    
     analysis=False,
     ):
 
@@ -62,8 +66,8 @@ def main(
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': ['cdQr[k-2]', 'cdQr[k-1]'],
-        'xQr_p': ['cdQr[k-2]', 'cdQr[k-1]'],
+        'xQr_r': [],#['cdQr[k-2]', 'cdQr[k-1]'],
+        'xQr_p': [],#['cdQr[k-2]', 'cdQr[k-1]'],
         'xH': []
     }
 
@@ -264,5 +268,18 @@ def main(
 
 if __name__=='__main__':
     main(
+        # ground truth parameters
+        alpha = 0.25,
+        beta = 3,
+        forget_rate = 0.,
+        perseveration_bias = 0.,
+        correlated_update = False,
+        regret = False,
+        
+        # environment parameters
+        sigma = 0.2,
+        non_binary_reward = False,
+        
+        # auxiliary
         analysis=True,
     )

@@ -217,8 +217,8 @@ class RLRNN(BaseRNN):
         reward_update, reward_state = self.call_subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
         self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
-        self.append_timestep_sample('cdQr[k-2]', self._prev_update[:, 0])  # add the previous reward update as a history-based control signal
-        self.append_timestep_sample('cdQr[k-1]', self._prev_update[:, 1])  # add the previous reward update as a history-based control signal
+        # self.append_timestep_sample('cdQr[k-2]', self._prev_update[:, 0])  # add the previous reward update as a history-based control signal
+        # self.append_timestep_sample('cdQr[k-1]', self._prev_update[:, 1])  # add the previous reward update as a history-based control signal
         # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
         # update previous reward-based updates
         self._prev_update[:, 0] = self._prev_update[:, 1]

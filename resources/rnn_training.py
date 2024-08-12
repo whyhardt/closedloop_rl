@@ -121,7 +121,7 @@ def fit_model(
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
     batch_size: int = None,
-    sampling_replacement: bool = False,
+    bagging: bool = False,
     n_submodels: int = 1,
     ensemble_type: int = ensembleTypes.BEST,
     voting_type: int = EnsembleRNN.MEDIAN,
@@ -158,7 +158,7 @@ def fit_model(
     if batch_size is None:
         batch_size = len(dataset_train)
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    if not sampling_replacement:
+    if not bagging:
         # if no ensemble model is used, use normaler dataloader instance with sampling without replacement
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     else:

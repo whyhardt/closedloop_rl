@@ -26,14 +26,14 @@ def main(
 
   # ensemble parameters
   evolution_interval = 100,
-  sampling_replacement = False,
+  bagging = False,
   n_submodels = 1,
   init_population = -1,
   ensemble = rnn_training.ensembleTypes.BEST,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
   voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
   # training parameters
-  # dataset parameters (if None, they will be created)
+  # given datasets (if None, they will be created)
   dataset_train = None,
   dataset_val = None,
   dataset_test = None,
@@ -68,7 +68,7 @@ def main(
 
   # tracked variables in the RNN
   x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
-  control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+  control_list = ['ca', 'cr']#, 'cdQr[k-1]', 'cdQr[k-2]']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -175,7 +175,7 @@ def main(
         n_submodels=n_submodels,
         ensemble_type=ensemble,
         voting_type=voting_type,
-        sampling_replacement=sampling_replacement,
+        bagging=bagging,
         evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
@@ -337,11 +337,31 @@ def main(
 
 if __name__=='__main__':
   main(
-    checkpoint=False,
-    n_submodels=4,
+    # training parameters
     epochs=1024,
-    sampling_replacement=True,
+    checkpoint=False,
+    
+    # ensemble parameters
+    init_population=-1,
+    bagging=True,
     ensemble=rnn_training.ensembleTypes.AVERAGE,
     evolution_interval=None,
+    n_submodels=8,
+    
+    # ground truth parameters
+    alpha = 0.25,
+    beta = 3,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
+    correlated_update = False,
+    regret = False,
+    
+    # environment parameters
+    n_actions = 2,
+    sigma = 0.2,
+    correlated_reward = False,
+    non_binary_reward = False,
+    
+    # auxiliary
     analysis=True,
   )

@@ -283,13 +283,14 @@ def constructor_update_rule_sindy(sindy_models):
   def update_rule_sindy(q, h, choice, reward, prev_updates):
       # mimic behavior of rnn with sindy
       
+      prev_updates = np.array([0])
       blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
       
       # action network
       if choice == 1 and 'xH' in sindy_models:
         action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
-      # value network      
+      # value network
       if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
         # reward-based update for chosen action in case of reward
         reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=prev_updates.reshape(1, -1))[-1] - q
