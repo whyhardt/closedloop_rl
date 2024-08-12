@@ -55,16 +55,16 @@ def main(
 
     # tracked variables in the RNN
     z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH']
-    control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+    control_list = ['ca', 'cr', 'ca[k-1]', 'ca[k-2]', 'cr[k-1]', 'cr[k-2]']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': ['cdQr[k-2]', 'cdQr[k-1]'],
-        'xQr_p': ['cdQr[k-2]', 'cdQr[k-1]'],
-        'xH': []
+        'xQr_r': ['cr', 'cr[k-1]', 'cr[k-2]'],
+        'xQr_p': ['cr', 'cr[k-1]', 'cr[k-2]'],
+        'xH': ['ca', 'ca[k-1]', 'ca[k-2]']
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition

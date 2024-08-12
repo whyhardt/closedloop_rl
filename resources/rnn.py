@@ -168,7 +168,9 @@ class RLRNN(BaseRNN):
         self._hidden_size = hidden_size
         # prev_update carries information about the last two reward-based updates
         # may be used by the RNN in the hidden state to compute e.g. momentum
-        self._prev_update = torch.zeros((2, n_actions), dtype=torch.float)
+        self._len_tracked_history = 2
+        self._prev_rewards = torch.zeros((self._len_tracked_history, n_actions), dtype=torch.float)
+        self._prev_actions = torch.zeros((self._len_tracked_history, n_actions), dtype=torch.float)
         
         # define input size according to arguments (network configuration)
         input_size = 1+1  # Q-Value and received reward
@@ -217,14 +219,16 @@ class RLRNN(BaseRNN):
         reward_update, reward_state = self.call_subnetwork('xQr', inputs)
         self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
         self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
-        self.append_timestep_sample('cdQr[k-2]', self._prev_update[:, 0])  # add the previous reward update as a history-based control signal
-        self.append_timestep_sample('cdQr[k-1]', self._prev_update[:, 1])  # add the previous reward update as a history-based control signal
+        
         # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
+        
         # update previous reward-based updates
-        self._prev_update[:, 0] = self._prev_update[:, 1]
-        self._prev_update[:, 1] = action*reward_update
+        for i in range(self._len_tracked_history-1):
+            self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
+        self._prev_rewards[:, -1] = action*reward
         
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
+        # currently not recoverable due to ambiguity of the spillover update; Adds only on top of the difference of the Q-Values; Does not process any real inputs nor constants
         # inputs = torch.cat([not_chosen_value+blind_update, reward_update, spillover_state], dim=-1).float()
         # spillover_update, spillover_state = self.subnetwork('xQc', inputs)
         # self.append_timestep_sample('xQc', value+(1-action)*blind_update, value+(1-action)*blind_update + (1-action) * spillover_update)
@@ -286,9 +290,20 @@ class RLRNN(BaseRNN):
         reward_value = reward_value.squeeze(1)
         
         for t, a, r in zip(timesteps, action, reward):
-            self.append_timestep_sample('ca', a)
-            self.append_timestep_sample('cr', r)
-            # self.append_timestep_sample('c(1-r)', 1-r)
+            if self.training:
+                self.append_timestep_sample('ca', a)
+                self.append_timestep_sample('cr', r)
+                # add the previous rewards as history-based control signals
+                for i in range(self._len_tracked_history):
+                    self.append_timestep_sample(f'cr[k-{self._len_tracked_history-i}]', self._prev_rewards[:, i])
+                    self.append_timestep_sample(f'ca[k-{self._len_tracked_history-i}]', self._prev_actions[:, i])
+                # update tracked history
+                for i in range(self._len_tracked_history-1):
+                    self._prev_actions[:, i] = self._prev_actions[:, i+1]
+                    self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
+                self._prev_actions[:, -1] = a
+                self._prev_rewards[:, -1] = r
+                # self.append_timestep_sample('c(1-r)', 1-r)
             
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
@@ -307,7 +322,8 @@ class RLRNN(BaseRNN):
         return logits, self.get_state()
 
     def initial_state(self, batch_size=1, return_dict=False):
-        self._prev_update = torch.zeros((batch_size, 2, self._n_actions), dtype=torch.float).to(self.device)
+        self._prev_rewards = torch.zeros((batch_size, self._len_tracked_history, self._n_actions), dtype=torch.float).to(self.device)
+        self._prev_action = torch.zeros((batch_size, self._len_tracked_history, self._n_actions), dtype=torch.float).to(self.device)
         return super().initial_state(batch_size, return_dict)
     
     
