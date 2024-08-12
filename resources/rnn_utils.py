@@ -92,7 +92,7 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_fixed_lr, non_binary_reward, verbose=False):
+def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, correlated_reward, non_fixed_lr, momentum, non_binary_reward, verbose=False):
     # create name for corresponding rnn
   
     if use_lstm:
@@ -116,6 +116,9 @@ def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rat
         
     if non_fixed_lr:
         params_path += '_lr'
+    
+    if momentum:
+        params_path += '_m'
     
     if non_binary_reward:
         params_path += '_nonbinary'

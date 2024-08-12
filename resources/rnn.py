@@ -223,9 +223,9 @@ class RLRNN(BaseRNN):
         # self.append_timestep_sample('cQr', (1-action)*reward_update)  # add this control signal on the level of non-chosen actions for the spillover update
         
         # update previous reward-based updates
-        for i in range(self._len_tracked_history-1):
-            self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
-        self._prev_rewards[:, -1] = action*reward
+        # for i in range(self._len_tracked_history-1):
+        #     self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
+        # self._prev_rewards[:, -1] = action*reward
         
         # 3. spillover update for the non-chosen element (from chosen element) on top of the reward-blind update
         # currently not recoverable due to ambiguity of the spillover update; Adds only on top of the difference of the Q-Values; Does not process any real inputs nor constants
@@ -290,20 +290,20 @@ class RLRNN(BaseRNN):
         reward_value = reward_value.squeeze(1)
         
         for t, a, r in zip(timesteps, action, reward):
-            if self.training:
+            if not self.training:
                 self.append_timestep_sample('ca', a)
                 self.append_timestep_sample('cr', r)
-                # add the previous rewards as history-based control signals
-                for i in range(self._len_tracked_history):
-                    self.append_timestep_sample(f'cr[k-{self._len_tracked_history-i}]', self._prev_rewards[:, i])
-                    self.append_timestep_sample(f'ca[k-{self._len_tracked_history-i}]', self._prev_actions[:, i])
-                # update tracked history
-                for i in range(self._len_tracked_history-1):
-                    self._prev_actions[:, i] = self._prev_actions[:, i+1]
-                    self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
-                self._prev_actions[:, -1] = a
-                self._prev_rewards[:, -1] = r
-                # self.append_timestep_sample('c(1-r)', 1-r)
+                # # add the previous rewards as history-based control signals
+                # for i in range(self._len_tracked_history):
+                #     self.append_timestep_sample(f'cr[k-{self._len_tracked_history-i}]', self._prev_rewards[:, i])
+                #     self.append_timestep_sample(f'ca[k-{self._len_tracked_history-i}]', self._prev_actions[:, i])
+                # # update tracked history
+                # for i in range(self._len_tracked_history-1):
+                #     # self._prev_actions[:, i] = self._prev_actions[:, i+1]
+                #     self._prev_rewards[:, i] = self._prev_rewards[:, i+1]
+                # # self._prev_actions[:, -1] = a
+                # self._prev_rewards[:, -1] = r
+                # # self.append_timestep_sample('c(1-r)', 1-r)
             
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
@@ -323,7 +323,7 @@ class RLRNN(BaseRNN):
 
     def initial_state(self, batch_size=1, return_dict=False):
         self._prev_rewards = torch.zeros((batch_size, self._len_tracked_history, self._n_actions), dtype=torch.float).to(self.device)
-        self._prev_action = torch.zeros((batch_size, self._len_tracked_history, self._n_actions), dtype=torch.float).to(self.device)
+        # self._prev_actions = torch.zeros((batch_size, self._len_tracked_history, self._n_actions), dtype=torch.float).to(self.device)
         return super().initial_state(batch_size, return_dict)
     
     

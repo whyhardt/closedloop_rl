@@ -32,6 +32,13 @@ def main(
     perseveration_bias = 0.25,
     correlated_update = False,
     regret = True,
+    momentum = False,
+    
+    # environment parameters
+    n_actions = 2,
+    sigma = .2,
+    non_binary_reward = False,
+    correlated_reward = False,
     
     analysis=False,
     ):
@@ -39,12 +46,6 @@ def main(
     # training dataset parameters
     n_trials_per_session = 200
     n_sessions = 10
-
-    # environment parameters
-    n_actions = 2
-    sigma = .2
-    non_binary_reward = False
-    correlated_reward = False
 
     # rnn parameters
     hidden_size = 4
@@ -55,16 +56,16 @@ def main(
 
     # tracked variables in the RNN
     z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH']
-    control_list = ['ca', 'cr', 'ca[k-1]', 'ca[k-2]', 'cr[k-1]', 'cr[k-2]']
+    control_list = ['ca', 'cr']#, 'ca[k-1]', 'ca[k-2]', 'cr[k-1]', 'cr[k-2]']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': ['cr', 'cr[k-1]', 'cr[k-2]'],
-        'xQr_p': ['cr', 'cr[k-1]', 'cr[k-2]'],
-        'xH': ['ca', 'ca[k-1]', 'ca[k-2]']
+        'xQr_r': [],#['cr', 'cr[k-1]', 'cr[k-2]'],
+        'xQr_p': [],#['cr'], 'cr[k-1]', 'cr[k-2]'],
+        'xH': [],#['ca[k-1]', 'ca[k-2]']
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -87,11 +88,11 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, momentum)
     dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
-    params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+    params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, momentum, non_binary_reward, verbose=True)
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
     rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
     if isinstance(state_dict, dict):
@@ -265,4 +266,15 @@ def main(
 if __name__=='__main__':
     main(
         analysis=True,
+        
+        alpha = 0.25,
+        beta = 3,
+        forget_rate = 0.,
+        perseveration_bias = 0.,
+        correlated_update = False,
+        regret = False,
+        momentum = False,
+        
+        sigma = 0.2,
+        non_binary_reward = False,
     )

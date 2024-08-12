@@ -53,6 +53,7 @@ def main(
   perseveration_bias = 0.25,
   correlated_update = False,
   regret = True,
+  momentum = True,
   
   # environment parameters
   n_actions = 2,
@@ -68,7 +69,7 @@ def main(
 
   # tracked variables in the RNN
   x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
-  control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+  control_list = ['ca', 'cr']#, 'cdr', 'cdr2']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -80,7 +81,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, momentum)  
   print('Setup of the environment and agent complete.')
 
   if dataset_train is None:    
@@ -121,6 +122,7 @@ def main(
       perseveration_bias,
       correlated_update,
       regret,
+      momentum,
       non_binary_reward,
       verbose=True,
   )
@@ -337,11 +339,27 @@ def main(
 
 if __name__=='__main__':
   main(
+    epochs=256,
     checkpoint=False,
-    n_submodels=4,
-    epochs=1024,
-    sampling_replacement=True,
-    ensemble=rnn_training.ensembleTypes.AVERAGE,
-    evolution_interval=None,
+    
+    dropout=0,
+    
+    init_population=16,
+    evolution_interval=1,
+    n_submodels=1,
+    sampling_replacement=False,
+    ensemble=rnn_training.ensembleTypes.BEST,
+    
+    alpha = 0.25,
+    beta = 3,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
+    correlated_update = False,
+    regret = False,
+    momentum = False,
+    
+    sigma = 0.2,
+    non_binary_reward = False,
+    
     analysis=True,
   )

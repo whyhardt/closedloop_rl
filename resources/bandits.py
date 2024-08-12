@@ -61,6 +61,7 @@ class AgentQ:
       perseveration_bias: float = 0.,
       correlated_reward: bool = False,
       regret: bool = False,
+      momentum: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -71,14 +72,18 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
+    
     self._alpha_reward = alpha
     self._alpha_penalty = alpha*2 if regret else alpha
+    self._alpha_momentum = alpha/2 if momentum else 0
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseveration_bias
     self._correlated_reward = correlated_reward
     self._q_init = 0.5
+    self._prev_rpe = 0
+    self._prev_action = -1
     self.new_sess()
 
     _check_in_0_1_range(self._alpha_reward, 'alpha_r')
@@ -89,6 +94,8 @@ class AgentQ:
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
+    self._prev_rewards = np.zeros(2)
+    self._prev_action = -1
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
@@ -103,7 +110,7 @@ class AgentQ:
     return choice
 
   def update(self,
-             choice: int,
+             action: int,
              reward: float):
     """Update the agent after one step of the task.
 
@@ -115,24 +122,33 @@ class AgentQ:
     # Reward-and-Value-based updates
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
-    non_chosen_action = np.arange(self._n_actions) != choice
+    non_chosen_action = np.arange(self._n_actions) != action
     self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
 
     # Reward-based update - Update chosen q for chosen action with observed reward
-    # adjust alpha according to regret mechanism (if activated)
+    # Adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
-    reward_update = - alpha * self._q[choice] + alpha * reward
-    # q_reward_update = - alpha * self._q[choice] - alpha**2 * self._q[choice]**2 + alpha * reward
+    reward_prediction_error = reward - self._q[action]
     
-    self._q[choice] += reward_update
+    # use the prev RPE as momentum to represent memory
+    momentum = self._prev_rpe if self._prev_action == action else 0
+    
+    # Update Q with RPE and 1st and 2nd order momentum
+    self._q[action] = (1 - (alpha+self._alpha_momentum)) * self._q[action]
+    self._q[action] += alpha * reward_prediction_error  # add RPE
+    self._q[action] += self._alpha_momentum * momentum
     
     # Correlated update - Update non-chosen q for non-chosen action with observed reward
     if self._correlated_reward:
-      self._q[self._n_actions-1] -= 0.5*reward_update
+      self._q[self._n_actions-1] -= 0.5*reward_prediction_error
     
     # Action-based updates
     self._h = np.zeros(self._n_actions)
-    self._h[choice] += self._perseverance_bias
+    self._h[action] += self._perseverance_bias
+    
+    # Update memory
+    self._prev_rpe = reward_prediction_error
+    self._prev_action = action
     
   @property
   def q(self):

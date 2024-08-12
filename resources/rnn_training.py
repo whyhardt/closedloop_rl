@@ -333,8 +333,9 @@ def fit_model(
         model_backup = EnsembleRNN(models, voting_type=voting_type, device=models[0].device)
         optimizer_backup = optimizers
     else:
-        avg_state_dict = average_parameters(models)
-        models[0].load_state_dict(avg_state_dict)
+        if n_submodels > 1 and ensemble_type == ensembleTypes.AVERAGE:
+            avg_state_dict = average_parameters(models)
+            models[0].load_state_dict(avg_state_dict)
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         
