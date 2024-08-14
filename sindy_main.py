@@ -28,10 +28,10 @@ def main(
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.1,
-    perseveration_bias = 0.25,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
     correlated_update = False,
-    regret = True,
+    regret = False,
     
     # environment parameters
     sigma = 0.2,
@@ -273,7 +273,6 @@ if __name__=='__main__':
         beta = 3,
         forget_rate = 0.,
         perseveration_bias = 0.,
-        correlated_update = False,
         regret = False,
         
         # environment parameters
