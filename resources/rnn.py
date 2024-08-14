@@ -91,17 +91,18 @@ class BaseRNN(nn.Module):
     def set_device(self, device: torch.device): 
         self.device = device
         
-    def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None):
+    def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None, single_entries=False):
         """appends a new timestep sample to the history. A timestep sample consists of the value at timestep t-1 and the value at timestep t
 
         Args:
             key (str): history key to which append the sample to
             old_value (_type_): value at timestep t-1 of shape (batch_size, feature_dim)
             new_value (_type_): value at timestep t of shape (batch_size, feature_dim)
+            single_entries (bool): add each value of a given array as a single signal. The key will be expanded by '_i' where i is the value's position in the array.
         """
         
         # Do not append if model is in training mode for less overhead
-        if hasattr(self, key) and getattr(self, key).training:
+        if (hasattr(self, key) and getattr(self, key).training) or torch.is_grad_enabled():
             return
         
         if new_value is None:
@@ -110,7 +111,11 @@ class BaseRNN(nn.Module):
         old_value = old_value.view(-1, 1, old_value.shape[-1])
         new_value = new_value.view(-1, 1, new_value.shape[-1])
         sample = torch.cat([old_value, new_value], dim=1)
-        self.history[key].append(sample)
+        if not single_entries:
+            self.history[key].append(sample)
+        else:
+            for i in range(old_value.shape[-1]):
+                self.history[key+f'_{i}'].append(sample[:, :, i].view(-1, 2, 1))
         
     def get_history(self, key):
         return self.history[key]
@@ -215,8 +220,13 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
+        # add hidden state as control signal for Q-Value update
+        self.append_timestep_sample(f'chQr', reward_state, single_entries=True)
+        self.append_timestep_sample('cQr', chosen_value, single_entries=True)
         inputs = torch.concat([chosen_value, reward, reward_state], dim=-1).float()
         reward_update, reward_state = self.call_subnetwork('xQr', inputs)
+        # add hidden state update to interpret the meaning of the hidden state variables later on
+        self.append_timestep_sample(f'xhQr', state[:, 1], reward_state, single_entries=True)
         self.append_timestep_sample('xQr_r', value, value + reward*action*reward_update)  # only rewarded actions are updated; in case of non-binary reward: make binary condition like (r > 0)*action*reward_update
         self.append_timestep_sample('xQr_p', value, value + (1-reward)*action*reward_update)  # only penalized actions are updated; in case of non-binary reward: make binary condition like (r <= 0)*action*reward_update
         

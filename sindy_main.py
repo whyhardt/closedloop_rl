@@ -28,10 +28,10 @@ def main(
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.1,
-    perseveration_bias = 0.25,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
     correlated_update = False,
-    regret = True,
+    regret = False,
     momentum = False,
     
     # environment parameters
@@ -55,17 +55,21 @@ def main(
     voting_type = EnsembleRNN.MEDIAN
 
     # tracked variables in the RNN
-    z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH']
-    control_list = ['ca', 'cr']#, 'ca[k-1]', 'ca[k-2]', 'cr[k-1]', 'cr[k-2]']
+    z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH', 'xhQr_0', 'xhQr_1', 'xhQr_2', 'xhQr_3']
+    control_list = ['ca', 'cr', 'cQr_0', 'cQr_1', 'chQr_0', 'chQr_1', 'chQr_2', 'chQr_3']#, 'ca[k-1]', 'ca[k-2]', 'cr[k-1]', 'cr[k-2]']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': [],#['cr', 'cr[k-1]', 'cr[k-2]'],
-        'xQr_p': [],#['cr'], 'cr[k-1]', 'cr[k-2]'],
-        'xH': [],#['ca[k-1]', 'ca[k-2]']
+        'xQr_r': ['chQr_0', 'chQr_1', 'chQr_2', 'chQr_3'],
+        'xQr_p': ['chQr_0', 'chQr_1', 'chQr_2', 'chQr_3'],
+        'xH': [],
+        'xhQr_0': ['cr', 'cQr_0', 'cQr_1', 'chQr_1', 'chQr_2', 'chQr_3'],
+        'xhQr_1': ['cr', 'cQr_0', 'cQr_1', 'chQr_0', 'chQr_2', 'chQr_3'],
+        'xhQr_2': ['cr', 'cQr_0', 'cQr_1', 'chQr_0', 'chQr_1', 'chQr_3'],
+        'xhQr_3': ['cr', 'cQr_0', 'cQr_1', 'chQr_0', 'chQr_1', 'chQr_2'],
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -80,7 +84,11 @@ def main(
         'xQf': ['ca', 0, True],
         'xQr_r': [['ca', 1, True], ['cr', 1, False]],
         'xQr_p': [['ca', 1, True], ['cr', 0, False]],
-        'xH': ['ca', 1, True]
+        'xH': ['ca', 1, True],
+        'xhQr_0': ['ca', 1, True],
+        'xhQr_1': ['ca', 1, True],
+        'xhQr_2': ['ca', 1, True],
+        'xhQr_3': ['ca', 1, True],
     }
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -110,7 +118,7 @@ def main(
     z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
-    agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
+    agent_sindy = setup_sindy_agent(update_rule_sindy, rnn, n_actions, False, experiment_list_test[0], agent_rnn, True)
     print(f'\nBeta for SINDy: {beta}')
     agent_sindy._beta = beta
     # loss_x = sindy_loss_x(agent_sindy, dataset_test)
@@ -269,10 +277,9 @@ if __name__=='__main__':
         
         alpha = 0.25,
         beta = 3,
-        forget_rate = 0.,
-        perseveration_bias = 0.,
-        correlated_update = False,
-        regret = False,
+        forget_rate = 0.1,
+        perseveration_bias = 0.25,
+        regret = True,
         momentum = False,
         
         sigma = 0.2,

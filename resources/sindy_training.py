@@ -5,6 +5,7 @@ import pysindy as ps
 
 from resources.sindy_utils import remove_control_features, conditional_filtering, optimize_beta as optimize_beta_func
 from resources.bandits import AgentNetwork, AgentSindy, BanditSession
+from resources.rnn import RLRNN
 
 
 def fit_model(
@@ -95,14 +96,15 @@ def fit_model(
         return sindy_models
         
 def setup_sindy_agent(
-    update_rule, 
+    update_rule,
+    rnn: RLRNN,
     n_actions: int = None,
     optimize_beta: bool = False,
     experiment: BanditSession = None,
     comparison_agent: AgentNetwork = None,
     verbose: bool = False
     ):
-    agent_sindy = AgentSindy(n_actions, deterministic=True)
+    agent_sindy = AgentSindy(rnn, n_actions, deterministic=True)
     agent_sindy.set_update_rule(update_rule)
     if optimize_beta:
         beta = optimize_beta_func(experiment, comparison_agent, agent_sindy, plot=False)

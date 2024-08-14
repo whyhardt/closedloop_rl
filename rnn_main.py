@@ -26,7 +26,7 @@ def main(
 
   # ensemble parameters
   evolution_interval = 100,
-  sampling_replacement = False,
+  bagging = False,
   n_submodels = 1,
   init_population = -1,
   ensemble = rnn_training.ensembleTypes.BEST,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
@@ -49,11 +49,11 @@ def main(
   # ground truth parameters
   alpha = 0.25,
   beta = 3,
-  forget_rate = 0.1,
-  perseveration_bias = 0.25,
+  forget_rate = 0.,
+  perseveration_bias = 0.,
   correlated_update = False,
-  regret = True,
-  momentum = True,
+  regret = False,
+  momentum = False,
   
   # environment parameters
   n_actions = 2,
@@ -68,8 +68,8 @@ def main(
     os.makedirs('params')
 
   # tracked variables in the RNN
-  x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
-  control_list = ['ca', 'cr']#, 'cdr', 'cdr2']
+  x_train_list = ['xQf','xQr_r', 'xQr_p', 'xH', 'xhQr_0', 'xhQr_1', 'xhQr_2', 'xhQr_3']
+  control_list = ['ca', 'cr', 'cQr_0', 'cQr_1', 'chQr_0', 'chQr_1', 'chQr_2', 'chQr_3']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -177,7 +177,7 @@ def main(
         n_submodels=n_submodels,
         ensemble_type=ensemble,
         voting_type=voting_type,
-        sampling_replacement=sampling_replacement,
+        bagging=bagging,
         evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
@@ -339,24 +339,24 @@ def main(
 
 if __name__=='__main__':
   main(
-    epochs=256,
-    checkpoint=False,
+    epochs=1,
+    checkpoint=True,
     
-    dropout=0,
+    hidden_size=4,
+    dropout=0.25,
     
-    init_population=16,
-    evolution_interval=1,
-    n_submodels=1,
-    sampling_replacement=False,
-    ensemble=rnn_training.ensembleTypes.BEST,
+    init_population=-1,
+    evolution_interval=None,
+    n_submodels=8,
+    bagging=True,
+    ensemble=rnn_training.ensembleTypes.AVERAGE,
     
     alpha = 0.25,
     beta = 3,
     forget_rate = 0.,
     perseveration_bias = 0.,
-    correlated_update = False,
     regret = False,
-    momentum = False,
+    momentum = True,
     
     sigma = 0.2,
     non_binary_reward = False,

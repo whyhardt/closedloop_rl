@@ -79,7 +79,7 @@ class AgentQ:
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
-    self._perseverance_bias = perseveration_bias
+    self._perseveration_bias = perseveration_bias
     self._correlated_reward = correlated_reward
     self._q_init = 0.5
     self._prev_rpe = 0
@@ -134,7 +134,7 @@ class AgentQ:
     momentum = self._prev_rpe if self._prev_action == action else 0
     
     # Update Q with RPE and 1st and 2nd order momentum
-    self._q[action] = (1 - (alpha+self._alpha_momentum)) * self._q[action]
+    # self._q[action] = (1 - (alpha+self._alpha_momentum)) * self._q[action]
     self._q[action] += alpha * reward_prediction_error  # add RPE
     self._q[action] += self._alpha_momentum * momentum
     
@@ -144,7 +144,7 @@ class AgentQ:
     
     # Action-based updates
     self._h = np.zeros(self._n_actions)
-    self._h[action] += self._perseverance_bias
+    self._h[action] += self._perseveration_bias
     
     # Update memory
     self._prev_rpe = reward_prediction_error
@@ -189,16 +189,24 @@ class AgentSindy:
 
   def __init__(
       self,
+      rnn: Union[RLRNN, EnsembleRNN],
       n_actions: int=2,
       beta: float=1.,
       deterministic: bool=False,
       ):
 
+    if isinstance(rnn, RLRNN):
+      self._rnn = RLRNN(rnn._n_actions, rnn._hidden_size, rnn.init_value, rnn._vo, rnn._vs, list(rnn.history.keys()), device=rnn.device).to(rnn.device)
+      self._rnn.load_state_dict(rnn.state_dict())
+    else:
+      self._rnn = rnn
+    self._rnn.eval()
+    
     self._q_init = 0.5
     self._deterministic = deterministic
     self._beta = beta
     self._n_actions = n_actions
-    self._prev_updates = np.zeros((2, n_actions))
+    # self._prev_updates = np.zeros((2, n_actions))
 
     self._update_rule = lambda q, choice, reward: q[choice] + reward
     self._update_rule_formula = None
@@ -219,13 +227,14 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, self._prev_updates[:, choice])
-    self._prev_updates[0] = self._prev_updates[1]
-    for i in range(self._n_actions):
-      if i == choice:
-        self._prev_updates[1, i] = self._q[choice] - q
-      else:
-        self._prev_updates[1, i] = 0
+    state_xQr = self._rnn.get_state()[1][0, 0, 1].numpy()
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, state_xQr)
+    # self._prev_updates[0] = self._prev_updates[1]
+    # for i in range(self._n_actions):
+    #   if i == choice:
+    #     self._prev_updates[1, i] = self._q[choice] - q
+    #   else:
+    #     self._prev_updates[1, i] = 0
     self._q[choice] = q
     self._h[choice] = h
     
@@ -234,15 +243,19 @@ class AgentSindy:
       if c == choice:
         # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, 0)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, state_xQr)
       self._q[c] = q
       self._h[c] = h
+      
+    # 3. Update memory
+    with torch.no_grad():
+      self._rnn(torch.tensor([choice, reward]).view(1, 2), self._rnn.get_state())
       
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
-    self._prev_updates = np.zeros((2, self._n_actions))
+    self._rnn.initial_state()
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""

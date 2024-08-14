@@ -128,12 +128,14 @@ def create_dataset(
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
         if key in keys_x:
           # add values of interest of one session as trajectory
+          if values.shape[-1] == 1:
+            values = np.repeat(values, agent._n_actions, -1)
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
         elif key in keys_c:
           # add control signals of one session as corresponding trajectory
           if values.shape[-1] == 1:
-            values = np.repeat(values, 2, -1)
+            values = np.repeat(values, agent._n_actions, -1)
           for i_action in range(agent._n_actions):
             control[key] += [v for v in values[:, :, i_action]]
               
@@ -280,9 +282,10 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward, prev_updates):
+  def update_rule_sindy(q, h, choice, reward, memory):
       # mimic behavior of rnn with sindy
       
+      prev_updates = np.array([0])
       blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
       
       # action network
@@ -292,11 +295,11 @@ def constructor_update_rule_sindy(sindy_models):
       # value network      
       if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
         # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=prev_updates.reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=memory.reshape(1, -1))[-1] - q
       
       if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
         # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=prev_updates.reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=memory.reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
         # blind update for non-chosen action
