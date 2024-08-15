@@ -124,17 +124,23 @@ class BaseRNN(nn.Module):
     
     def call_subnetwork(self, key, inputs, layer_hidden_state=3):
         if hasattr(self, key):
+            # # embed inputs
+            # embedding = getattr(self, key)[0](inputs)
+            # # apply self-attention
+            # attn = getattr(self, key)[1](embedding, embedding, embedding, need_weights=False)[0]
             # get hidden state (linear layer + activation + dropout)
-            hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
+            hidden_state = getattr(self, key)[:3](inputs)#[2:5](attn)
             # get output variable (rest of subnetwork)
-            output = getattr(self, key)[layer_hidden_state:](hidden_state)
+            output = getattr(self, key)[3:](hidden_state)
             return output, hidden_state
         else:
             raise ValueError(f'Invalid key {key}.')
     
     def setup_subnetwork(self, input_size, hidden_size, dropout):
         return nn.Sequential(
-            nn.Linear(input_size+hidden_size, hidden_size), 
+            # nn.Linear(input_size+hidden_size, input_size+hidden_size),
+            # nn.MultiheadAttention(input_size+hidden_size, 1, dropout),
+            nn.Linear(input_size+hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
@@ -183,7 +189,7 @@ class RLRNN(BaseRNN):
         self.xQc = self.setup_subnetwork(input_size, hidden_size, dropout)
         
         # reward-based subnetwork
-        self.xQr = self.setup_subnetwork(input_size, hidden_size, dropout) 
+        self.xQr = self.setup_subnetwork(input_size, hidden_size, dropout)
 
         self.n_subnetworks = self.count_subnetworks()
         

@@ -25,6 +25,10 @@ def main(
     sindy_ensemble = False,
     library_ensemble = False,
     
+    # rnn parameters
+    hidden_size = 16,
+    model = None,
+    
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
@@ -32,6 +36,7 @@ def main(
     perseveration_bias = 0.,
     correlated_update = False,
     regret = False,
+    confirmation_bias = 0.,
     
     # environment parameters
     sigma = 0.2,
@@ -51,7 +56,7 @@ def main(
     correlated_reward = False
 
     # rnn parameters
-    hidden_size = 4
+    hidden_size = 16
     last_output = False
     last_state = False
     use_lstm = False
@@ -59,15 +64,15 @@ def main(
 
     # tracked variables in the RNN
     z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH']
-    control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+    control_list = ['ca', 'cr']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': [],#['cdQr[k-2]', 'cdQr[k-1]'],
-        'xQr_p': [],#['cdQr[k-2]', 'cdQr[k-1]'],
+        'xQr_r': [],
+        'xQr_p': [],
         'xH': []
     }
 
@@ -91,11 +96,14 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)
     dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
-    params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+    if model is None:
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+    else:
+        params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
     rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
     if isinstance(state_dict, dict):
@@ -268,12 +276,17 @@ def main(
 
 if __name__=='__main__':
     main(
+        # rnn parameters
+        hidden_size = 16,
+        model = 'params/params_rnn_a035_b3_cb.pkl',
+        
         # ground truth parameters
-        alpha = 0.25,
+        alpha = 0.35,
         beta = 3,
         forget_rate = 0.,
         perseveration_bias = 0.,
         regret = False,
+        confirmation_bias = 0.,
         
         # environment parameters
         sigma = 0.2,

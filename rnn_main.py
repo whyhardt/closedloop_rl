@@ -18,6 +18,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 def main(
   train = True,
   checkpoint = False,
+  model = None,
 
   # rnn parameters
   hidden_size = 4,
@@ -53,6 +54,7 @@ def main(
   perseveration_bias = 0.,
   correlated_update = False,
   regret = False,
+  confirmation_bias = 0.,
   
   # environment parameters
   n_actions = 2,
@@ -79,8 +81,8 @@ def main(
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
 
   # setup
-  environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
+  environment = bandits.EnvironmentBanditsDrift(sigma, n_actions, non_binary_reward, correlated_reward)
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)  
   print('Setup of the environment and agent complete.')
 
   if dataset_train is None:    
@@ -112,18 +114,22 @@ def main(
   
   print('Setup of datasets complete.')
   
-  params_path = rnn_utils.parameter_file_naming(
-      'params/params',
-      use_lstm,
-      alpha,
-      beta,
-      forget_rate,
-      perseveration_bias,
-      correlated_update,
-      regret,
-      non_binary_reward,
-      verbose=True,
-  )
+  if model is None:
+    params_path = rnn_utils.parameter_file_naming(
+        'params/params',
+        use_lstm,
+        alpha,
+        beta,
+        forget_rate,
+        perseveration_bias,
+        correlated_update,
+        regret,
+        non_binary_reward,
+        verbose=True,
+    )
+  else:
+    print(f'Using model {model}.')
+    params_path = model
 
   if ensemble > -1 and n_submodels == 1:
     Warning('Ensemble is actived but n_submodels is set to 1. Deactivated ensemble.')
@@ -180,14 +186,15 @@ def main(
         n_steps_per_call=n_steps_per_call,
     )
     
-    # save trained parameters  
-    state_dict = {
-      'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
-      'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
-    }
-    torch.save(state_dict, params_path)
-    
-    print(f'Saved RNN parameters to file {params_path}.')
+    if epochs > 0:
+      # save trained parameters  
+      state_dict = {
+        'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
+        'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
+      }
+      torch.save(state_dict, params_path)
+      
+      print(f'Saved RNN parameters to file {params_path}.')
     
     # validate model
     print('\nTesting the trained hybrid RNN on a test dataset...')
@@ -253,7 +260,7 @@ def main(
     def normalize(qs):
       return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-    # qs = normalize(qs)
+    qs = normalize(qs)
 
     fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
@@ -338,8 +345,13 @@ def main(
 if __name__=='__main__':
   main(
     # training parameters
-    epochs=1024,
-    checkpoint=False,
+    epochs=0,
+    checkpoint=True,
+    model='params/params_rnn_a035_b3_cb.pkl',
+    batch_size=None,
+    
+    # rnn parameters
+    hidden_size=16,
     
     # ensemble parameters
     init_population=-1,
@@ -349,11 +361,12 @@ if __name__=='__main__':
     n_submodels=8,
     
     # ground truth parameters
-    alpha = 0.25,
+    alpha = 0.35,
     beta = 3,
     forget_rate = 0.,
     perseveration_bias = 0.,
     regret = False,
+    confirmation_bias = 0.5,
     
     # environment parameters
     n_actions = 2,

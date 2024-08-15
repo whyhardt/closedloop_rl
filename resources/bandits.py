@@ -61,7 +61,9 @@ class AgentQ:
       perseveration_bias: float = 0.,
       correlated_reward: bool = False,
       regret: bool = False,
+      confirmation_bias: int = 0.
       ):
+    
     """Update the agent after one step of the task.
 
     Args:
@@ -71,8 +73,13 @@ class AgentQ:
       forgetting_rate: rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
+    
+    if regret and confirmation_bias>0:
+      raise ValueError('AgentQ: regret and confirmation_bias cannot be enabled at the same time.')
+    
     self._alpha_reward = alpha
     self._alpha_penalty = alpha*2 if regret else alpha
+    self._confirmation_bias = confirmation_bias
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
@@ -83,7 +90,9 @@ class AgentQ:
 
     _check_in_0_1_range(self._alpha_reward, 'alpha_r')
     _check_in_0_1_range(self._alpha_penalty, 'alpha_p')
-    _check_in_0_1_range(forget_rate, 'forget_rate')
+    _check_in_0_1_range(self._forget_rate, 'forget_rate')
+    # _check_in_0_1_range(self._alpha_reward+self._confirmation_bias, 'alpha+confirmation_bias')
+    # _check_in_0_1_range(self._alpha_reward-self._confirmation_bias, 'alpha-confirmation_bias')
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
@@ -121,6 +130,26 @@ class AgentQ:
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    
+    # add confirmation bias to learning rate alpha
+    # Variant 1 - Comparing the chosen option with the initial (unbiased) estimate: Postitive confirmation if win and Q(t) > Q(0) and v.v.
+    # Variant 1.1 - Case-sensitive addition of confirmation bias
+    # if reward > self._q[choice] and self._q[choice] > self._q_init or reward < self._q[choice] and self._q[choice] < self._q_init:
+    #   # positive confirmation bias - seeing ones believes confirmed
+    #   # winning and having a high estimate of the chosen option OR losing and having a low estimate of the chosen option 
+    #   alpha += self._confirmation_bias
+    # elif reward > self._q[choice] and self._q[choice] < self._q_init or reward < self._q[choice] and self._q[choice] > self._q_init:
+    #   # negative confirmation bias - doubting an outcome because it contradicts ones believes
+    #   # winning and having a low estimate of the chosen option OR losing and having a high estimate of the chosen option
+    #   alpha -= self._confirmation_bias
+    # Variant 1.2 - Non-linear, differentiable confirmation bias
+    confirmation_bias = (reward - self._q[choice]) * (self._q[choice] - self._q_init) * self._confirmation_bias
+    # confirmation_bias = reward * self._q[choice] - reward * self._q_init - self._q[choice]**2 + self._q[choice] * self._q_init
+    
+    # Variant 2 - Comparing the options: Positive confirmation if action = a and win and Q_a > Q_b and v.v.
+    # must yet be implemented
+    
+    alpha += confirmation_bias
     reward_update = - alpha * self._q[choice] + alpha * reward
     # q_reward_update = - alpha * self._q[choice] - alpha**2 * self._q[choice]**2 + alpha * reward
     
