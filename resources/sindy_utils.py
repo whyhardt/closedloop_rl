@@ -3,10 +3,11 @@ from torch.nn.functional import cross_entropy, mse_loss
 import torch
 from typing import Iterable, List, Dict, Tuple, Callable, Union
 import matplotlib.pyplot as plt
+from copy import copy
 
 import pysindy as ps
 
-from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics
+from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics, BanditSession
 from resources.rnn import EnsembleRNN
 from resources.rnn_utils import DatasetRNN
 
@@ -70,7 +71,7 @@ def make_sindy_data(
 
 def create_dataset(
   agent: AgentNetwork,
-  data: Union[Environment, DatasetRNN, np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
+  data: Union[Environment, DatasetRNN, List[BanditSession], np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
@@ -86,13 +87,16 @@ def create_dataset(
       Warning('data is not of type Environment. Checking for correct number of sessions and trials per session with respect to the given data object.')
     if n_sessions > len(data):
       n_sessions = len(data)
-    if not isinstance(data, DatasetRNN):
-      if n_trials_per_session > data[0].shape[0]:
-        n_trials_per_session = data[0].shape[0]
-    else:
+    if isinstance(data, DatasetRNN):
       if n_trials_per_session > data.xs.shape[1]:
-        n_trials_per_session = data.xs.shape[1]    
-  
+        n_trials_per_session = data.xs.shape[1]
+    else:
+        if isinstance(data[0], BanditSession):
+          if n_trials_per_session > data[0].choices.shape[0]:
+            n_trials_per_session = data[0].choices.shape[0]
+        else:
+          if n_trials_per_session > data[0].shape[0]: 
+            n_trials_per_session = data[0].shape[0]
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   
@@ -101,22 +105,24 @@ def create_dataset(
   x_train = {key: [] for key in keys_x}
   control = {key: [] for key in keys_c}
   
+  # the maximum encountered difference between the Q-Values of the single options should (theoretically) be the beta value
+  # requirement: enough samples that a pre-beta difference of abs(q[0]-q[1]) is reached at some point by chance 
+  # --> More secure coverability through active learning possible  
+  dq_darms_max = 0  #np.zeros(n_sessions)
+  
   for session in range(n_sessions):
-    agent.new_sess()
-    
-    for trial in range(n_trials_per_session):
-      # generate trial data
-      choice = agent.get_choice()
-      if isinstance(data, Environment):
+    if isinstance(data, Environment):
+      agent.new_sess()
+      for trial in range(n_trials_per_session):
+        # generate trial data
+        choice = agent.get_choice()
         reward = data.step(choice)
-      elif isinstance(data, DatasetRNN):
-        reward = data.xs[session, trial, -1].item()
-      else:
-        reward = data[session][trial, -1]
-        if isinstance(reward, torch.Tensor):
-          reward = reward.item()
+        agent.update(choice, reward)
         
-      agent.update(choice, reward)
+    elif isinstance(data[0], BanditSession):
+      qs = get_update_dynamics(data[session], agent)[0]
+    
+    dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
@@ -155,7 +161,9 @@ def create_dataset(
     index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
     # compute scaling parameters
     x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
-    beta = x_max - x_min
+    # beta = x_max - x_min
+    beta = dq_darms_max
+    # beta = 3
     # normalize data (TODO: find better solution for cQr)
     for i in range(len(x_train_list)):
       # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
@@ -280,7 +288,7 @@ def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.fea
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward, dQr):
+  def update_rule_sindy(q, h, choice, reward):
       # mimic behavior of rnn with sindy
       
       blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
@@ -292,11 +300,11 @@ def constructor_update_rule_sindy(sindy_models):
       # value network      
       if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
         # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([dQr]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
       if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
         # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([dQr]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
         # blind update for non-chosen action

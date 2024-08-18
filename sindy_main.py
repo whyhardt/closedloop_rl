@@ -18,12 +18,21 @@ from resources.sindy_training import fit_model, setup_sindy_agent
 warnings.filterwarnings("ignore")
 
 def main(
+    model = None,
+    
+    # generated training dataset parameters
+    n_trials_per_session = 200,
+    n_sessions = 1,
+    
     # sindy parameters
     threshold = 0.03,
     polynomial_degree = 1,
     regularization = 1e-2,
     sindy_ensemble = False,
     library_ensemble = False,
+    
+    # rnn parameters
+    hidden_size = 4,
     
     # ground truth parameters
     alpha = 0.25,
@@ -33,21 +42,16 @@ def main(
     correlated_update = False,
     regret = True,
     
+    # environment parameters
+    n_actions = 2,
+    sigma = .2,
+    non_binary_reward = False,
+    correlated_reward = False,
+    
     analysis=False,
     ):
 
-    # training dataset parameters
-    n_trials_per_session = 200
-    n_sessions = 10
-
-    # environment parameters
-    n_actions = 2
-    sigma = .2
-    non_binary_reward = False
-    correlated_reward = False
-
     # rnn parameters
-    hidden_size = 4
     last_output = False
     last_state = False
     use_lstm = False
@@ -55,15 +59,15 @@ def main(
 
     # tracked variables in the RNN
     z_train_list = ['xQf','xQr_r', 'xQr_p', 'xH']
-    control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+    control_list = ['ca', 'cr']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': ['cdQr[k-1]', 'cdQr[k-2]'],
-        'xQr_p': ['cdQr[k-1]', 'cdQr[k-2]'],
+        'xQr_r': [],
+        'xQr_p': [],
         'xH': []
     }
 
@@ -87,11 +91,14 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)
     dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
-    params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+    if model is None:
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, non_binary_reward, verbose=True)
+    else:
+        params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
     rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
     if isinstance(state_dict, dict):
@@ -106,7 +113,8 @@ def main(
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
     # create dataset for sindy training, fit sindy, set up sindy agent
-    z_train, control, feature_names, beta = create_dataset(agent_rnn, environment, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
+    experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)[1]
+    z_train, control, feature_names, beta = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
     agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
@@ -156,7 +164,7 @@ def main(
         def normalize(qs):
             return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-        # qs = normalize(qs)
+        qs = normalize(qs)
 
         fig, axs = plt.subplots(4, 1, figsize=(20, 10))
         # turn the x labels off for all but the last subplot
@@ -264,5 +272,27 @@ def main(
 
 if __name__=='__main__':
     main(
-        analysis=False,
+        # model = 'params/params_rnn_a025_b3.pkl',
+        
+        # sindy parameters
+        polynomial_degree=1,
+        
+        # generated training dataset parameters
+        n_trials_per_session = 200,
+        n_sessions = 100,
+        
+        # rnn parameters
+        hidden_size = 4,
+        
+        # ground truth parameters
+        alpha = 0.25,
+        beta = 3,
+        forget_rate = 0.2,
+        perseveration_bias = 0.,
+        regret = False,
+        
+        # environment parameters
+        sigma = 0.1,
+        
+        analysis=True,
     )

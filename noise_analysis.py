@@ -93,7 +93,7 @@ def main(
                 loss_test = rnn_main(
                     n_submodels=n,
                     epochs=epochs,
-                    sampling_replacement=True,
+                    bagging=True,
                     ensemble=ensembleTypes.AVERAGE,
                     evolution_interval=None,
                     

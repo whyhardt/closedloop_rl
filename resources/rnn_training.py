@@ -38,16 +38,15 @@ def batch_train(
     xs: torch.Tensor,
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
-    n_steps_per_call: int = None,
+    n_steps_per_call: int = -1,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
-    weight_reg_rnn: float = 0e0,
     ):
 
     """
     Trains a model with the given batch.
     """
     
-    if n_steps_per_call is None:
+    if n_steps_per_call == -1:
         n_steps_per_call = xs.shape[1]
     
     # predict y and compute loss
@@ -85,20 +84,20 @@ def batch_train(
         #     optimizer.step()
         # state = state_buffer
     # --------------------------------------------------------------
-    # old procedure; may be to inefficient due to big time steps
+    # old procedure; may be to data inefficient due to big time steps
     # --------------------------------------------------------------
     
     # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
     for t in range(0, xs.shape[1]-1, n_steps_per_call):
         n_steps = min(xs.shape[1]-t-1, n_steps_per_call)
         state = model.get_state(detach=True)
-        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0][:, -1]
+        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
-        loss = loss_fn(y_pred, xs[:, t+n_steps, :-1])
-        # loss = 0
-        # for i in range(n_steps):
-        #     loss += loss_fn(y_pred[:, i], ys[:, t+i])
-        # loss /= n_steps
+        # loss = loss_fn(y_pred[:, -1], xs[:, t+n_steps, :-1])
+        loss = 0
+        for i in range(n_steps):
+            loss += loss_fn(y_pred[:, i], ys[:, t+i])
+        loss /= n_steps
          
         if torch.is_grad_enabled():
             
@@ -120,13 +119,14 @@ def fit_model(
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
-    batch_size: int = None,
-    sampling_replacement: bool = False,
+    batch_size: int = -1,
+    bagging: bool = False,
     n_submodels: int = 1,
     ensemble_type: int = ensembleTypes.BEST,
     voting_type: int = EnsembleRNN.MEDIAN,
-    evolution_interval: int = None, verbose: bool = True,
-    n_steps_per_call: int = None,
+    evolution_interval: int = None,
+    n_steps_per_call: int = -1,
+    verbose: bool = True,
 ):
     
     # initialize submodels
@@ -155,10 +155,10 @@ def fit_model(
         raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
     
     # initialize dataloader
-    if batch_size is None:
+    if batch_size == -1:
         batch_size = len(dataset_train)
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    if not sampling_replacement:
+    if not bagging:
         # if no ensemble model is used, use normaler dataloader instance with sampling without replacement
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     else:
@@ -231,7 +231,6 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=None,
-                        n_steps_per_call=-1,
                         stride=-1,
                     )
             else:
@@ -264,8 +263,6 @@ def fit_model(
                                 xs=xs,
                                 ys=ys,
                                 optimizer=optimizers[i],
-                                n_steps_per_call=n_steps_per_call,
-                                # keep_predictions=True,
                                 # loss_fn = categorical_log_likelihood
                             )
                         models[i].train()    
@@ -298,7 +295,7 @@ def fit_model(
             
             # update last losses according to fifo principle
             last_losses[:-1] = last_losses[1:].clone()
-            last_losses[-1] = copy.copy(loss_train)
+            last_losses[-1] = copy.copy(loss_test)
 
             # check for convergence
             # convergence_value = torch.abs(loss - loss_new) / loss
@@ -314,9 +311,10 @@ def fit_model(
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Loss: {loss_train:.7f}; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Training loss: {loss_train:.7f}'                
                 if dataset_test is not None:
                     msg += f'; Validation loss: {loss_test:.7f}'
+                msg += f'; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:

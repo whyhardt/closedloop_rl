@@ -18,6 +18,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 def main(
   train = True,
   checkpoint = False,
+  model = None,
 
   # rnn parameters
   hidden_size = 4,
@@ -26,7 +27,7 @@ def main(
 
   # ensemble parameters
   evolution_interval = 100,
-  sampling_replacement = False,
+  bagging = False,
   n_submodels = 1,
   init_population = -1,
   ensemble = rnn_training.ensembleTypes.BEST,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
@@ -38,11 +39,11 @@ def main(
   dataset_test = None,
   experiment_list_test = None,
   
-  n_trials_per_session = 50,
+  n_trials_per_session = 64,
   n_sessions = 4096,
   epochs = 1024,
-  n_steps_per_call = 8,  # None for full sequence
-  batch_size = None,  # None for one batch per epoch
+  n_steps_per_call = -1,  # -1 for full sequence
+  batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-4,
   convergence_threshold = 1e-6,
   
@@ -112,18 +113,21 @@ def main(
   
   print('Setup of datasets complete.')
   
-  params_path = rnn_utils.parameter_file_naming(
-      'params/params',
-      use_lstm,
-      alpha,
-      beta,
-      forget_rate,
-      perseveration_bias,
-      correlated_update,
-      regret,
-      non_binary_reward,
-      verbose=True,
-  )
+  if model is None:
+    params_path = rnn_utils.parameter_file_naming(
+        'params/params',
+        use_lstm,
+        alpha,
+        beta,
+        forget_rate,
+        perseveration_bias,
+        correlated_update,
+        regret,
+        non_binary_reward,
+        verbose=True,
+    )
+  else:
+    params_path = model
 
   if ensemble > -1 and n_submodels == 1:
     Warning('Ensemble is actived but n_submodels is set to 1. Deactivated ensemble.')
@@ -175,7 +179,7 @@ def main(
         n_submodels=n_submodels,
         ensemble_type=ensemble,
         voting_type=voting_type,
-        sampling_replacement=sampling_replacement,
+        bagging=bagging,
         evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
@@ -205,17 +209,6 @@ def main(
       )
 
     print(f'Training took {time.time() - start_time:.2f} seconds.')
-  # else:
-  #   model, _, _ = rnn_training.fit_model(
-  #       model=model,
-  #       dataset_train=dataset_train,
-  #       dataset_test=None,
-  #       epochs=0,
-  #       n_submodels=n_submodels,
-  #       ensemble_type=ensemble,
-  #       voting_type=voting_type,
-  #       verbose=True
-  #   )
 
   if analysis:
     # Synthesize a dataset using the fitted network
@@ -303,19 +296,30 @@ def main(
     #     binary=not non_binary_reward,
     #     fig_ax=(fig, axs[3]),
     #     )
-
-    dqs_t = np.diff(qs, axis=1)
-
+    
     bandits.plot_session(
         compare=True,
         choices=choices,
         rewards=rewards,
-        timeseries=dqs_t[:, :, 0],
-        timeseries_name='dQ/dt',
+        timeseries=qs[:, :, 0]-qs[:, :, 1],
+        timeseries_name='dQ/dArm',
         color=colors,
         binary=not non_binary_reward,
         fig_ax=(fig, axs[3]),
         )
+    print(f'RNN: max(dQ/dArms) = {max(qs[-1, :, 0]-qs[-1, :, 1])}')
+    # dqs_t = np.diff(qs, axis=1)
+
+    # bandits.plot_session(
+    #     compare=True,
+    #     choices=choices,
+    #     rewards=rewards,
+    #     timeseries=dqs_t[:, :, 0],
+    #     timeseries_name='dQ/dt',
+    #     color=colors,
+    #     binary=not non_binary_reward,
+    #     fig_ax=(fig, axs[3]),
+    #     )
 
     # dqs_arms = normalize(-1*np.diff(qs, axis=2))
 
@@ -337,10 +341,33 @@ def main(
 
 if __name__=='__main__':
   main(
-    n_submodels=8,
+    checkpoint = False,
+    # model = 'params/params_rnn_a025_b3.pkl',
+
+    # training parameters
     epochs=1024,
-    sampling_replacement=True,
+    n_trials_per_session = 32,
+    n_sessions = 4096,
+    n_steps_per_call = 1,
+
+    # ensemble parameters
+    n_submodels=1,
+    bagging=False,
     ensemble=rnn_training.ensembleTypes.AVERAGE,
-    evolution_interval=None,
+    
+    # rnn parameters
+    hidden_size = 4,
+    dropout = 0.,
+    
+    # ground truth parameters
+    alpha = 0.25,
+    beta = 3,
+    forget_rate = 0.2,
+    perseveration_bias = 0.,
+    regret = False,
+    
+    # environment parameters
+    sigma = 0.1,
+    
     analysis=True,
   )

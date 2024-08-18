@@ -116,14 +116,14 @@ class AgentQ:
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
-    self._q[non_chosen_action] = (1-self._forget_rate) * self._q[non_chosen_action] + self._forget_rate * self._q_init
+    forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
 
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
-    reward_update = - alpha * self._q[choice] + alpha * reward
-    # q_reward_update = - alpha * self._q[choice] - alpha**2 * self._q[choice]**2 + alpha * reward
+    reward_update = alpha * (reward - self._q[choice])
     
+    self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
     # Correlated update - Update non-chosen q for non-chosen action with observed reward
@@ -203,8 +203,7 @@ class AgentSindy:
     # necessary due to spillover effects from chosen action to non-chosen actions
     
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, )
-    reward_update = (q - self._q[choice])
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward)
     self._q[choice] = q
     self._h[choice] = h
     
@@ -213,7 +212,7 @@ class AgentSindy:
       if c == choice:
         # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, 0)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward)
       self._q[c] = q
       self._h[c] = h
           
