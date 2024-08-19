@@ -282,14 +282,14 @@ if __name__=='__main__':
         n_sessions = 100,
         
         # rnn parameters
-        hidden_size = 4,
+        hidden_size = 8,
         
         # ground truth parameters
         alpha = 0.25,
         beta = 3,
         forget_rate = 0.2,
-        perseveration_bias = 0.,
-        regret = False,
+        perseveration_bias = 0.25,
+        regret = True,
         
         # environment parameters
         sigma = 0.1,

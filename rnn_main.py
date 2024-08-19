@@ -27,7 +27,6 @@ def main(
 
   # ensemble parameters
   evolution_interval = 100,
-  bagging = False,
   n_submodels = 1,
   init_population = -1,
   ensemble = rnn_training.ensembleTypes.BEST,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
@@ -41,6 +40,8 @@ def main(
   
   n_trials_per_session = 64,
   n_sessions = 4096,
+  bagging = False,
+  n_oversampling = -1,
   epochs = 1024,
   n_steps_per_call = -1,  # -1 for full sequence
   batch_size = -1,  # -1 for one batch per epoch
@@ -98,7 +99,7 @@ def main(
     dataset_val, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
-        n_trials_per_session=50,
+        n_trials_per_session=64,
         n_sessions=16,
         device=device)
     
@@ -180,6 +181,7 @@ def main(
         ensemble_type=ensemble,
         voting_type=voting_type,
         bagging=bagging,
+        n_oversampling=n_oversampling,
         evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
@@ -345,26 +347,27 @@ if __name__=='__main__':
     # model = 'params/params_rnn_a025_b3.pkl',
 
     # training parameters
-    epochs=1024,
-    n_trials_per_session = 32,
+    epochs=128*8,
+    n_trials_per_session = 64,
     n_sessions = 4096,
-    n_steps_per_call = 1,
+    n_steps_per_call = 16,
+    bagging=True,
+    n_oversampling=4*4096,
 
     # ensemble parameters
-    n_submodels=1,
-    bagging=False,
+    n_submodels=8,
     ensemble=rnn_training.ensembleTypes.AVERAGE,
     
     # rnn parameters
-    hidden_size = 4,
-    dropout = 0.,
+    hidden_size = 8,
+    dropout = 0.25,
     
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
     forget_rate = 0.2,
-    perseveration_bias = 0.,
-    regret = False,
+    perseveration_bias = 0.25,
+    regret = True,
     
     # environment parameters
     sigma = 0.1,

@@ -121,6 +121,7 @@ def fit_model(
     epochs: int = 1,
     batch_size: int = -1,
     bagging: bool = False,
+    n_oversampling: int = -1,
     n_submodels: int = 1,
     ensemble_type: int = ensembleTypes.BEST,
     voting_type: int = EnsembleRNN.MEDIAN,
@@ -158,14 +159,15 @@ def fit_model(
     if batch_size == -1:
         batch_size = len(dataset_train)
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    if not bagging:
-        # if no ensemble model is used, use normaler dataloader instance with sampling without replacement
-        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-    else:
-        # if ensemble model is used, use random sampler with replacement
-        sampler = RandomSampler(dataset_train, replacement=True, num_samples=batch_size)
+    if bagging:
+        # use random sampling with replacement
+        if n_oversampling == -1:
+            n_oversampling = batch_size
+        sampler = RandomSampler(dataset_train, replacement=True, num_samples=n_oversampling)
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
-        
+    else:
+        # use normal dataloader instance with sampling without replacement
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     if dataset_test is not None:
         dataloader_test = DataLoader(dataset_test, batch_size=len(dataset_test))
     

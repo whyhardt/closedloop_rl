@@ -122,7 +122,7 @@ class BaseRNN(nn.Module):
                 n_subnetworks += 1
         return n_subnetworks
     
-    def call_subnetwork(self, key, inputs, layer_hidden_state=3):
+    def call_subnetwork(self, key, inputs, layer_hidden_state=4):
         if hasattr(self, key):
             # get hidden state (linear layer + activation + dropout)
             hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
@@ -135,7 +135,8 @@ class BaseRNN(nn.Module):
     def setup_subnetwork(self, input_size, hidden_size, dropout):
         return nn.Sequential(
             # nn.Linear(input_size+hidden_size, hidden_size), 
-            nn.Linear(input_size, hidden_size), 
+            nn.Linear(input_size, hidden_size),
+            nn.Linear(hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
@@ -227,12 +228,12 @@ class RLRNN(BaseRNN):
     
     def action_network(self, state, value, action):
         # action based update for previously chosen element
-        # chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
+        chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
         # inputs = torch.concat([chosen_value, action, state[:, 0]], dim=-1)
-        # same_action_as_before = 1-torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1)
-        # inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
-        # action_update, state = self.call_subnetwork('xH', inputs)
-        # value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
+        inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
+        action_update, state = self.call_subnetwork('xH', inputs)
+        value = action * action_update  # action * value +  # accumulation of action-based update possible; but hard reset for non-chosen action 
         
         self._prev_action = action
         
