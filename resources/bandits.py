@@ -61,6 +61,7 @@ class AgentQ:
       perseverance_bias: float = 0.,
       correlated_reward: bool = False,
       regret: bool = False,
+      confirmation_bias: bool = False,
       ):
     """Update the agent after one step of the task.
 
@@ -78,6 +79,7 @@ class AgentQ:
     self._forget_rate = forget_rate
     self._perseverance_bias = perseverance_bias
     self._correlated_reward = correlated_reward
+    self._confirmation_bias = confirmation_bias
     self._q_init = 0.5
     self.new_sess()
 
@@ -121,6 +123,9 @@ class AgentQ:
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    # add confirmation bias to learning rate
+    if self._confirmation_bias:
+      alpha += (self._q[choice]-self._q_init)*(reward - 0.5)
     reward_update = alpha * (reward - self._q[choice])
     
     self._q[non_chosen_action] += forget_update

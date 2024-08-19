@@ -40,7 +40,7 @@ def main(
   experiment_list_test = None,
   
   n_trials_per_session = 64,
-  n_sessions = 4096,
+  n_sessions = 128,
   bagging = False,
   n_oversampling = -1,
   epochs = 1024,
@@ -53,10 +53,11 @@ def main(
   # ground truth parameters
   alpha = 0.25,
   beta = 3,
-  forget_rate = 0.1,
-  perseveration_bias = 0.25,
+  forget_rate = 0.,
+  perseveration_bias = 0.,
   correlated_update = False,
-  regret = True,
+  regret = False,
+  confirmation_bias = False,
   
   # environment parameters
   n_actions = 2,
@@ -97,7 +98,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)  
   print('Setup of the environment and agent complete.')
 
   if dataset_train is None:    
@@ -358,16 +359,17 @@ def main(
 
 if __name__=='__main__':
   main(
-    checkpoint = False,
+    checkpoint = True,
     # model = 'params/params_rnn_a025_b3.pkl',
 
     # training parameters
-    epochs=8*128,
+    epochs=1024,
     n_trials_per_session = 64,
-    n_sessions = 4096,
+    n_sessions = 256,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
+    batch_size=-1,
     adam_betas=(0.9, 0.999),
 
     # ensemble parameters
@@ -376,14 +378,15 @@ if __name__=='__main__':
     
     # rnn parameters
     hidden_size = 8,
-    dropout = 0.,
+    dropout = 0.1,
     
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.2,
-    perseveration_bias = 0.25,
-    regret = True,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
+    regret = False,
+    confirmation_bias = False,
     
     # environment parameters
     sigma = 0.1,

@@ -37,10 +37,11 @@ def main(
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.1,
-    perseveration_bias = 0.25,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
     correlated_update = False,
-    regret = True,
+    regret = False,
+    confirmation_bias = False,
     
     # environment parameters
     n_actions = 2,
@@ -91,7 +92,7 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)
     dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
@@ -291,6 +292,7 @@ if __name__=='__main__':
         forget_rate = 0.2,
         perseveration_bias = 0.25,
         regret = True,
+        confirmation_bias = False,
         
         # environment parameters
         sigma = 0.1,
