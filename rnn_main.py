@@ -48,7 +48,7 @@ def main(
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-4,
   convergence_threshold = 1e-6,
-  betas=(0.9, 0.99),
+  adam_betas=(0.9, 0.99),
   
   # ground truth parameters
   alpha = 0.25,
@@ -72,10 +72,10 @@ def main(
 
   # check that betas is a tuple of two floats lower than 1
   betas_error = 0
-  if isinstance(betas, Collection):
-    if len(betas) != 2:
+  if isinstance(adam_betas, Collection):
+    if len(adam_betas) != 2:
       betas_error = 1
-    for x in betas:
+    for x in adam_betas:
       if not isinstance(x, float):
         betas_error = 1
   else:
@@ -168,7 +168,7 @@ def main(
         ).to(device)
             for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, betas=betas) for m in model]
+  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, betas=adam_betas) for m in model]
 
   print('Setup of the RNN model complete.')
 
