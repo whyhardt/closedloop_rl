@@ -81,6 +81,12 @@ def fit_model(
         
         # fit sindy model
         sindy_models[x_feature].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True, ensemble=False, library_ensemble=False)
+        # post-process sindy weights
+        for i in range(len(sindy_models[x_feature].model.steps[-1][1].coef_[0])):
+            if i == 1 and np.abs(1-sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]) < optimizer_threshold:
+                sindy_models[x_feature].model.steps[-1][1].coef_[0, 1] = 1.
+            elif i != 1 and sindy_models[x_feature].model.steps[-1][1].coef_[0, i] < optimizer_threshold:
+                sindy_models[x_feature].model.steps[-1][1].coef_[0, i] = 0.
         if get_loss:
             loss_model = 1-sindy_models[x_feature].score(x_train_i, u=control_i, t=1, multiple_trajectories=True)
             loss += loss_model

@@ -276,10 +276,11 @@ if __name__=='__main__':
         
         # sindy parameters
         polynomial_degree=1,
+        threshold=0.05,
         
         # generated training dataset parameters
         n_trials_per_session = 200,
-        n_sessions = 100,
+        n_sessions = 10,
         
         # rnn parameters
         hidden_size = 8,
