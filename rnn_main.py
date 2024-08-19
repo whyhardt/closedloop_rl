@@ -8,6 +8,7 @@ import time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Collection
 
 # warnings.filterwarnings("ignore")
 
@@ -47,6 +48,7 @@ def main(
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-4,
   convergence_threshold = 1e-6,
+  betas=(0.9, 0.99),
   
   # ground truth parameters
   alpha = 0.25,
@@ -68,6 +70,19 @@ def main(
   if not os.path.exists('params'):
     os.makedirs('params')
 
+  # check that betas is a tuple of two floats lower than 1
+  betas_error = 0
+  if isinstance(betas, Collection):
+    if len(betas) != 2:
+      betas_error = 1
+    for x in betas:
+      if not isinstance(x, float):
+        betas_error = 1
+  else:
+    betas_error = 1
+  if betas_error == 1:
+    raise TypeError("betas must be a collection of two floats lower than 1.")
+  
   # tracked variables in the RNN
   x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
   control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
@@ -153,7 +168,7 @@ def main(
         ).to(device)
             for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
+  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, betas=betas) for m in model]
 
   print('Setup of the RNN model complete.')
 
@@ -350,7 +365,7 @@ if __name__=='__main__':
     epochs=128*8,
     n_trials_per_session = 64,
     n_sessions = 4096,
-    n_steps_per_call = 16,
+    n_steps_per_call = 8,
     bagging=True,
     n_oversampling=4*4096,
 
