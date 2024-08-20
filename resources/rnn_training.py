@@ -98,7 +98,7 @@ def batch_train(
         for i in range(n_steps):
             loss += loss_fn(y_pred[:, i], ys[:, t+i])
         loss /= n_steps
-         
+        
         if torch.is_grad_enabled():
             
             # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty

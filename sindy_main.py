@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
+from typing import Callable
 
 import pysindy as ps
 
@@ -28,8 +29,6 @@ def main(
     threshold = 0.03,
     polynomial_degree = 1,
     regularization = 1e-2,
-    sindy_ensemble = False,
-    library_ensemble = False,
     
     # rnn parameters
     hidden_size = 4,
@@ -42,6 +41,7 @@ def main(
     correlated_update = False,
     regret = False,
     confirmation_bias = False,
+    reward_update_rule: Callable = None,
     
     # environment parameters
     n_actions = 2,
@@ -53,8 +53,6 @@ def main(
     ):
 
     # rnn parameters
-    last_output = False
-    last_state = False
     use_lstm = False
     voting_type = EnsembleRNN.MEDIAN
 
@@ -93,7 +91,9 @@ def main(
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
     agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)
-    dataset_test, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
+    if reward_update_rule is not None:
+        agent.set_reward_update(reward_update_rule)
+    _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
@@ -101,7 +101,7 @@ def main(
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
-    rnn = RLRNN(n_actions, hidden_size, 0.5, last_output, last_state, sindy_feature_list)
+    rnn = RLRNN(n_actions, hidden_size, 0.5, list_sindy_signals=sindy_feature_list)
     if isinstance(state_dict, dict):
         rnn.load_state_dict(state_dict)
     elif isinstance(state_dict, list):
@@ -121,12 +121,13 @@ def main(
     agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
     print(f'\nBeta for SINDy: {beta}')
     agent_sindy._beta = beta
-    # loss_x = sindy_loss_x(agent_sindy, dataset_test)
-    # loss_z = sindy_loss_z(agent_sindy, dataset_test, agent_rnn)
-    # print(f'\nLoss for SINDy in x-coordinates: {np.round(loss_x, 4)}')
-    # print(f'Loss for SINDy in z-coordinates: {np.round(loss_z, 4)}')
-    # dataset_sindy, experiment_list_sindy = create_dataset_bandits(agent_sindy, environment, n_trials_per_session, 1)
 
+    # print('Calculating RNN and SINDy loss in X...', end='\r')
+    # test_loss_rnn = sindy_loss_x(agent_rnn, experiment_list_test)
+    # test_loss_sindy = sindy_loss_x(agent_sindy, experiment_list_test)
+    # print(f'RNN Loss in X: {test_loss_rnn}')
+    # print(f'SINDy Loss in X: {test_loss_sindy}')
+    
     # --------------------------------------------------------------
     # Analysis
     # --------------------------------------------------------------
@@ -273,7 +274,7 @@ def main(
 
 if __name__=='__main__':
     main(
-        # model = 'params/params_rnn_a025_b3.pkl',
+        model = 'params/params_rnn_fullbaseline.pkl',
         
         # sindy parameters
         polynomial_degree=1,
@@ -293,6 +294,7 @@ if __name__=='__main__':
         perseveration_bias = 0.25,
         regret = True,
         confirmation_bias = False,
+        reward_update_rule = lambda q, reward: reward-q,
         
         # environment parameters
         sigma = 0.1,

@@ -1,6 +1,6 @@
 """Environments + agents for 2-armed bandit task."""
 # pylint: disable=line-too-long
-from typing import NamedTuple, Union, Optional, List, Dict
+from typing import NamedTuple, Union, Optional, List, Dict, Callable
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -86,6 +86,8 @@ class AgentQ:
     _check_in_0_1_range(self._alpha_reward, 'alpha_r')
     _check_in_0_1_range(self._alpha_penalty, 'alpha_p')
     _check_in_0_1_range(forget_rate, 'forget_rate')
+    
+    self._reward_update = lambda q, reward: reward-q
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
@@ -126,8 +128,8 @@ class AgentQ:
     # add confirmation bias to learning rate
     if self._confirmation_bias:
       alpha += (self._q[choice]-self._q_init)*(reward - 0.5)
-    reward_update = alpha * (reward - self._q[choice])
-    
+    reward_update = alpha * self._reward_update(self._q[choice], reward)
+     
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
@@ -143,35 +145,10 @@ class AgentQ:
   def q(self):
     q = (self._q + self._h).copy()
     return q
-
-
-class AgentQuadQ(AgentQ):
   
-  def __init__(
-      self,
-      alpha: float=0.2,
-      beta: float=3.,
-      n_actions: int=2,
-      forgetting_rate: float=0.,
-      perseveration_bias: float=0.,
-      ):
-    super().__init__(alpha, beta, n_actions, forgetting_rate, perseveration_bias)
-  
-  def update(self,
-            choice: int,
-            reward: float):
-    """Update the agent after one step of the task.
-
-    Args:
-      choice: The choice made by the agent. 0 or 1
-      reward: The reward received by the agent. 0 or 1
-    """
+  def set_reward_update(self, update_rule: Callable):
+    self._reward_update = update_rule
     
-    # Decay q-values toward the initial value.
-    self._q = (1-self._forget_rate) * self._q + self._forget_rate * self._q_init
-
-    # Update chosen q for chosen action with observed reward.
-    self._q[choice] = self._q[choice] - self._alpha * self._q[choice]**2 + self._alpha * reward
 
 
 class AgentSindy:

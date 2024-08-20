@@ -8,7 +8,7 @@ import time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Collection
+from typing import Collection, Callable
 
 # warnings.filterwarnings("ignore")
 
@@ -58,6 +58,7 @@ def main(
   correlated_update = False,
   regret = False,
   confirmation_bias = False,
+  reward_update_rule: Callable = None,
   
   # environment parameters
   n_actions = 2,
@@ -99,25 +100,28 @@ def main(
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
   agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)  
+  if reward_update_rule is not None:
+    agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
 
-  if dataset_train is None:    
-    print('Creating the training dataset...', end='\r')
-    dataset_train, _ = bandits.create_dataset(
-        agent=agent,
-        environment=environment,
-        n_trials_per_session=n_trials_per_session,
-        n_sessions=n_sessions,
-        device=device)    
+  if train:
+    if dataset_train is None:    
+      print('Creating the training dataset...', end='\r')
+      dataset_train, _ = bandits.create_dataset(
+          agent=agent,
+          environment=environment,
+          n_trials_per_session=n_trials_per_session,
+          n_sessions=n_sessions,
+          device=device)    
 
-  if dataset_val is None:
-    print('Creating the validation dataset...', end='\r')
-    dataset_val, _ = bandits.create_dataset(
-        agent=agent,
-        environment=environment,
-        n_trials_per_session=64,
-        n_sessions=16,
-        device=device)
+    if dataset_val is None:
+      print('Creating the validation dataset...', end='\r')
+      dataset_val, _ = bandits.create_dataset(
+          agent=agent,
+          environment=environment,
+          n_trials_per_session=64,
+          n_sessions=16,
+          device=device)
     
   if dataset_test is None:
     print('Creating the test dataset...', end='\r')
@@ -125,7 +129,7 @@ def main(
         agent=agent,
         environment=environment,
         n_trials_per_session=200,
-        n_sessions=128,
+        n_sessions=1024,
         device=device)
   
   print('Setup of datasets complete.')
@@ -177,8 +181,7 @@ def main(
       model, optimizer_rnn = rnn_utils.load_checkpoint(params_path, model, optimizer_rnn, voting_type)
       print('Loaded model parameters.')
 
-  if train:
-    
+  if train:    
     start_time = time.time()
     
     #Fit the hybrid RNN
@@ -206,6 +209,15 @@ def main(
     state_dict = {
       'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
       'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
+      # 'groundtruth': {
+      #   'alpha': alpha,
+      #   'beta': beta,
+      #   'forget_rate': forget_rate,
+      #   'perseveration_bias': perseveration_bias,
+      #   'regret': regret,
+      #   'confirmation_bias': confirmation_bias,
+      #   'reward_update_rule': agent._reward_update,
+      # },
     }
     torch.save(state_dict, params_path)
     
@@ -227,7 +239,11 @@ def main(
       )
 
     print(f'Training took {time.time() - start_time:.2f} seconds.')
-
+  else:
+    if isinstance(model, list):
+      model = model[0]
+      optimizer_rnn = optimizer_rnn[0]
+      
   if analysis:
     # Synthesize a dataset using the fitted network
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
@@ -359,21 +375,22 @@ def main(
 
 if __name__=='__main__':
   main(
-    checkpoint = False,
-    # model = 'params/params_rnn_a025_b3.pkl',
+    train = False,
+    checkpoint = True,
+    model = 'params/params_rnn_fullbaseline.pkl',
 
     # training parameters
-    epochs=1024,
+    epochs=0,
     n_trials_per_session = 64,
-    n_sessions = 256,
+    n_sessions = 4096,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
     batch_size=-1,
-    adam_betas=(0.9, 0.99),
+    # adam_betas=(0.9, 0.99),
 
     # ensemble parameters
-    n_submodels=1,
+    n_submodels=8,
     ensemble=rnn_training.ensembleTypes.AVERAGE,
     
     # rnn parameters
@@ -387,9 +404,11 @@ if __name__=='__main__':
     perseveration_bias = 0.25,
     regret = True,
     confirmation_bias = False,
+    reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters
     sigma = 0.1,
+    non_binary_reward=False,
     
     analysis=True,
   )

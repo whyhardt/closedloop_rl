@@ -1,9 +1,8 @@
 import numpy as np
-from torch.nn.functional import cross_entropy, mse_loss
 import torch
+from sklearn.metrics import log_loss, mean_squared_error
 from typing import Iterable, List, Dict, Tuple, Callable, Union
 import matplotlib.pyplot as plt
-from copy import copy
 
 import pysindy as ps
 
@@ -291,7 +290,7 @@ def constructor_update_rule_sindy(sindy_models):
   def update_rule_sindy(q, h, choice, reward):
       # mimic behavior of rnn with sindy
       
-      blind_update, correlation_update, reward_update, action_update = 0, 0, 0, 0
+      blind_update, reward_update, action_update = 0, 0, 0
       
       # action network
       if choice == 1 and 'xH' in sindy_models:
@@ -310,16 +309,43 @@ def constructor_update_rule_sindy(sindy_models):
         # blind update for non-chosen action
         blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
-      # if choice == 0 and 'xQc' in sindy_models:
-      #   # correlation update for non-chosen action
-      #   correlation_update = sindy_models['xQc'].predict(np.array([q+blind_update]), u=np.array([spillover_update]).reshape(1, -1))[-1] - q
-      
-      return q+blind_update+correlation_update+reward_update, action_update
+      return q+blind_update+reward_update, action_update
     
   return update_rule_sindy
 
 
-def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable = cross_entropy):
+# def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable = cross_entropy):
+#   """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
+#   This loss is not used for SINDy-Training, but for analysis purposes only.
+
+#   Args:
+#       model (ps.SINDy): _description_
+#       x_data (DatasetRNN): _description_
+#       loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
+#   """
+  
+#   loss = 0
+#   for x, y in x_data:
+#     agent_sindy.new_sess()
+#     qs = np.zeros_like(y)
+#     loss_session = 0
+#     for t in range(x.shape[1]):
+#       # get choice from agent for current state
+#       # choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
+#       qs[t] = agent_sindy.q.reshape(1, -1)
+#       # update state of agent
+#       action = np.argmax(x[t, :-1])
+#       reward = x[t, -1]
+#       agent_sindy.update(action, reward)
+#       # compute loss
+#       loss_session += loss_fn(y[t], torch.tensor(qs[t])).item()
+#     loss += loss_session/x.shape[1]
+#   loss /= len(x_data)
+  
+#   return loss
+
+
+def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], x_data: List[BanditSession], loss_fn: Callable = log_loss):
   """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
   This loss is not used for SINDy-Training, but for analysis purposes only.
 
@@ -329,28 +355,21 @@ def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable 
       loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
   """
   
-  loss = 0
-  for x, y in x_data:
-    agent_sindy.new_sess()
-    qs = np.zeros_like(y)
+  loss_total = 0
+  for experiment in x_data:
+    agent.new_sess()
+    choices = experiment.choices
+    rewards = experiment.rewards
     loss_session = 0
-    for t in range(x.shape[1]):
-      # get choice from agent for current state
-      # choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
-      qs[t] = agent_sindy.q.reshape(1, -1)
-      # update state of agent
-      action = np.argmax(x[t, :-1])
-      reward = x[t, -1]
-      agent_sindy.update(action, reward)
-      # compute loss
-      loss_session += loss_fn(y[t], torch.tensor(qs[t])).item()
-    loss += loss_session/x.shape[1]
-  loss /= len(x_data)
-  
-  return loss
+    for t in range(len(choices)-1):
+      y_pred = np.exp(agent.q)/np.sum(np.exp(agent.q))
+      agent.update(choices[t], rewards[t])
+      loss_session += loss_fn(np.eye(agent._n_actions)[choices[t+1]], y_pred)
+    loss_total += loss_session/(t+1)
+  return loss_total/len(x_data)
 
 
-def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNetwork = None, z_data: np.ndarray = None, loss_fn: Callable = mse_loss):
+def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNetwork = None, z_data: np.ndarray = None, loss_fn: Callable = mean_squared_error):
   """Compute the loss of the SINDy model on the data in z-coordinates.
 
   Args:
