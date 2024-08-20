@@ -359,7 +359,7 @@ def main(
 
 if __name__=='__main__':
   main(
-    checkpoint = True,
+    checkpoint = False,
     # model = 'params/params_rnn_a025_b3.pkl',
 
     # training parameters
@@ -370,7 +370,7 @@ if __name__=='__main__':
     bagging=True,
     n_oversampling=-1,
     batch_size=-1,
-    adam_betas=(0.9, 0.999),
+    adam_betas=(0.9, 0.99),
 
     # ensemble parameters
     n_submodels=1,
@@ -383,9 +383,9 @@ if __name__=='__main__':
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.,
-    perseveration_bias = 0.,
-    regret = False,
+    forget_rate = 0.2,
+    perseveration_bias = 0.25,
+    regret = True,
     confirmation_bias = False,
     
     # environment parameters
