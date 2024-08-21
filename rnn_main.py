@@ -48,7 +48,6 @@ def main(
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-3,
   convergence_threshold = 1e-6,
-  adam_betas=(0.9, 0.99),
   
   # ground truth parameters
   alpha = 0.25,
@@ -71,23 +70,10 @@ def main(
 
   if not os.path.exists('params'):
     os.makedirs('params')
-
-  # check that betas is a tuple of two floats lower than 1
-  betas_error = 0
-  if isinstance(adam_betas, Collection):
-    if len(adam_betas) != 2:
-      betas_error = 1
-    for x in adam_betas:
-      if not isinstance(x, float) and x!=0:
-        betas_error = 1
-  else:
-    betas_error = 1
-  if betas_error == 1:
-    raise TypeError("betas must be a collection of two floats lower than 1.")
   
   # tracked variables in the RNN
-  x_train_list = ['xQf','xQr', 'xQr_r', 'xQr_p', 'xH']
-  control_list = ['ca', 'cr', 'cdQr[k-1]', 'cdQr[k-2]']
+  x_train_list = ['xQf','xLR', 'xH']
+  control_list = ['ca', 'cr', 'cQ', 'ccb', 'cp']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -144,6 +130,7 @@ def main(
         perseveration_bias,
         correlated_update,
         regret,
+        confirmation_bias,
         non_binary_reward,
         verbose=True,
     )
@@ -173,7 +160,7 @@ def main(
         ).to(device)
             for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, betas=adam_betas) for m in model]
+  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
 
   print('Setup of the RNN model complete.')
 
@@ -243,15 +230,20 @@ def main(
     if isinstance(model, list):
       model = model[0]
       optimizer_rnn = optimizer_rnn[0]
+  
+  print(f'Trained beta of RNN is: {model.beta.item()}')
       
+  # -----------------------------------------------------------
+  # Analysis
+  # -----------------------------------------------------------
+  
   if analysis:
     # Synthesize a dataset using the fitted network
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
     model.set_device(torch.device('cpu'))
     model.to(torch.device('cpu'))
     rnn_agent = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
-
-    # Analysis
+    
     session_id = 0
 
     choices = experiment_list_test[session_id].choices
@@ -341,7 +333,7 @@ def main(
         binary=not non_binary_reward,
         fig_ax=(fig, axs[3]),
         )
-    print(f'RNN: max(dQ/dArms) = {max(qs[-1, :, 0]-qs[-1, :, 1])}')
+    
     # dqs_t = np.diff(qs, axis=1)
 
     # bandits.plot_session(
@@ -378,16 +370,17 @@ if __name__=='__main__':
   main(
     train = True,
     checkpoint = False,
-    # model = 'params/params_rnn_fullbaseline.pkl',
+    model = 'params/params_rnn_fullbaseline_s128.pkl',
 
     # training parameters
     epochs=128,
     n_trials_per_session = 64,
-    n_sessions = 4096,
+    n_sessions = 128,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
     batch_size=-1,
+    learning_rate=0.01,
     # adam_betas=(0.9, 0.99),
 
     # ensemble parameters
@@ -404,7 +397,7 @@ if __name__=='__main__':
     forget_rate = 0.2,
     perseveration_bias = 0.25,
     regret = True,
-    confirmation_bias = False,
+    confirmation_bias = True,
     # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters

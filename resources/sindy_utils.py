@@ -131,14 +131,14 @@ def create_dataset(
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
+        if values.shape[-1] == 1:
+            values = np.repeat(values, 2, -1)
         if key in keys_x:
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
         elif key in keys_c:
           # add control signals of one session as corresponding trajectory
-          if values.shape[-1] == 1:
-            values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
             control[key] += [v for v in values[:, :, i_action]]
               
@@ -242,9 +242,12 @@ def constructor_update_rule_sindy(sindy_models):
         action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network      
-      if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
+      if choice == 1 and 'xLR' in sindy_models:
         # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+        confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
+        learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, confirmation_bias, 1-reward]).reshape(1, -1))[-1]
+        # reward_update = 1 / (1 + np.exp(-learning_rate)) * (reward - q)  # applying sigmoid function on top of learning rate
+        reward_update = learning_rate * (reward - q)  # applying sigmoid function on top of learning rate
       
       if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
         # reward-based update for chosen action in case of penalty

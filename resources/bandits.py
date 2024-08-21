@@ -127,7 +127,10 @@ class AgentQ:
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
     # add confirmation bias to learning rate
     if self._confirmation_bias:
-      alpha += (self._q[choice]-self._q_init)*(reward - 0.5)
+      # alpha += (self._q[choice]-self._q_init)*(reward - 0.5)  # --> differentiable confirmation bias is not recoverable; maybe overlaps too much with other effects
+      if self._q[choice] > self._q_init and reward > 0.5 or self._q[choice] < self._q_init and reward < 0.5:
+          # high estimate and high reward and v.v. --> confirmation-bias increases alpha
+          alpha += alpha/2
     reward_update = alpha * self._reward_update(self._q[choice], reward)
      
     self._q[non_chosen_action] += forget_update
@@ -272,7 +275,7 @@ class AgentNetwork:
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      value = self.get_value()
+      value = self.get_value() * self._model.beta.item()
       choice_probs = np.exp(value) / np.sum(np.exp(value))
       return choice_probs
 
