@@ -12,7 +12,7 @@ import pysindy as ps
 sys.path.append('resources')
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, constructor_update_rule_sindy, bandit_loss
+from resources.sindy_utils import create_dataset as create_dataset_sindy, check_library_setup, check_conditional_filter_setup, constructor_update_rule_sindy, bandit_loss
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model, setup_sindy_agent
 
@@ -65,8 +65,8 @@ def main(
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr_r': [],
-        'xQr_p': [],
+        'xQr_r': ['cr'],
+        'xQr_p': ['cr'],
         'xH': []
     }
 
@@ -79,14 +79,17 @@ def main(
     # Example:
     # 'xQf': ['ca', 0, True] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf' and the control parameter 'ca' is removed for training the model
     datafilter_setup = {
-        'xQf': ['ca', 0, True],
-        'xQr_r': [['ca', 1, True], ['cr', 1, False]],
-        'xQr_p': [['ca', 1, True], ['cr', 0, False]],
-        'xH': ['ca', 1, True]
+        'xQf': ['ca', '==', 0, True],
+        'xQr_r': [['ca', '==', 1, True], ['cr', '>', 0.5, False]],
+        'xQr_p': [['ca', '==', 1, True], ['cr', '<=', 0.5, False]],
+        'xH': ['ca', '==', 1, True]
     }
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
         raise ValueError('Library setup does not match feature list.')
+    
+    # if not check_conditional_filter_setup(datafilter_setup):
+    #     raise ValueError('Filter setup does not meet the requirements.\nThe filter setup must be a dictionary where the keys are the names of the sindy x-train variables and values being a list defining the conditional filter.\nMultiple filter can be aggregated in a super-list.\nA conditional filter has the following structure:\n[str: name of control signal, str: un-/equality condition, num: numeric condition, bool: remove control signal]\nExample: filter = {"xQr": [["ca", 1, "==", True], ["cr", 0.5, ">", False]]}')
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
@@ -115,7 +118,7 @@ def main(
 
     # create dataset for sindy training, fit sindy, set up sindy agent
     experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)[1]
-    z_train, control, feature_names, beta = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
+    z_train, control, feature_names, beta = create_dataset_sindy(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
     agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions)
@@ -125,10 +128,10 @@ def main(
     # print('Calculating RNN and SINDy loss in X...', end='\r')
     test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
     test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
-    print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
-    print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
-    test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], mean_absolute_error, "z")
-    print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
+    print(f'RNN Loss in X (target: predicting behavior of subject): {test_loss_rnn_x}')
+    print(f'SINDy Loss in X (target: predicting behavior of subject): {test_loss_sindy_x}')
+    test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], loss_fn=mean_absolute_error, coordinates="z")
+    print(f'SINDy Loss in Z (target: fitting choice probabilities of RNN): {test_loss_sindy_z}')
     
     # --------------------------------------------------------------
     # Analysis
@@ -276,12 +279,12 @@ def main(
 
 if __name__=='__main__':
     main(
-        # model = 'params/params_rnn_quadq.pkl',
+        # model = 'params/params_rnn_fullbaseline.pkl',
         
         # sindy parameters
         polynomial_degree=1,
         threshold=0.05,
-        regularization=0,
+        # regularization=0,
         
         # generated training dataset parameters
         n_trials_per_session = 200,
@@ -301,6 +304,7 @@ if __name__=='__main__':
         
         # environment parameters
         sigma = 0.1,
+        non_binary_reward = True,
         
         analysis=True,
     )

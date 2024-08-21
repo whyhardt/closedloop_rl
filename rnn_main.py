@@ -222,28 +222,34 @@ def main(
     torch.save(state_dict, params_path)
     
     print(f'Saved RNN parameters to file {params_path}.')
-    
-    # validate model
-    print('\nTesting the trained hybrid RNN on a test dataset...')
-    if isinstance(model, list):
-      for m in model:
-        m.eval()
-    else:
-      model.eval()
-    with torch.no_grad():
-      _, _, loss_test = rnn_training.fit_model(
-          model=model,
-          dataset_train=dataset_test,
-          dataset_test=None,
-          n_steps_per_call=1,
-      )
 
     print(f'Training took {time.time() - start_time:.2f} seconds.')
   else:
     if isinstance(model, list):
       model = model[0]
       optimizer_rnn = optimizer_rnn[0]
-      
+  
+  if train and epochs>0:
+    rnn_type = "trained"
+  else:
+    if checkpoint:
+      rnn_type = "loaded"
+    else:
+      rnn_type = "initialized"
+  print('\nTesting the ' + rnn_type + ' RNN on a test dataset...')
+  if isinstance(model, list):
+    for m in model:
+      m.eval()
+  else:
+    model.eval()
+  with torch.no_grad():
+    _, _, loss_test = rnn_training.fit_model(
+        model=model,
+        dataset_train=dataset_test,
+        dataset_test=None,
+        n_steps_per_call=1,
+    )
+  
   if analysis:
     # Synthesize a dataset using the fitted network
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
@@ -381,7 +387,7 @@ if __name__=='__main__':
     # model = 'params/params_rnn_fullbaseline.pkl',
 
     # training parameters
-    epochs=128,
+    epochs=1024,
     n_trials_per_session = 64,
     n_sessions = 4096,
     n_steps_per_call = 8,

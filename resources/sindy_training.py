@@ -58,7 +58,7 @@ def fit_model(
                 # check that filter_setup[x_feature] is a list of filter-conditions 
                 filter_setup[x_feature] = [filter_setup[x_feature]]
             for filter_condition in filter_setup[x_feature]:
-                x_train_i, control_i, feature_names_i = conditional_filtering(x_train_i, control_i, feature_names_i, filter_condition[0], filter_condition[1], filter_condition[2])
+                x_train_i, control_i, feature_names_i = conditional_filtering(x_train_i, control_i, feature_names_i, filter_condition[0], filter_condition[1], filter_condition[2], filter_condition[3])
         
         # remove unnecessary control features according to library setup
         control_i = remove_control_features(control_i, feature_names_i[1:], library_setup[x_feature])
@@ -71,8 +71,8 @@ def fit_model(
         
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            optimizer=ps.STLSQ(threshold=0.03, verbose=True, alpha=optimizer_alpha),
-            # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
+            # optimizer=ps.STLSQ(threshold=0.03, verbose=True, alpha=optimizer_alpha),
+            optimizer=ps.SR3(thresholder="L0", threshold=optimizer_threshold, verbose=False),
             # optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
             # optimizer=ps.SSR(criteria="model_residual"),
             feature_library=ps.PolynomialLibrary(polynomial_degree),

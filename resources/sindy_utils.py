@@ -198,6 +198,10 @@ def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List
       print('Library setup is valid. All keys and features appear in the provided list of features.')
     return True
   
+  
+def check_conditional_filter_setup(filter_setup: Dict[str, List]) -> bool:
+  pass
+  
 
 def remove_control_features(control_variables: List[np.ndarray], feature_names: List[str], target_feature_names: List[str]) -> List[np.ndarray]:
   control_new = []
@@ -211,19 +215,38 @@ def remove_control_features(control_variables: List[np.ndarray], feature_names: 
   return control_new
 
 
-def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], feature_names: List[str], relevant_feature: str, condition_sign: str, condition_num: float, remove_relevant_feature=True) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+  
+  def condition(x, c, sign):
+    # different conditional filter
+    condition_signs = ('==', '<=', '>=', '<', '>')
+    if sign == '==':
+      return True if x == c else False
+    elif sign == '<=':
+      return True if x <= c else False
+    elif sign == '>=':
+      return True if x >= c else False
+    elif sign == '<':
+      return True if x < c else False
+    elif sign == '>':
+      return True if x > c else False
+    else:
+      raise ValueError(f'The condition sign "{sign}" could not be validated. Valid options are {condition_signs}.')
+  
   x_train_relevant = []
   control_relevant = []
   x_features = [feature_names[0]]  #[feature for feature in feature_names if feature.startswith('x')]
   control_features = feature_names[1:]  #[feature for feature in feature_names if feature.startswith('c')]
-  for i, x, c in zip(range(len(x_train)), x_train, control):
-    if relevant_feature in feature_names:
-      i_relevant = control_features.index(relevant_feature)
-      if c[0, i_relevant] == condition:
+  if relevant_feature in feature_names:
+    i_relevant = control_features.index(relevant_feature)
+    for i, x, c in zip(range(len(x_train)), x_train, control):
+      if condition(c[0, i_relevant], condition_num, condition_sign):
         x_train_relevant.append(x)
         control_relevant.append(c)
         if remove_relevant_feature:
           control_relevant[-1] = np.delete(control_relevant[-1], i_relevant, axis=-1)
+  else:
+    raise ValueError(f'Conditional filtering is not possible because the relevant_feature ({relevant_feature}) was not found in feature_names ({feature_names}).')
   
   if remove_relevant_feature:
     control_features.remove(relevant_feature)
@@ -242,13 +265,13 @@ def constructor_update_rule_sindy(sindy_models):
         action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network      
-      if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
+      if choice == 1 and reward > 0.5 and 'xQr_r' in sindy_models:
         # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([reward]).reshape(1, -1))[-1] - q
       
-      if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
+      if choice == 1 and reward <= 0.5 and 'xQr_p' in sindy_models:
         # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([reward]).reshape(1, -1))[-1] - q
       
       if choice == 0 and 'xQf' in sindy_models:
         # blind update for non-chosen action
@@ -257,31 +280,6 @@ def constructor_update_rule_sindy(sindy_models):
       return q+blind_update+reward_update, action_update
     
   return update_rule_sindy
-
-
-def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = log_loss):
-  """Compute the loss of the SINDy model directly on the data in x-coordinates i.e. predicting behavior.
-  This loss is not used for SINDy-Training, but for analysis purposes only.
-
-  Args:
-      model (ps.SINDy): _description_
-      x_data (DatasetRNN): _description_
-      loss_fn (Callable, optional): _description_. Defaults to log_loss.
-  """
-  
-  loss_total = 0
-  for experiment in data:
-    agent.new_sess()
-    choices = experiment.choices
-    rewards = experiment.rewards
-    loss_session = 0
-    for t in range(len(choices)-1):
-      beta = agent._beta if hasattr(agent, "_beta") else 1
-      y_pred = np.exp(agent.q * beta)/np.sum(np.exp(agent.q * beta))
-      agent.update(choices[t], rewards[t])
-      loss_session += loss_fn(np.eye(agent._n_actions)[choices[t+1]], y_pred)
-    loss_total += loss_session/(t+1)
-  return loss_total/len(data)
 
 
 def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = mean_squared_error, coordinates: str = "x"):

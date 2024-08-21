@@ -124,12 +124,12 @@ class AgentQ:
 
     # Reward-based update - Update chosen q for chosen action with observed reward
     # adjust alpha according to regret mechanism (if activated)
-    alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    alpha = self._alpha_reward if reward > 0.5 else self._alpha_penalty
     # add confirmation bias to learning rate
     if self._confirmation_bias:
       alpha += (self._q[choice]-self._q_init)*(reward - 0.5)
     reward_update = alpha * self._reward_update(self._q[choice], reward)
-     
+    
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
@@ -180,7 +180,7 @@ class AgentSindy:
     else:
       return f'{self._update_rule}'
 
-  def update(self, choice: int, reward: int):
+  def update(self, choice: int, reward: float):
     # the chosen action must be updated first and the non-chosen actions afterwards 
     # necessary due to spillover effects from chosen action to non-chosen actions
     
