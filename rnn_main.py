@@ -72,7 +72,7 @@ def main(
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf','xLR', 'xH']
+  x_train_list = ['xQf', 'xQr', 'xLR', 'xH']
   control_list = ['ca', 'cr', 'cQ', 'ccb', 'cp']
   sindy_feature_list = x_train_list + control_list
 
@@ -370,12 +370,12 @@ if __name__=='__main__':
   main(
     train = True,
     checkpoint = False,
-    model = 'params/params_rnn_fullbaseline_s128.pkl',
+    model = 'params/params_rnn_qminusquadq.pkl',
 
     # training parameters
     epochs=128,
     n_trials_per_session = 64,
-    n_sessions = 128,
+    n_sessions = 4096,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
@@ -398,7 +398,7 @@ if __name__=='__main__':
     perseveration_bias = 0.25,
     regret = True,
     confirmation_bias = True,
-    # reward_update_rule = lambda q, reward: reward-q,
+    reward_update_rule = lambda q, reward: reward-q-q**2,
     
     # environment parameters
     sigma = 0.1,

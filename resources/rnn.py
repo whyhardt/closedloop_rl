@@ -182,6 +182,9 @@ class RLRNN(BaseRNN):
         # learning-rate subnetwork
         self.xLR = self.setup_subnetwork(2, hidden_size, dropout)
         
+        # reward-based subnetwork
+        self.xQr = self.setup_subnetwork(2, hidden_size, dropout)
+        
         # confirmation subnetwork
         # self.xCB = self.setup_subnetwork(2, hidden_size, dropout)
         
@@ -215,11 +218,18 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
+        inputs = torch.concat([chosen_value, reward], dim=-1).float()
+        
+        learning_rate, _ = self.call_subnetwork('xLR', inputs)
+        
+        reward_update_raw = (reward - chosen_value)
+        # reward_update_raw, reward_state = self.call_subnetwork('xQr', inputs)
+        # self.append_timestep_sample('xQr', action*value, action*(value+reward_update_raw))
+        
+        reward_update = torch.nn.functional.sigmoid(learning_rate) * reward_update_raw
+        
         estimate = (chosen_value > self.init_value).float()
         confirmation = estimate * reward + (1-estimate) * (1-reward)
-        inputs = torch.concat([chosen_value, reward], dim=-1).float()
-        learning_rate, reward_state = self.call_subnetwork('xLR', inputs)
-        reward_update = torch.nn.functional.sigmoid(learning_rate) * (reward - chosen_value)
         self.append_timestep_sample('ccb', confirmation)
         self.append_timestep_sample('cp', 1-reward)
         self.append_timestep_sample('cQ', chosen_value)

@@ -235,7 +235,7 @@ def constructor_update_rule_sindy(sindy_models):
   def update_rule_sindy(q, h, choice, reward):
       # mimic behavior of rnn with sindy
       
-      blind_update, reward_update, action_update = 0, 0, 0
+      blind_update, reward_update, action_update, learning_rate = 0, 0, 0, 1
       
       # action network
       if choice == 1 and 'xH' in sindy_models:
@@ -246,18 +246,18 @@ def constructor_update_rule_sindy(sindy_models):
         # reward-based update for chosen action in case of reward
         confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
         learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, confirmation_bias, 1-reward]).reshape(1, -1))[-1]
-        # reward_update = 1 / (1 + np.exp(-learning_rate)) * (reward - q)  # applying sigmoid function on top of learning rate
-        reward_update = learning_rate * (reward - q)  # applying sigmoid function on top of learning rate
-      
-      if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
+            
+      if choice == 1 and 'xQr' in sindy_models:
         # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
-      
+        reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
+      elif choice == 1 and not 'xQr' in sindy_models:
+        reward_update = reward-q
+         
       if choice == 0 and 'xQf' in sindy_models:
         # blind update for non-chosen action
         blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
       
-      return q+blind_update+reward_update, action_update
+      return q+blind_update+reward_update*learning_rate, action_update
     
   return update_rule_sindy
 
