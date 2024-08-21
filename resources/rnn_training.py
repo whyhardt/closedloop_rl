@@ -102,7 +102,7 @@ def batch_train(
         if torch.is_grad_enabled():
             
             # add penalty for computing Q-Values bigger than 1 --> Necessary to find a good beta-value
-            loss += 1e-1 * penalty_q_range(y_pred)
+            # loss += 1e-1 * penalty_q_range(y_pred)
             
             # backpropagation
             optimizer.zero_grad()
@@ -425,4 +425,4 @@ def penalty_correlated_update(model, batch_size: int = 1):
 def penalty_q_range(y_pred):
     """Compute the penalty for the network resulting in Q-Values higher than 1 and lower than 0."""
     
-    return torch.mean(y_pred - 1) - torch.mean(y_pred)
+    return torch.mean(y_pred - 0.8) - torch.mean(y_pred)
