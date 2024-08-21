@@ -6,13 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
 from typing import Callable
-
+from sklearn.metrics import mean_absolute_error
 import pysindy as ps
 
 sys.path.append('resources')
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.bandits import AgentQ, AgentNetwork, EnvironmentBanditsDrift, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, constructor_update_rule_sindy, sindy_loss_x, sindy_loss_z
+from resources.sindy_utils import create_dataset, check_library_setup, constructor_update_rule_sindy, bandit_loss
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model, setup_sindy_agent
 
@@ -118,15 +118,17 @@ def main(
     z_train, control, feature_names, beta = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=True, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
-    agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, False, experiment_list_test[0], agent_rnn, True)
+    agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions)
     print(f'\nBeta for SINDy: {beta}')
     agent_sindy._beta = beta
 
     # print('Calculating RNN and SINDy loss in X...', end='\r')
-    # test_loss_rnn = sindy_loss_x(agent_rnn, experiment_list_test)
-    # test_loss_sindy = sindy_loss_x(agent_sindy, experiment_list_test)
-    # print(f'RNN Loss in X: {test_loss_rnn}')
-    # print(f'SINDy Loss in X: {test_loss_sindy}')
+    test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
+    test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
+    print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
+    print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
+    test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], mean_absolute_error, "z")
+    print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
     
     # --------------------------------------------------------------
     # Analysis
@@ -274,11 +276,12 @@ def main(
 
 if __name__=='__main__':
     main(
-        model = 'params/params_rnn_fullbaseline.pkl',
+        # model = 'params/params_rnn_quadq.pkl',
         
         # sindy parameters
         polynomial_degree=1,
         threshold=0.05,
+        regularization=0,
         
         # generated training dataset parameters
         n_trials_per_session = 200,
@@ -294,7 +297,7 @@ if __name__=='__main__':
         perseveration_bias = 0.25,
         regret = True,
         confirmation_bias = False,
-        reward_update_rule = lambda q, reward: reward-q,
+        # reward_update_rule = lambda q, reward: reward-q**2,
         
         # environment parameters
         sigma = 0.1,

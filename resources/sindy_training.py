@@ -3,7 +3,7 @@ import numpy as np
 
 import pysindy as ps
 
-from resources.sindy_utils import remove_control_features, conditional_filtering, optimize_beta as optimize_beta_func
+from resources.sindy_utils import remove_control_features, conditional_filtering
 from resources.bandits import AgentNetwork, AgentSindy, BanditSession
 
 
@@ -71,9 +71,9 @@ def fit_model(
         
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            # optimizer=ps.STLSQ(threshold=0.03, verbose=True, alpha=optimizer_alpha),
-            # optimizer=ps.SR3(thresholder="L0", threshold=optimizer_threshold),
-            optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold),
+            optimizer=ps.STLSQ(threshold=0.03, verbose=True, alpha=optimizer_alpha),
+            # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
+            # optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
             # optimizer=ps.SSR(criteria="model_residual"),
             feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
@@ -92,7 +92,7 @@ def fit_model(
             loss_model = 1-sindy_models[x_feature].score(x_train_i, u=control_i, t=1, multiple_trajectories=True)
             loss += loss_model
             if verbose:
-                print(f'Loss for {x_feature}: {loss_model}')
+                print(f'Score for {x_feature}: {loss_model}')
         if verbose:
             sindy_models[x_feature].print()
     
@@ -104,17 +104,8 @@ def fit_model(
 def setup_sindy_agent(
     update_rule, 
     n_actions: int = None,
-    optimize_beta: bool = False,
-    experiment: BanditSession = None,
-    comparison_agent: AgentNetwork = None,
-    verbose: bool = False
     ):
     agent_sindy = AgentSindy(n_actions, deterministic=True)
     agent_sindy.set_update_rule(update_rule)
-    if optimize_beta:
-        beta = optimize_beta_func(experiment, comparison_agent, agent_sindy, plot=False)
-        agent_sindy._beta = beta
-        if verbose:
-            print(f'Optimized SINDy-agent beta: {beta}')
-        
+    
     return agent_sindy

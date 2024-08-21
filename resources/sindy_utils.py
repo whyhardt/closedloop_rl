@@ -161,7 +161,7 @@ def create_dataset(
     # compute scaling parameters
     x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
     # beta = x_max - x_min
-    beta = dq_darms_max
+    beta = dq_darms_max[0]
     # beta = 3
     # normalize data (TODO: find better solution for cQr)
     for i in range(len(x_train_list)):
@@ -178,47 +178,6 @@ def create_dataset(
     control_list = [control_list[i] for i in shuffle_idx]
   
   return x_train_list, control_list, feature_names, beta
-
-
-def optimize_beta(experiment, agent: AgentNetwork, agent_sindy: AgentSindy, plot=False):
-  # fit beta parameter of softmax by fitting on choice probability of the RNN by simple grid search
-
-  # number of observed points
-  n_points = 100
-
-  # get choice probabilities of the RNN
-  _, choice_probs_rnn = get_update_dynamics(experiment, agent)
-
-  # set prior for beta parameter; x_max seems to be a good starting point
-  # beta_range = np.linspace(x_max-1, x_max+1, n_points)
-  beta_range = np.linspace(1, 10, n_points)
-
-  # get choice probabilities of the SINDy agent for each beta in beta_range
-  choice_probs_sindy = np.zeros((len(beta_range), len(choice_probs_rnn), agent._n_actions))
-  for i, beta in enumerate(beta_range):
-      agent_sindy._beta = beta
-      _, choice_probs_sindy_beta = get_update_dynamics(experiment, agent_sindy)
-      
-      # add choice probabilities to choice_probs_sindy
-      choice_probs_sindy[i, :, :] = choice_probs_sindy_beta
-      
-  # get best beta value by minimizing the error between choice probabilities of the RNN and the SINDy agent
-  errors = np.zeros(len(beta_range))
-  for i in range(len(beta_range)):
-      errors[i] = np.sum(np.abs(choice_probs_rnn - choice_probs_sindy[i]))
-
-  # get right beta value
-  beta = beta_range[np.argmin(errors)]
-
-  if plot:
-    # plot error plot with best beta value in title
-    plt.plot(beta_range, errors)
-    plt.title(f'Error plot with best beta={beta}')
-    plt.xlabel('Beta')
-    plt.ylabel('MAE')
-    plt.show()
-
-  return beta
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
@@ -272,20 +231,6 @@ def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], 
   return x_train_relevant, control_relevant, x_features+control_features
 
 
-def setup_library(library_setup: Dict[str, List[str]]) -> Dict[str, Tuple[ps.feature_library.base.BaseFeatureLibrary, List[str]]]:
-  libraries = {key: None for key in library_setup.keys()}
-  feature_names = {key: [key] + library_setup[key] for key in library_setup.keys()}
-  for key in library_setup.keys():
-      library = ps.PolynomialLibrary(degree=2)
-      library.fit(np.random.rand(10, len(feature_names[key])))
-      print(library.get_feature_names_out(feature_names[key]))
-      libraries[key] = (library, feature_names[key])
-  
-  ps.ConcatLibrary([libraries[key][0] for key in libraries.keys()])
-  
-  return libraries
-
-
 def constructor_update_rule_sindy(sindy_models):
   def update_rule_sindy(q, h, choice, reward):
       # mimic behavior of rnn with sindy
@@ -314,109 +259,54 @@ def constructor_update_rule_sindy(sindy_models):
   return update_rule_sindy
 
 
-# def sindy_loss_x(agent_sindy: AgentSindy, x_data: DatasetRNN, loss_fn: Callable = cross_entropy):
-#   """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
-#   This loss is not used for SINDy-Training, but for analysis purposes only.
-
-#   Args:
-#       model (ps.SINDy): _description_
-#       x_data (DatasetRNN): _description_
-#       loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
-#   """
-  
-#   loss = 0
-#   for x, y in x_data:
-#     agent_sindy.new_sess()
-#     qs = np.zeros_like(y)
-#     loss_session = 0
-#     for t in range(x.shape[1]):
-#       # get choice from agent for current state
-#       # choice_probs[t] = np.expand_dims(agent_sindy.get_choice_probs(), 0)
-#       qs[t] = agent_sindy.q.reshape(1, -1)
-#       # update state of agent
-#       action = np.argmax(x[t, :-1])
-#       reward = x[t, -1]
-#       agent_sindy.update(action, reward)
-#       # compute loss
-#       loss_session += loss_fn(y[t], torch.tensor(qs[t])).item()
-#     loss += loss_session/x.shape[1]
-#   loss /= len(x_data)
-  
-#   return loss
-
-
-def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], x_data: List[BanditSession], loss_fn: Callable = log_loss):
-  """Compute the loss of the SINDy model directly on the data in x-coordinates to get a better feeling for the effectivity of certain adjustments.
+def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = log_loss):
+  """Compute the loss of the SINDy model directly on the data in x-coordinates i.e. predicting behavior.
   This loss is not used for SINDy-Training, but for analysis purposes only.
 
   Args:
       model (ps.SINDy): _description_
       x_data (DatasetRNN): _description_
-      loss_fn (Callable, optional): _description_. Defaults to cross_entropy.
+      loss_fn (Callable, optional): _description_. Defaults to log_loss.
   """
   
   loss_total = 0
-  for experiment in x_data:
+  for experiment in data:
     agent.new_sess()
     choices = experiment.choices
     rewards = experiment.rewards
     loss_session = 0
     for t in range(len(choices)-1):
-      y_pred = np.exp(agent.q)/np.sum(np.exp(agent.q))
+      beta = agent._beta if hasattr(agent, "_beta") else 1
+      y_pred = np.exp(agent.q * beta)/np.sum(np.exp(agent.q * beta))
       agent.update(choices[t], rewards[t])
       loss_session += loss_fn(np.eye(agent._n_actions)[choices[t+1]], y_pred)
     loss_total += loss_session/(t+1)
-  return loss_total/len(x_data)
+  return loss_total/len(data)
 
 
-def sindy_loss_z(agent_sindy: AgentSindy, x_data: DatasetRNN, agent_rnn: AgentNetwork = None, z_data: np.ndarray = None, loss_fn: Callable = mean_squared_error):
-  """Compute the loss of the SINDy model on the data in z-coordinates.
+def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = mean_squared_error, coordinates: str = "x"):
+  """Compute the loss of the SINDy model directly on the data in z-coordinates i.e. predicting q-values.
+  This loss is also used for SINDy-Training.
 
   Args:
-      agent_sindy (AgentSindy): _description_
-      z_data (np.ndarray): _description_
-      loss_fn (Callable, optional): _description_. Defaults to mse_loss.
-  """
+      model (ps.SINDy): _description_
+      x_data (DatasetRNN): _description_
+      loss_fn (Callable): _description_. Defaults to log_loss.
+      coordinates (str): Defines the coordinate system in which to compute the loss. Can be either "x" (predicting behavior) or "z" (comparing choice probabilities). Defaults to "x".
+      """
   
-  if agent_rnn is None and z_data is None:
-    raise ValueError('Either agent_rnn or z_data must be provided.')
-  if agent_rnn is not None and z_data is not None:
-    raise ValueError('Only one of agent_rnn or z_data must be provided.')
-  
-  if z_data is not None and len(x_data) != len(z_data):
-    raise ValueError('Length of x_data and z_data must be equal.')
-  
-  loss = 0
-  for i, data in enumerate(x_data):
-    x, y = data
-    # x, y = next(iter(x_data))
-    if z_data is not None:
-      z = z_data[i]
-    else:
-      z = torch.zeros_like(y)
-    qs = np.zeros_like(y)
+  loss_total = 0
+  for experiment in data:
+    agent.new_sess()
+    choices = experiment.choices
+    rewards = experiment.rewards
+    qs = np.exp(experiment.q)/np.sum(np.exp(experiment.q))
     loss_session = 0
-    agent_sindy.new_sess()
-    if agent_rnn is not None:
-      agent_rnn.new_sess()
-    
-    for t in range(x.shape[0]):
-      # get Q-value from rnn agent
-      if agent_rnn is not None:
-        z[t] = torch.tensor(agent_rnn.q)
-      # get Q-Value from sindy agent
-      qs[t] = agent_sindy.q * agent_sindy._beta
-      # update state of agent
-      action = np.argmax(x[t, :-1])
-      reward = x[t, -1]
-      agent_rnn.update(action, reward)
-      agent_sindy.update(action, reward)
-      # compute loss for current timestep
-      # TODO: z and qs are differently scaled at the moment (SINDy produces values between 0 and 1)
-      loss_session += loss_fn(z[t], torch.tensor(qs[t])).item()
-    
-    loss += loss_session/x.shape[1]
-  loss /= len(x_data)
-  
-  return loss
-    
+    for t in range(len(choices)-1):
+      beta = agent._beta if hasattr(agent, "_beta") else 1
+      y_pred = np.exp(agent.q * beta)/np.sum(np.exp(agent.q * beta))
+      agent.update(choices[t], rewards[t])
+      y_target = np.eye(agent._n_actions)[choices[t+1]] if coordinates == "x" else qs[t]
+      loss_session += loss_fn(y_target, y_pred)
+    loss_total += loss_session/(t+1)
+  return loss_total/len(data)
