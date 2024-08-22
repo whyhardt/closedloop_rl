@@ -168,7 +168,7 @@ def main(
         def normalize(qs):
             return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
 
-        qs = normalize(qs)
+        # qs = normalize(qs)
 
         fig, axs = plt.subplots(4, 1, figsize=(20, 10))
         # turn the x labels off for all but the last subplot
@@ -276,7 +276,7 @@ def main(
 
 if __name__=='__main__':
     main(
-        model = 'params/params_rnn_fullbaseline.pkl',
+        model = 'params/params_rnn_quadq.pkl',
         
         # sindy parameters
         polynomial_degree=1,
@@ -293,11 +293,11 @@ if __name__=='__main__':
         # ground truth parameters
         alpha = 0.25,
         beta = 3,
-        forget_rate = 0.2,
-        perseveration_bias = 0.25,
-        regret = True,
+        forget_rate = 0.,
+        perseveration_bias = 0.,
+        regret = False,
         confirmation_bias = False,
-        reward_update_rule = lambda q, reward: reward-q-q**2,
+        reward_update_rule = lambda q, reward: reward-q**2,
         
         # environment parameters
         sigma = 0.1,
