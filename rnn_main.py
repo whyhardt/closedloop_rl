@@ -378,7 +378,7 @@ if __name__=='__main__':
   main(
     train = True,
     checkpoint = False,
-    # model = 'params/params_rnn_fullbaseline.pkl',
+    model = 'params/params_rnn_xQr_qminusquadq.pkl',
 
     # training parameters
     epochs=128,
@@ -405,7 +405,7 @@ if __name__=='__main__':
     perseveration_bias = 0.25,
     regret = True,
     confirmation_bias = False,
-    # reward_update_rule = lambda q, reward: reward-q,
+    reward_update_rule = lambda q, reward: reward-q-q**2,
     
     # environment parameters
     sigma = 0.1,
