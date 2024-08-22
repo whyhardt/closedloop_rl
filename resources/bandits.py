@@ -62,6 +62,7 @@ class AgentQ:
       correlated_reward: bool = False,
       regret: bool = False,
       confirmation_bias: bool = False,
+      exploration_learning: bool = True,
       ):
     """Update the agent after one step of the task.
 
@@ -80,6 +81,7 @@ class AgentQ:
     self._perseverance_bias = perseverance_bias
     self._correlated_reward = correlated_reward
     self._confirmation_bias = confirmation_bias
+    self._exploration_learning = exploration_learning
     self._q_init = 0.5
     self.new_sess()
 
@@ -128,11 +130,17 @@ class AgentQ:
     # add confirmation bias to learning rate
     if self._confirmation_bias:
       # alpha += (self._q[choice]-self._q_init)*(reward - 0.5)  # --> differentiable confirmation bias is not recoverable; maybe overlaps too much with other effects
-      if self._q[choice] > self._q_init and reward > 0.5 or self._q[choice] < self._q_init and reward < 0.5:
+      if self._q[choice] > 0.9 and reward < 0.5 or self._q[choice] < 0.1 and reward > 0.5:
           # high estimate and high reward and v.v. --> confirmation-bias increases alpha
-          alpha += alpha/2
+          alpha -= alpha/2
+    # exploration-learning: enhanced learning rate when the lower valued option is selected and rewarded
+    # Ebitz et al (2018): https://www.sciencedirect.com/science/article/pii/S0896627317311303
+    if self._exploration_learning:
+      if self._q[choice]-self._q[non_chosen_action].max() < 0 and reward > 0.5:
+        # case: taking the less-valued option and being rewarded
+        alpha = min(alpha+self._q[non_chosen_action].max()-self._q[choice], 1)
     reward_update = alpha * self._reward_update(self._q[choice], reward)
-     
+    
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     

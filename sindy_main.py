@@ -41,6 +41,7 @@ def main(
     correlated_update = False,
     regret = False,
     confirmation_bias = False,
+    exploration_learning = False,
     reward_update_rule: Callable = None,
     
     # environment parameters
@@ -90,14 +91,14 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning)
     if reward_update_rule is not None:
         agent.set_reward_update(reward_update_rule)
     _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, non_binary_reward, verbose=True)
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning, non_binary_reward, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
@@ -115,12 +116,13 @@ def main(
 
     # create dataset for sindy training, fit sindy, set up sindy agent
     experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)[1]
-    z_train, control, feature_names, beta = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, shuffle=False, trimming=100)
+    z_train, control, feature_names, beta_correction = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
     agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions)
-    print(f'\nBeta for SINDy: {agent_rnn._model.beta.item()}')  # agent_rnn._model.beta.item()
-    agent_sindy._beta = agent_rnn._model.beta.item()  # agent_rnn._model.beta.item()
+    beta = agent_rnn._model.beta.item() * beta_correction
+    print(f'\nBeta for SINDy: {beta}')  # agent_rnn._model.beta.item()
+    agent_sindy._beta = beta  # agent_rnn._model.beta.item()
 
     # print('Calculating RNN and SINDy loss in X...', end='\r')
     # test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
@@ -276,12 +278,12 @@ def main(
 
 if __name__=='__main__':
     main(
-        model = 'params/params_rnn_qminusquadq.pkl',
+        # model = 'params/params_rnn_qminusquadq.pkl',
         
         # sindy parameters
         polynomial_degree=1,
         threshold=0.05,
-        # regularization=0,
+        regularization=1,
         
         # generated training dataset parameters
         n_trials_per_session = 200,
@@ -293,11 +295,12 @@ if __name__=='__main__':
         # ground truth parameters
         alpha = 0.25,
         beta = 3,
-        forget_rate = 0.2,
-        perseveration_bias = 0.25,
-        regret = True,
-        confirmation_bias = True,
-        reward_update_rule = lambda q, reward: reward-q-q**2,
+        forget_rate = 0.,
+        perseveration_bias = 0.,
+        regret = False,
+        confirmation_bias = False,
+        exploration_learning = True,
+        reward_update_rule = lambda q, reward: reward-q,
         
         # environment parameters
         sigma = 0.1,

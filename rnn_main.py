@@ -57,6 +57,7 @@ def main(
   correlated_update = False,
   regret = False,
   confirmation_bias = False,
+  exploration_learning = False,
   reward_update_rule: Callable = None,
   
   # environment parameters
@@ -85,7 +86,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning)  
   if reward_update_rule is not None:
     agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
@@ -131,6 +132,7 @@ def main(
         correlated_update,
         regret,
         confirmation_bias,
+        exploration_learning,
         non_binary_reward,
         verbose=True,
     )
@@ -370,10 +372,10 @@ if __name__=='__main__':
   main(
     train = True,
     checkpoint = False,
-    model = 'params/params_rnn_qminusquadq.pkl',
+    # model = 'params/params_rnn_fullbaseline.pkl',
 
     # training parameters
-    epochs=128,
+    epochs=1024,
     n_trials_per_session = 64,
     n_sessions = 4096,
     n_steps_per_call = 8,
@@ -394,11 +396,12 @@ if __name__=='__main__':
     # ground truth parameters
     alpha = 0.25,
     beta = 3,
-    forget_rate = 0.2,
-    perseveration_bias = 0.25,
-    regret = True,
-    confirmation_bias = True,
-    reward_update_rule = lambda q, reward: reward-q-q**2,
+    forget_rate = 0.,
+    perseveration_bias = 0.,
+    regret = False,
+    confirmation_bias = False,
+    exploration_learning = True,
+    reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters
     sigma = 0.1,
