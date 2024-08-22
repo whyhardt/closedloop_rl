@@ -1,19 +1,20 @@
 import pysindy as ps
 import numpy as np
+import matplotlib.pyplot as plt 
 
-data = np.random.random((100,1))
+sigmoid = lambda x: 1/(1+np.exp(-x))
 
-model = ps.SINDy(
-    ps.optimizers.STLSQ(),
-    ps.PolynomialLibrary(),
-    discrete_time=True,
-)
+weights = [1, 2, 4, 8, 16]
+data = np.linspace(-5, 5)
 
-model.fit(data)
-model.print()
+for w in weights:
+    y = np.exp(w*data)
 
-print(model.coefficients())
+    plt.plot(data, y)
+plt.ylim([0,100])
+plt.show()
 
-model.model.steps[-1][1].coef_[0, 0] = 1.
 
-print(model.coefficients())
+import torch
+
+torch.nn.functional.relu

@@ -124,6 +124,12 @@ class BaseRNN(nn.Module):
     
     def call_subnetwork(self, key, inputs, layer_hidden_state=4):
         if hasattr(self, key):
+            # process input through different activations
+            # Relu(input+bias) --> difficult with sindy
+            # Sigmoid(input+bias) --> same
+            # linear(input+bias) --> in SINDy: w*in + w*bias
+            # Concat(Activations) or Sum(Activations)
+            # pass to hidden layer
             # get hidden state (linear layer + activation + dropout)
             hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
             # get output variable (rest of subnetwork)
@@ -136,6 +142,10 @@ class BaseRNN(nn.Module):
         return nn.Sequential(
             # nn.Linear(input_size+hidden_size, hidden_size), 
             nn.Linear(input_size, hidden_size),
+            # inputs through activations
+            # Relu(input)
+            # Sigmoid(input)
+            # linear(input)
             nn.Linear(hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
@@ -219,8 +229,7 @@ class RLRNN(BaseRNN):
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
-        inputs = torch.concat([chosen_value, reward, max_value], dim=-1).float()
-        
+        inputs = torch.concat([chosen_value, reward, max_value], dim=-1).float()  # max_value
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         
         reward_update_raw = reward - chosen_value

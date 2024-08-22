@@ -128,11 +128,13 @@ class AgentQ:
     # adjust alpha according to regret mechanism (if activated)
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
     # add confirmation bias to learning rate
+    # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
     if self._confirmation_bias:
       # alpha += (self._q[choice]-self._q_init)*(reward - 0.5)  # --> differentiable confirmation bias is not recoverable; maybe overlaps too much with other effects
       if self._q[choice] > 0.9 and reward < 0.5 or self._q[choice] < 0.1 and reward > 0.5:
           # high estimate and high reward and v.v. --> confirmation-bias increases alpha
           alpha -= alpha/2
+          
     # exploration-learning: enhanced learning rate when the lower valued option is selected and rewarded
     # Ebitz et al (2018): https://www.sciencedirect.com/science/article/pii/S0896627317311303
     if self._exploration_learning:

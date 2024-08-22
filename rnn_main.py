@@ -375,7 +375,7 @@ if __name__=='__main__':
     # model = 'params/params_rnn_fullbaseline.pkl',
 
     # training parameters
-    epochs=1024,
+    epochs=128,
     n_trials_per_session = 64,
     n_sessions = 4096,
     n_steps_per_call = 8,
@@ -401,7 +401,7 @@ if __name__=='__main__':
     regret = False,
     confirmation_bias = False,
     exploration_learning = True,
-    reward_update_rule = lambda q, reward: reward-q,
+    # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters
     sigma = 0.1,
