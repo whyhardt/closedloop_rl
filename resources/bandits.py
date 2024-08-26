@@ -63,6 +63,7 @@ class AgentQ:
       regret: bool = False,
       confirmation_bias: bool = False,
       exploration_learning: bool = True,
+      adaptive_exploration: bool = True,
       ):
     """Update the agent after one step of the task.
 
@@ -76,12 +77,14 @@ class AgentQ:
     self._alpha_reward = alpha
     self._alpha_penalty = alpha*2 if regret else alpha
     self._beta = beta
+    self._beta_baseline = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseverance_bias
     self._correlated_reward = correlated_reward
     self._confirmation_bias = confirmation_bias
     self._exploration_learning = exploration_learning
+    self._adaptive_exploration = adaptive_exploration
     self._q_init = 0.5
     self.new_sess()
 
@@ -138,9 +141,12 @@ class AgentQ:
     # exploration-learning: enhanced learning rate when the lower valued option is selected and rewarded
     # Ebitz et al (2018): https://www.sciencedirect.com/science/article/pii/S0896627317311303
     if self._exploration_learning:
-      if self._q[choice]-self._q[non_chosen_action].max() < 0 and reward > 0.5:
+      # if self._q[choice]-self._q[non_chosen_action].max() < 0 and reward > 0.5:
         # case: taking the less-valued option and being rewarded
-        alpha = min(alpha+self._q[non_chosen_action].max()-self._q[choice], 1)
+        # alpha = min(alpha+self._q[non_chosen_action].max()-self._q[choice], 1)
+      if self._beta < self._beta_baseline:
+        alpha += 1 - self._beta / self._beta_baseline
+    
     reward_update = alpha * self._reward_update(self._q[choice], reward)
     
     self._q[non_chosen_action] += forget_update
@@ -153,6 +159,13 @@ class AgentQ:
     # Action-based updates
     self._h = np.zeros(self._n_actions)
     self._h[choice] += self._perseverance_bias
+    
+    # cap learning rate alpha at 1
+    alpha = min(1, alpha)
+    
+    # updating exploration temperature beta
+    # if self._adaptive_exploration:
+    #   self._beta = self._reward_history / len(self._reward_history)  # --> beta as an indicator for the reward frequency over past trials
     
   @property
   def q(self):
