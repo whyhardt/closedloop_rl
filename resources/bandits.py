@@ -58,11 +58,9 @@ class AgentQ:
       beta: float = 3.,
       n_actions: int = 2,
       forget_rate: float = 0.,
-      perseverance_bias: float = 0.,
-      correlated_reward: bool = False,
+      perseveration_bias: float = 0.,
       regret: bool = False,
       confirmation_bias: bool = False,
-      exploration_learning: bool = True,
       ):
     """Update the agent after one step of the task.
 
@@ -78,10 +76,8 @@ class AgentQ:
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
-    self._perseverance_bias = perseverance_bias
-    self._correlated_reward = correlated_reward
+    self._perseverance_bias = perseveration_bias
     self._confirmation_bias = confirmation_bias
-    self._exploration_learning = exploration_learning
     self._q_init = 0.5
     self.new_sess()
 
@@ -125,30 +121,37 @@ class AgentQ:
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
 
     # Reward-based update - Update chosen q for chosen action with observed reward
-    # adjust alpha according to regret mechanism (if activated)
+    
+    # regret mechanism - enhanced learning for negative outcomes
+    # 
     alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    
     # add confirmation bias to learning rate
     # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
     if self._confirmation_bias:
-      # alpha += (self._q[choice]-self._q_init)*(reward - 0.5)  # --> differentiable confirmation bias is not recoverable; maybe overlaps too much with other effects
-      if self._q[choice] > 0.9 and reward < 0.5 or self._q[choice] < 0.1 and reward > 0.5:
-          # high estimate and high reward and v.v. --> confirmation-bias increases alpha
-          alpha -= alpha/2
-          
-    # exploration-learning: enhanced learning rate when the lower valued option is selected and rewarded
-    # Ebitz et al (2018): https://www.sciencedirect.com/science/article/pii/S0896627317311303
-    if self._exploration_learning:
-      if self._q[choice]-self._q[non_chosen_action].max() < 0 and reward > 0.5:
-        # case: taking the less-valued option and being rewarded
-        alpha = min(alpha+self._q[non_chosen_action].max()-self._q[choice], 1)
+      
+      # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+      # confirmation_bias = sigmoid(x)/5
+      # with x being a confidence and confirmation variable like in differentiable approach
+      
+      # differentiable confirmation bias
+      alpha += (self._q[choice]-self._q_init)*(reward - 0.5)/2
+      
+      # non-differentiable approach with hard thresholds
+      # if self._q[choice] > 0.75 and reward > 0.5 or self._q[choice] < 0.25 and reward < 0.5:
+      #     # confirmation: high estimate and high reward and v.v. --> confirmation-bias increases alpha
+      #     alpha += alpha/2
+      # elif self._q[choice] > 0.75 and reward < 0.5 or self._q[choice] < 0.25 and reward > 0.5:
+      #     # contradiction: high estimate and high reward and v.v. --> confirmation-bias increases alpha
+      #     alpha -= alpha/2
+
     reward_update = alpha * self._reward_update(self._q[choice], reward)
-    
+    # Value_new = Value_old - lr * Value_old + lr * Reward 
+    # Standard (static) with lr=0.25 --> Value_new = (1-0.25) * Value_old + 0.25 * Reward
+    # w/ regret=lr/2 --> (1 - (lr + regret*(1-Reward))) * Value_old + (lr + regret*(1-Reward)) * Reward
+    # w/ confirmation bias with cb=lr/2 
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
-    
-    # Correlated update - Update non-chosen q for non-chosen action with observed reward
-    if self._correlated_reward:
-      self._q[self._n_actions-1] -= 0.5*reward_update
     
     # Action-based updates
     self._h = np.zeros(self._n_actions)
@@ -168,11 +171,18 @@ class AgentSindy:
 
   def __init__(
       self,
+      rnn: RLRNN,
       n_actions: int=2,
       beta: float=1.,
       deterministic: bool=False,
       ):
-
+    
+    self._rnn = rnn
+    self._rnn.eval()
+    self._rnn.set_device('cpu')
+    self._rnn.to(torch.device('cpu'))
+    self._rnn.initial_state()
+    
     self._q_init = 0.5
     self._deterministic = deterministic
     self._beta = beta
@@ -197,8 +207,10 @@ class AgentSindy:
     # the chosen action must be updated first and the non-chosen actions afterwards 
     # necessary due to spillover effects from chosen action to non-chosen actions
     
+    learning_latents = self._rnn.call_subnetwork('xLR', torch.tensor([self._q[choice], reward]).float().reshape(1, 2))[1].detach().cpu().numpy()
+    
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward)
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, learning_latents)
     self._q[choice] = q
     self._h[choice] = h
     
@@ -207,10 +219,10 @@ class AgentSindy:
       if c == choice:
         # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, learning_latents)
       self._q[c] = q
       self._h[c] = h
-          
+      
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)

@@ -232,7 +232,7 @@ def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], 
 
 
 def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward):
+  def update_rule_sindy(q, h, choice, reward, learning_latents: np.ndarray):
       # mimic behavior of rnn with sindy
       
       blind_update, reward_update, action_update, learning_rate = 0, 0, 0, 1
@@ -245,8 +245,10 @@ def constructor_update_rule_sindy(sindy_models):
       if choice == 1 and 'xLR' in sindy_models:
         # reward-based update for chosen action in case of reward
         confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
-        learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, confirmation_bias, 1-reward]).reshape(1, -1))[-1]
-            
+        learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward]).reshape(1, -1))[-1]
+        # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, 1-reward]).reshape(1, -1))[-1]
+        # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=learning_latents.reshape(1, -1))[-1]
+        
       if choice == 1 and 'xQr' in sindy_models:
         # reward-based update for chosen action in case of penalty
         reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q

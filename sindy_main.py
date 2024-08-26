@@ -38,10 +38,8 @@ def main(
     beta = 3,
     forget_rate = 0.,
     perseveration_bias = 0.,
-    correlated_update = False,
     regret = False,
     confirmation_bias = False,
-    exploration_learning = False,
     reward_update_rule: Callable = None,
     
     # environment parameters
@@ -58,16 +56,18 @@ def main(
     voting_type = EnsembleRNN.MEDIAN
 
     # tracked variables in the RNN
-    z_train_list = ['xQf', 'xQr', 'xLR', 'xH',]
-    control_list = ['ca', 'cr', 'cQ', 'ccb', 'cp']
+    single_entries = {
+        'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
+    }
+    z_train_list = ['xQf', 'xLR', 'xH']# + single_entries['xLR']
+    control_list = ['ca', 'cr', 'cp', 'cQ']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xQr': ['cr'],
-        'xLR': ['cQ', 'cr', 'ccb', 'cp'],
+        'xLR': ['cQ', 'cr'],# 'cp'],# + single_entries['xLR'],
         'xH': []
     }
 
@@ -81,24 +81,27 @@ def main(
     # 'xQf': ['ca', 0, True] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf' and the control parameter 'ca' is removed for training the model
     datafilter_setup = {
         'xQf': ['ca', 0, True],
-        'xQr': ['ca', 1, True],
         'xLR': ['ca', 1, True],
         'xH': ['ca', 1, True]
     }
+    
+    # for i in range(hidden_size):
+    #     library_setup[f'xLR_{i}'] = ['cQ', 'cr', 'cp']
+    #     datafilter_setup[f'xLR_{i}'] = ['ca', 1, True]
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
         raise ValueError('Library setup does not match feature list.')
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning)
+    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, regret, confirmation_bias)
     if reward_update_rule is not None:
         agent.set_reward_update(reward_update_rule)
     _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning, non_binary_reward, verbose=True)
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, non_binary_reward, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
@@ -119,8 +122,8 @@ def main(
     z_train, control, feature_names, beta_correction = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, shuffle=False, trimming=100)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     update_rule_sindy = constructor_update_rule_sindy(sindy_models)
-    agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions)
-    beta = agent_rnn._model.beta.item() * beta_correction
+    agent_sindy = setup_sindy_agent(update_rule_sindy, n_actions, rnn)
+    beta = agent_rnn._model.beta.item() #* beta_correction
     print(f'\nBeta for SINDy: {beta}')  # agent_rnn._model.beta.item()
     agent_sindy._beta = beta  # agent_rnn._model.beta.item()
 
@@ -295,12 +298,11 @@ if __name__=='__main__':
         # ground truth parameters
         alpha = 0.25,
         beta = 3,
-        forget_rate = 0.,
-        perseveration_bias = 0.,
-        regret = False,
-        confirmation_bias = False,
-        exploration_learning = True,
-        reward_update_rule = lambda q, reward: reward-q,
+        forget_rate = 0.2,
+        perseveration_bias = 0.25,
+        regret = True,
+        confirmation_bias = True,
+        # reward_update_rule = lambda q, reward: reward-q,
         
         # environment parameters
         sigma = 0.1,

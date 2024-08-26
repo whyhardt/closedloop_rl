@@ -54,10 +54,8 @@ def main(
   beta = 3,
   forget_rate = 0.,
   perseveration_bias = 0.,
-  correlated_update = False,
   regret = False,
   confirmation_bias = False,
-  exploration_learning = False,
   reward_update_rule: Callable = None,
   
   # environment parameters
@@ -73,8 +71,10 @@ def main(
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xQr', 'xLR', 'xH']
-  control_list = ['ca', 'cr', 'cQ', 'ccb', 'cp']
+  x_train_list = ['xQf', 'xLR', 'xH']
+  control_list = ['ca', 'cr', 'cQ', 'cp']
+  for i in range(hidden_size):
+    x_train_list.append(f'xLR_{i}')
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -86,7 +86,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, correlated_update, regret, confirmation_bias, exploration_learning)  
+  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, regret, confirmation_bias)  
   if reward_update_rule is not None:
     agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
@@ -129,10 +129,8 @@ def main(
         beta,
         forget_rate,
         perseveration_bias,
-        correlated_update,
         regret,
         confirmation_bias,
-        exploration_learning,
         non_binary_reward,
         verbose=True,
     )
@@ -377,13 +375,12 @@ if __name__=='__main__':
     # training parameters
     epochs=128,
     n_trials_per_session = 64,
-    n_sessions = 4096,
+    n_sessions = 4*4096,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
-    batch_size=-1,
+    batch_size=4096,
     learning_rate=0.01,
-    # adam_betas=(0.9, 0.99),
 
     # ensemble parameters
     n_submodels=8,
@@ -399,8 +396,7 @@ if __name__=='__main__':
     forget_rate = 0.,
     perseveration_bias = 0.,
     regret = False,
-    confirmation_bias = False,
-    exploration_learning = True,
+    confirmation_bias = True,
     # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters

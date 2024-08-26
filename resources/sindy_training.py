@@ -103,9 +103,10 @@ def fit_model(
         
 def setup_sindy_agent(
     update_rule, 
-    n_actions: int = None,
+    n_actions: int,
+    rnn,
     ):
-    agent_sindy = AgentSindy(n_actions, deterministic=True)
+    agent_sindy = AgentSindy(rnn, n_actions, deterministic=True)
     agent_sindy.set_update_rule(update_rule)
     
     return agent_sindy

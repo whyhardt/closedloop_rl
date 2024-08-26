@@ -91,7 +91,7 @@ class BaseRNN(nn.Module):
     def set_device(self, device: torch.device): 
         self.device = device
         
-    def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None):
+    def append_timestep_sample(self, key, old_value, new_value: Optional[torch.Tensor] = None, single_entries: bool = False):
         """appends a new timestep sample to the history. A timestep sample consists of the value at timestep t-1 and the value at timestep t
 
         Args:
@@ -110,7 +110,12 @@ class BaseRNN(nn.Module):
         old_value = old_value.view(-1, 1, old_value.shape[-1])
         new_value = new_value.view(-1, 1, new_value.shape[-1])
         sample = torch.cat([old_value, new_value], dim=1)
-        self.history[key].append(sample)
+        if single_entries:
+            # add each entry of the array as a single entry to the history. Useful to track e.g. latent variables
+            for i in range(sample.shape[-1]):
+                self.history[key + f'_{i}'].append(sample[:, :, i].view(-1, 2, 1))
+        else:
+            self.history[key].append(sample)
         
     def get_history(self, key):
         return self.history[key]
@@ -122,7 +127,7 @@ class BaseRNN(nn.Module):
                 n_subnetworks += 1
         return n_subnetworks
     
-    def call_subnetwork(self, key, inputs, layer_hidden_state=4):
+    def call_subnetwork(self, key, inputs, layer_hidden_state=3):
         if hasattr(self, key):
             # process input through different activations
             # Relu(input+bias) --> difficult with sindy
@@ -146,7 +151,7 @@ class BaseRNN(nn.Module):
             # Relu(input)
             # Sigmoid(input)
             # linear(input)
-            nn.Linear(hidden_size, hidden_size),
+            # nn.Linear(hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
@@ -190,7 +195,7 @@ class RLRNN(BaseRNN):
         self.xQf = self.setup_subnetwork(n_actions-1, hidden_size, dropout)
         
         # learning-rate subnetwork
-        self.xLR = self.setup_subnetwork(3, hidden_size, dropout)
+        self.xLR = self.setup_subnetwork(2, hidden_size, dropout)
         
         # reward-based subnetwork
         self.xQr = self.setup_subnetwork(2, hidden_size, dropout)
@@ -221,29 +226,31 @@ class RLRNN(BaseRNN):
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
         
         not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        # alternative to compute the non-chosen update in an independent manner --> that way as many non-chosen elements as available can be updated indepentendly  
+        # not_chosen_value = ((1-action) * value).view(-1, self._n_actions-1, 1)
         chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
-        max_value = torch.max(value, dim=-1)[0].view(-1, 1)
         
-        # 1. reward-blind update for all non-chosen elements
+        # 1. reward-blind update for non-chosen elements
         blind_update, blind_state = self.call_subnetwork('xQf', not_chosen_value) 
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
         # 2. reward-based update for the chosen element
-        inputs = torch.concat([chosen_value, reward, max_value], dim=-1).float()  # max_value
-        learning_rate, _ = self.call_subnetwork('xLR', inputs)
-        
+        inputs = torch.concat([chosen_value, reward], dim=-1).float()
+        learning_rate, learning_latent = self.call_subnetwork('xLR', inputs)
+        learning_rate = torch.nn.functional.sigmoid(learning_rate)
         reward_update_raw = reward - chosen_value
         # reward_update_raw, reward_state = self.call_subnetwork('xQr', inputs)
         # self.append_timestep_sample('xQr', action*value, action*(value+reward_update_raw))
         
-        reward_update = torch.nn.functional.sigmoid(learning_rate) * reward_update_raw
+        reward_update = learning_rate * reward_update_raw
         
-        estimate = (chosen_value > self.init_value).float()
-        confirmation = estimate * reward + (1-estimate) * (1-reward)
-        self.append_timestep_sample('ccb', confirmation)
+        # estimate = (chosen_value > self.init_value).float()
+        # confirmation = estimate * reward + (1-estimate) * (1-reward)
+        # self.append_timestep_sample('ccb', confirmation)
         self.append_timestep_sample('cp', 1-reward)
         self.append_timestep_sample('cQ', chosen_value)
-        self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), torch.nn.functional.sigmoid(learning_rate))
+        # self.append_timestep_sample('xLR', torch.zeros_like(learning_latent), learning_latent, single_entries=True)
+        self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
 
         next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)

@@ -2,19 +2,23 @@ import pysindy as ps
 import numpy as np
 import matplotlib.pyplot as plt 
 
-sigmoid = lambda x: 1/(1+np.exp(-x))
+q_init = 0.5
+reward = np.linspace(0, 1, 100)
+q = np.linspace(0, 1, 100)
 
-weights = [1, 2, 4, 8, 16]
-data = np.linspace(-5, 5)
+cb = np.zeros((100, 100))
+for i in range(100):
+    for j in range(100):
+        cb[i, j] = (q[i]-q_init)*(reward[j] - 0.5)/2
 
-for w in weights:
-    y = np.exp(w*data)
-
-    plt.plot(data, y)
-plt.ylim([0,100])
+q_mesh, reward_mesh = np.meshgrid(q, reward)
+cb = (q_mesh-q_init)*(reward_mesh - 0.5)/2
+plt.imshow(cb, cmap='viridis', interpolation='nearest')
+plt.colorbar()
+plt.title('Confirmation bias')
+plt.xlabel('Q-Value')
+plt.ylabel('Reward')
 plt.show()
 
-
-import torch
-
-torch.nn.functional.relu
+# plt.plot(cb[0])
+# plt.show()
