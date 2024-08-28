@@ -54,9 +54,9 @@ class AgentQ:
 
   def __init__(
       self,
+      n_actions: int = 2,
       alpha: float = 0.2,
       beta: float = 3.,
-      n_actions: int = 2,
       forget_rate: float = 0.,
       perseveration_bias: float = 0.,
       regret: bool = False,
@@ -65,24 +65,23 @@ class AgentQ:
     """Update the agent after one step of the task.
 
     Args:
-      alpha: scalar learning rate
-      beta: scalar softmax inverse temperature parameter.
+      alpha (float): learning rate between 0 and 1.
+      beta (float): softmax inverse temperature parameter. Regulates the noise in the decision-selection.
       n_actions: number of actions (default=2)
-      forgetting_rate: rate at which q values decay toward the initial values (default=0)
+      forget_rate (float): rate at which q values decay toward the initial values (default=0)
       perseveration_bias: rate at which q values move toward previous action (default=0)
     """
-    self._alpha_reward = alpha
-    self._alpha_penalty = alpha*2 if regret else alpha
+    self._alpha = alpha
     self._beta = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseveration_bias
+    self._regret = regret
     self._confirmation_bias = confirmation_bias
     self._q_init = 0.5
     self.new_sess()
 
-    _check_in_0_1_range(self._alpha_reward, 'alpha_r')
-    _check_in_0_1_range(self._alpha_penalty, 'alpha_p')
+    _check_in_0_1_range(self._alpha, 'alpha')
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
     self._reward_update = lambda q, reward: reward-q
@@ -115,6 +114,7 @@ class AgentQ:
     """
     
     # Reward-and-Value-based updates
+    alpha = self._alpha
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
@@ -123,19 +123,26 @@ class AgentQ:
     # Reward-based update - Update chosen q for chosen action with observed reward
     
     # regret mechanism - enhanced learning for negative outcomes
-    # 
-    alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    if self._regret and reward == 0:
+      alpha = self._alpha * 2
     
     # add confirmation bias to learning rate
     # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
     if self._confirmation_bias:
       
       # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+      # Approach 1:
       # confirmation_bias = sigmoid(x)/5
       # with x being a confidence and confirmation variable like in differentiable approach
       
+      # Approach 2 (more straightforward with SINDy):
       # differentiable confirmation bias
       alpha += (self._q[choice]-self._q_init)*(reward - 0.5)/2
+      
+      # full learning rate equation w/ confirmation bias only: 
+      # (xLR)[k+1]    = 0.25 + (Q-0.5) * (Reward - 0.5) / 2
+      #               = 0.25 + 0.5*Q*Reward - 0.25*Q - 0.25*Reward + 0.125
+      # SINDy target: = 0.375 - 0.25*Q - 0.25*Reward + 0.5*Q*Reward
       
       # non-differentiable approach with hard thresholds
       # if self._q[choice] > 0.75 and reward > 0.5 or self._q[choice] < 0.25 and reward < 0.5:
@@ -153,7 +160,7 @@ class AgentQ:
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
-    # Action-based updates
+    # Perseveration: Action-based updates
     self._h = np.zeros(self._n_actions)
     self._h[choice] += self._perseverance_bias
     
@@ -207,10 +214,10 @@ class AgentSindy:
     # the chosen action must be updated first and the non-chosen actions afterwards 
     # necessary due to spillover effects from chosen action to non-chosen actions
     
-    learning_latents = self._rnn.call_subnetwork('xLR', torch.tensor([self._q[choice], reward]).float().reshape(1, 2))[1].detach().cpu().numpy()
+    # learning_latents = self._rnn.call_subnetwork('xLR', torch.tensor([self._q[choice], reward]).float().reshape(1, 2))[1].detach().cpu().numpy()
     
     # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward, learning_latents)
+    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward)
     self._q[choice] = q
     self._h[choice] = h
     
@@ -219,7 +226,7 @@ class AgentSindy:
       if c == choice:
         # skip already updated chosen action
         continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward, learning_latents)
+      q, h = self._update_rule(self._q[c], self._h[c], 0, reward)
       self._q[c] = q
       self._h[c] = h
       
@@ -439,8 +446,10 @@ class EnvironmentBanditsDrift:
     # Add gaussian noise to reward probabilities
     drift = np.random.normal(loc=0, scale=self._sigma, size=self._n_actions)
     if not self._correlated_rewards:
+      # non-correlated reward probabilities
       self._reward_probs += drift
     else:
+      # in the case of correlated reward probabilities: adding to one option means substracting the same drift from the other
       for i in range(self._n_actions//2):
         self._reward_probs[i] += drift[i]
         self._reward_probs[i-1] -= drift[i]
@@ -463,7 +472,7 @@ class BanditSession(NamedTuple):
   """Holds data for a single session of a bandit task."""
   choices: np.ndarray
   rewards: np.ndarray
-  timeseries: np.ndarray
+  reward_probabilities: np.ndarray
   q: np.ndarray
   n_trials: int
   
@@ -499,23 +508,23 @@ def run_experiment(
   reward_probs = np.zeros((n_trials+1, environment.n_actions))
 
   for trial in range(n_trials+1):
-    # First record environment reward probs
+    # Log environment reward probabilities and Q-Values
     reward_probs[trial] = environment.reward_probs
     qs[trial] = agent.q
-    # First agent makes a choice
+    # First - agent makes a choice
     choice = agent.get_choice()
-    # Then environment computes a reward
+    # Second - environment computes a reward
     reward = environment.step(choice)
     # Log choice and reward
     choices[trial] = choice
     rewards[trial] = reward
-    # Agent learns
+    # Third - agent updates its believes based on chosen action and received reward
     agent.update(choice, reward)
     
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),
                              rewards=rewards[:-1],
-                             timeseries=reward_probs[:-1],
+                             reward_probabilities=reward_probs[:-1],
                              q=qs[:-1])
   return experiment, choices.astype(int), rewards
 

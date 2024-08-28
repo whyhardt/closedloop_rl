@@ -71,22 +71,26 @@ def fit_model(
         
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            # optimizer=ps.STLSQ(threshold=0.03, verbose=True, alpha=optimizer_alpha),
-            optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
+            # optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=optimizer_alpha, verbose=True),
+            optimizer=ps.SR3(thresholder="L0", threshold=optimizer_threshold, verbose=True),
             # optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
             # optimizer=ps.SSR(criteria="model_residual"),
             feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
             feature_names=feature_names_i,
         )
-        
+
         # fit sindy model
         sindy_models[x_feature].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True, ensemble=False, library_ensemble=False)
         # post-process sindy weights
         for i in range(len(sindy_models[x_feature].model.steps[-1][1].coef_[0])):
+            # case: coefficient is x_feature[k] 
+            # --> Target in the case of non-available dynamics: 
+            # x_feature[k+1] = 1.0 x_feature[k] and not e.g. x_feature[k+1] = 1.03 x_feature[k]
             if i == 1 and np.abs(1-sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]) < optimizer_threshold:
                 sindy_models[x_feature].model.steps[-1][1].coef_[0, 1] = 1.
-            elif i != 1 and sindy_models[x_feature].model.steps[-1][1].coef_[0, i] < optimizer_threshold:
+            # case: any other coefficient
+            elif i != 1 and np.abs(sindy_models[x_feature].model.steps[-1][1].coef_[0, i]) < optimizer_threshold:
                 sindy_models[x_feature].model.steps[-1][1].coef_[0, i] = 0.
         if get_loss:
             loss_model = 1-sindy_models[x_feature].score(x_train_i, u=control_i, t=1, multiple_trajectories=True)

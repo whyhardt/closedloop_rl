@@ -86,7 +86,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  agent = bandits.AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, regret, confirmation_bias)  
+  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias)  
   if reward_update_rule is not None:
     agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
@@ -168,7 +168,8 @@ def main(
       model, optimizer_rnn = rnn_utils.load_checkpoint(params_path, model, optimizer_rnn, voting_type)
       print('Loaded model parameters.')
 
-  if train:    
+  loss_test = None
+  if train:
     start_time = time.time()
     
     #Fit the hybrid RNN
@@ -276,7 +277,7 @@ def main(
 
     fig, axs = plt.subplots(4, 1, figsize=(20, 10))
 
-    reward_probs = np.stack([experiment_list_test[session_id].timeseries[:, i] for i in range(n_actions)], axis=0)
+    reward_probs = np.stack([experiment_list_test[session_id].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
     bandits.plot_session(
         compare=True,
         choices=choices,
@@ -370,16 +371,16 @@ if __name__=='__main__':
   main(
     train = True,
     checkpoint = False,
-    # model = 'params/params_rnn_fullbaseline.pkl',
+    # model = 'params/params_rnn_a025_b3_cb.pkl',
 
     # training parameters
     epochs=128,
     n_trials_per_session = 64,
-    n_sessions = 4*4096,
+    n_sessions = 4096,
     n_steps_per_call = 8,
     bagging=True,
     n_oversampling=-1,
-    batch_size=4096,
+    batch_size=-1,
     learning_rate=0.01,
 
     # ensemble parameters

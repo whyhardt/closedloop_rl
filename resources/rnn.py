@@ -232,9 +232,10 @@ class RLRNN(BaseRNN):
         
         # 1. reward-blind update for non-chosen elements
         blind_update, blind_state = self.call_subnetwork('xQf', not_chosen_value) 
+        # blind_update = self.xQf(not_chosen_value)
         self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
-        # 2. reward-based update for the chosen element
+        # 2. Compute learning rate for the reward-update of the chosen element
         inputs = torch.concat([chosen_value, reward], dim=-1).float()
         learning_rate, learning_latent = self.call_subnetwork('xLR', inputs)
         learning_rate = torch.nn.functional.sigmoid(learning_rate)

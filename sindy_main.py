@@ -56,9 +56,9 @@ def main(
     voting_type = EnsembleRNN.MEDIAN
 
     # tracked variables in the RNN
-    single_entries = {
-        'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
-    }
+    # single_entries = {
+    #     'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
+    # }
     z_train_list = ['xQf', 'xLR', 'xH']# + single_entries['xLR']
     control_list = ['ca', 'cr', 'cp', 'cQ']
     sindy_feature_list = z_train_list + control_list
@@ -67,7 +67,7 @@ def main(
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
         'xQf': [],
-        'xLR': ['cQ', 'cr'],# 'cp'],# + single_entries['xLR'],
+        'xLR': ['cQ', 'cr', 'cp'],# + single_entries['xLR'],
         'xH': []
     }
 
@@ -94,7 +94,7 @@ def main(
 
     # set up ground truth agent and environment
     environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    agent = AgentQ(alpha, beta, n_actions, forget_rate, perseveration_bias, regret, confirmation_bias)
+    agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias)
     if reward_update_rule is not None:
         agent.set_reward_update(reward_update_rule)
     _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
@@ -183,7 +183,7 @@ def main(
             axs[i].set_xlim(0, 200)
             # axs[i].set_ylim(0, 1)    
 
-        reward_probs = np.stack([experiment_test.timeseries[:, i] for i in range(n_actions)], axis=0)
+        reward_probs = np.stack([experiment_test.reward_probabilities[:, i] for i in range(n_actions)], axis=0)
         plot_session(
             compare=True,
             choices=choices,
@@ -284,9 +284,9 @@ if __name__=='__main__':
         # model = 'params/params_rnn_qminusquadq.pkl',
         
         # sindy parameters
-        polynomial_degree=1,
+        polynomial_degree=2,
         threshold=0.05,
-        regularization=1,
+        regularization=0,
         
         # generated training dataset parameters
         n_trials_per_session = 200,
