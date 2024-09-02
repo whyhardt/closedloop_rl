@@ -289,7 +289,7 @@ def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSessio
   return loss_total/len(data)
 
 
-def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = mean_squared_error, coordinates: str = "x"):
+def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], coordinates: str = "x"):
   """Compute the loss of the SINDy model directly on the data in z-coordinates i.e. predicting q-values.
   This loss is also used for SINDy-Training.
 
@@ -311,7 +311,11 @@ def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession
       beta = agent._beta if hasattr(agent, "_beta") else 1
       y_pred = np.exp(agent.q * beta)/np.sum(np.exp(agent.q * beta))
       agent.update(choices[t], rewards[t])
-      y_target = np.eye(agent._n_actions)[choices[t+1]] if coordinates == "x" else qs[t]
-      loss_session += loss_fn(y_target, y_pred)
+      if coordinates == 'x':
+        y_target = np.eye(agent._n_actions)[choices[t+1]]
+        loss_session = log_loss(y_target, y_pred)
+      elif coordinates == 'z':
+        y_target = qs[t]
+        loss_session = mean_squared_error(y_target, y_pred)
     loss_total += loss_session/(t+1)
   return loss_total/len(data)

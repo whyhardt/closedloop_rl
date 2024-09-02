@@ -9,6 +9,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Collection, Callable
+import argparse
 
 # warnings.filterwarnings("ignore")
 
@@ -17,7 +18,6 @@ sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
 
 def main(
-  train = True,
   checkpoint = False,
   model = None,
 
@@ -91,7 +91,7 @@ def main(
     agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
 
-  if train:
+  if epochs > 0:
     if dataset_train is None:    
       print('Creating the training dataset...', end='\r')
       dataset_train, _ = bandits.create_dataset(
@@ -169,7 +169,7 @@ def main(
       print('Loaded model parameters.')
 
   loss_test = None
-  if train:
+  if epochs > 0:
     start_time = time.time()
     
     #Fit the hybrid RNN
@@ -210,21 +210,6 @@ def main(
     torch.save(state_dict, params_path)
     
     print(f'Saved RNN parameters to file {params_path}.')
-    
-    # validate model
-    print('\nTesting the trained hybrid RNN on a test dataset...')
-    if isinstance(model, list):
-      for m in model:
-        m.eval()
-    else:
-      model.eval()
-    with torch.no_grad():
-      _, _, loss_test = rnn_training.fit_model(
-          model=model,
-          dataset_train=dataset_test,
-          dataset_test=None,
-          n_steps_per_call=1,
-      )
 
     print(f'Training took {time.time() - start_time:.2f} seconds.')
   else:
@@ -233,7 +218,22 @@ def main(
       optimizer_rnn = optimizer_rnn[0]
   
   print(f'Trained beta of RNN is: {model.beta.item()}')
-      
+  
+  # validate model
+  print('\nTesting the trained hybrid RNN on a test dataset...')
+  if isinstance(model, list):
+    for m in model:
+      m.eval()
+  else:
+    model.eval()
+  with torch.no_grad():
+    _, _, loss_test = rnn_training.fit_model(
+        model=model,
+        dataset_train=dataset_test,
+        dataset_test=None,
+        n_steps_per_call=1,
+    )
+  
   # -----------------------------------------------------------
   # Analysis
   # -----------------------------------------------------------
@@ -368,41 +368,82 @@ def main(
 
 if __name__=='__main__':
   
+  parser = argparse.ArgumentParser(description='Trains the RNN on behavioral data to uncover the underlying Q-Values via different cognitive mechanisms.')
+  
+  # Training parameters
+  parser.add_argument('--checkpoint', action='store_true', help='Whether to load a checkpoint')
+  parser.add_argument('--model', type=str, default=None, help='Model name to load from and/or save to parameters of RNN')
+  parser.add_argument('--epochs', type=int, default=128, help='Number of epochs for training')
+  parser.add_argument('--n_trials_per_session', type=int, default=64, help='Number of trials per session')
+  parser.add_argument('--n_sessions', type=int, default=4096, help='Number of sessions')
+  parser.add_argument('--n_steps_per_call', type=int, default=8, help='Number of steps per call')
+  parser.add_argument('--bagging', action='store_true', help='Whether to use bagging')
+  parser.add_argument('--n_oversampling', type=int, default=-1, help='Number of oversampling iterations')
+  parser.add_argument('--batch_size', type=int, default=-1, help='Batch size')
+  parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate of the RNN')
+
+  # Ensemble parameters
+  parser.add_argument('--n_submodels', type=int, default=8, help='Number of submodels in the ensemble')
+  parser.add_argument('--ensemble', type=int, default=1, help='Defines the type of ensembling. Options -- -1: take the best model; 0: let the submodels vote (median); 1: average the parameters after each epoch (recommended)')
+
+  # RNN parameters
+  parser.add_argument('--hidden_size', type=int, default=8, help='Hidden size of the RNN')
+  parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
+
+  # Ground truth parameters
+  parser.add_argument('--alpha', type=float, default=0.25, help='Alpha parameter for the Q-learning update rule')
+  parser.add_argument('--beta', type=float, default=3, help='Beta parameter for the Q-learning update rule')
+  parser.add_argument('--forget_rate', type=float, default=0., help='Forget rate')
+  parser.add_argument('--perseveration_bias', type=float, default=0., help='Perseveration bias')
+  parser.add_argument('--regret', action='store_true', help='Whether to include regret')
+  parser.add_argument('--confirmation_bias', action='store_true', help='Whether to include confirmation bias')
+
+  # Environment parameters
+  parser.add_argument('--sigma', type=float, default=0.1, help='Drift rate of the reward probabilities')
+  parser.add_argument('--non_binary_reward', action='store_true', help='Whether to use non-binary rewards')
+
+  # Analysis parameters
+  parser.add_argument('--analysis', action='store_true', help='Whether to perform analysis')
+
+  args = parser.parse_args()  
+  
   main(
-    train = True,
+    # train = True, 
     checkpoint = False,
     # model = 'params/params_rnn_a025_b3_cb.pkl',
-
+    model = args.model,
+    
     # training parameters
-    epochs=128,
-    n_trials_per_session = 64,
-    n_sessions = 4096,
-    n_steps_per_call = 8,
-    bagging=True,
-    n_oversampling=-1,
-    batch_size=-1,
-    learning_rate=0.01,
+    epochs=args.epochs,
+    n_trials_per_session = args.n_trials_per_session,
+    n_sessions = args.n_sessions,
+    n_steps_per_call = args.n_steps_per_call,
+    bagging = args.bagging,
+    n_oversampling=args.n_oversampling,
+    batch_size=args.batch_size,
+    learning_rate=args.learning_rate,
 
     # ensemble parameters
-    n_submodels=8,
-    ensemble=rnn_training.ensembleTypes.AVERAGE,
+    n_submodels=args.n_submodels,
+    ensemble=args.ensemble,
     
     # rnn parameters
-    hidden_size = 8,
-    dropout = 0.1,
+    hidden_size = args.hidden_size,
+    dropout = args.dropout,
     
     # ground truth parameters
-    alpha = 0.25,
-    beta = 3,
-    forget_rate = 0.,
-    perseveration_bias = 0.,
-    regret = False,
-    confirmation_bias = True,
+    alpha = args.alpha,
+    beta = args.beta,
+    forget_rate = args.forget_rate,
+    perseveration_bias = args.perseveration_bias,
+    regret = args.regret,
+    confirmation_bias = args.confirmation_bias,
     # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters
-    sigma = 0.1,
-    non_binary_reward=False,
+    sigma = args.sigma,
+    non_binary_reward = args.non_binary_reward,
     
-    analysis=True,
+    analysis = args.analysis,
   )
+  

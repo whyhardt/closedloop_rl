@@ -127,13 +127,15 @@ def main(
     print(f'\nBeta for SINDy: {beta}')  # agent_rnn._model.beta.item()
     agent_sindy._beta = beta  # agent_rnn._model.beta.item()
 
-    # print('Calculating RNN and SINDy loss in X...', end='\r')
-    # test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
-    # test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
-    # print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
-    # print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
-    # test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], mean_absolute_error, "z")
-    # print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
+    print('Calculating RNN and SINDy loss in X...', end='\r')
+    test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
+    test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
+    print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
+    print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
+    test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], coordinates="z")
+    test_loss_rnn_z = bandit_loss(agent_rnn, experiment_list_test[:10], coordinates="z")
+    print(f'RNN Loss in Z (comparing choice probabilities; Target: Subject): {test_loss_rnn_z}')
+    print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
     
     # --------------------------------------------------------------
     # Analysis
@@ -281,7 +283,7 @@ def main(
 
 if __name__=='__main__':
     main(
-        # model = 'params/params_rnn_qminusquadq.pkl',
+        model = 'params/dataset_ensemble_noise_analysis/params_rnn_sessions4096_submodels16_noise3',
         
         # sindy parameters
         polynomial_degree=2,
@@ -290,7 +292,7 @@ if __name__=='__main__':
         
         # generated training dataset parameters
         n_trials_per_session = 200,
-        n_sessions = 10,
+        n_sessions = 100,
         
         # rnn parameters
         hidden_size = 8,
