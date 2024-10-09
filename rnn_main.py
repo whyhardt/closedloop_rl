@@ -71,8 +71,8 @@ def main(
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xLR', 'xH']
-  control_list = ['ca', 'cr', 'cQ', 'cp']
+  x_train_list = ['xQf', 'xLR', 'xH', 'xHa', 'xHn']
+  control_list = ['ca', 'cr', 'cQ', 'cp', 'ca_prev']
   for i in range(hidden_size):
     x_train_list.append(f'xLR_{i}')
   sindy_feature_list = x_train_list + control_list

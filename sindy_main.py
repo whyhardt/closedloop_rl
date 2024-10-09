@@ -6,8 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
 from typing import Callable
-from sklearn.metrics import mean_absolute_error
-import pysindy as ps
 
 sys.path.append('resources')
 from resources.rnn import RLRNN, EnsembleRNN
@@ -59,8 +57,8 @@ def main(
     # single_entries = {
     #     'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
     # }
-    z_train_list = ['xQf', 'xLR', 'xH']# + single_entries['xLR']
-    control_list = ['ca', 'cr', 'cp', 'cQ']
+    z_train_list = ['xQf', 'xLR', 'xHa', 'xHn']# + single_entries['xLR']
+    control_list = ['ca', 'cr', 'cp', 'cQ', 'ca_prev']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -68,7 +66,8 @@ def main(
     library_setup = {
         'xQf': [],
         'xLR': ['cQ', 'cr', 'cp'],# + single_entries['xLR'],
-        'xH': []
+        'xHa': [],
+        'xHn': [],
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -82,7 +81,8 @@ def main(
     datafilter_setup = {
         'xQf': ['ca', 0, True],
         'xLR': ['ca', 1, True],
-        'xH': ['ca', 1, True]
+        'xHa': ['ca', 1, True],
+        'xHa': ['ca', 0, True]
     }
     
     # for i in range(hidden_size):
@@ -283,7 +283,7 @@ def main(
 
 if __name__=='__main__':
     main(
-        model = 'params/dataset_ensemble_noise_analysis/params_rnn_sessions4096_submodels16_noise3',
+        # model = 'params/dataset_ensemble_noise_analysis/params_rnn_sessions4096_submodels16_noise3',
         
         # sindy parameters
         polynomial_degree=2,
@@ -300,10 +300,10 @@ if __name__=='__main__':
         # ground truth parameters
         alpha = 0.25,
         beta = 3,
-        forget_rate = 0.2,
+        forget_rate = 0.,
         perseveration_bias = 0.25,
-        regret = True,
-        confirmation_bias = True,
+        regret = False,
+        confirmation_bias = False,
         # reward_update_rule = lambda q, reward: reward-q,
         
         # environment parameters

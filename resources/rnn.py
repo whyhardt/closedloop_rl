@@ -225,10 +225,10 @@ class RLRNN(BaseRNN):
         blind_update, reward_update, spillover_update = 0, 0, 0
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
         
-        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
         # alternative to compute the non-chosen update in an independent manner --> that way as many non-chosen elements as available can be updated indepentendly  
         # not_chosen_value = ((1-action) * value).view(-1, self._n_actions-1, 1)
-        chosen_value = torch.sum(value * action, dim=-1).view(-1, 1)
+        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
         
         # 1. reward-blind update for non-chosen elements
         blind_update, blind_state = self.call_subnetwork('xQf', not_chosen_value) 
@@ -256,8 +256,34 @@ class RLRNN(BaseRNN):
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)
     
     def action_network(self, state, value, action):
+        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
+
+        # action based update for chosen element        
+        same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
+        inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
+        action_update_chosen, state_chosen = self.call_subnetwork('xH', inputs)
+        
+        # action based update for non-chosen element        
+        same_action_as_before = 1-(torch.argmin(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
+        inputs = torch.concat([not_chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
+        action_update_not_chosen, state_not_chosen = self.call_subnetwork('xH', inputs)
+        
+        state = state_chosen + state_not_chosen
+        new_value = action * action_update_chosen + (1-action) * action_update_not_chosen  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        
+        self._prev_action = action
+        
+        # self.append_timestep_sample('xHa', value, new_value)
+        # self.append_timestep_sample('xHn', value, new_value)
+        
+        return new_value, state.unsqueeze(1)
+    
+    def uncertainty_network(self, state, value, action, reward):
         # action based update for previously chosen element
-        chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)  
+        chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)
+        not_chosen_value = torch.sum((1-action)*value, dim=-1).view(-1, 1)
+        
         same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
         inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
         action_update, state = self.call_subnetwork('xH', inputs)
@@ -315,11 +341,13 @@ class RLRNN(BaseRNN):
         for t, a, r in zip(timesteps, action, reward):
             self.append_timestep_sample('ca', a)
             self.append_timestep_sample('cr', r)
+            self.append_timestep_sample('ca_prev', self._prev_action)
             
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
             action_value, action_state = self.action_network(action_state, action_value, a)
-            self.append_timestep_sample('xH', reward_value, reward_value + action_value)
+            self.append_timestep_sample('xHa', reward_value, reward_value + a * action_value)
+            self.append_timestep_sample('xHn', reward_value, reward_value + (1-a) * action_value)
             logit = (reward_value + action_value) * self.beta
             
             logits[t, :, :] = logit.clone()
