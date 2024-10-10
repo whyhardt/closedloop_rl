@@ -61,16 +61,23 @@ class AgentQ:
       perseveration_bias: float = 0.,
       regret: bool = False,
       confirmation_bias: bool = False,
+      directed_exploration_bias: float = 0.,
+      undirected_exploration_bias: float = 0.,
       ):
     """Update the agent after one step of the task.
 
     Args:
-      alpha (float): learning rate between 0 and 1.
-      beta (float): softmax inverse temperature parameter. Regulates the noise in the decision-selection.
+      alpha (float): Baseline learning rate between 0 and 1.
+      beta (float): softmax inverse noise temperature. Regulates the noise in the decision-selection.
       n_actions: number of actions (default=2)
       forget_rate (float): rate at which q values decay toward the initial values (default=0)
-      perseveration_bias: rate at which q values move toward previous action (default=0)
+      perseveration_bias (float): rate at which q values move toward previous action (default=0)
+      regret (bool): asymmetrical learning rates in the form of pessimistic reinforcement learning
+      confirmation_bias (bool): higher learning rate for believe-confirming outcomes and lower learning rate otherwise
+      directed_exploration_bias (float): rate at which uncertain options are biased for directed exploration (can be negative (uncertainty-averse) and positive (uncertainty-exploration))
+      undirected_exploration_bias (float): rate at which the inverse noise temperature is adapted based on the overall uncertainty of the given options.
     """
+    
     self._alpha = alpha
     self._beta = beta
     self._n_actions = n_actions
@@ -78,6 +85,8 @@ class AgentQ:
     self._perseverance_bias = perseveration_bias
     self._regret = regret
     self._confirmation_bias = confirmation_bias
+    self._directed_exploration_bias = directed_exploration_bias
+    self._undirected_exploration_bias = undirected_exploration_bias
     self._q_init = 0.5
     self.new_sess()
 
@@ -85,11 +94,16 @@ class AgentQ:
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
     self._reward_update = lambda q, reward: reward-q
+    
+    self.new_sess()
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
+    self._u = np.zeros(self._n_actions)
+    
+    self._reward_history = np.zeros((self._n_actions, 5))
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
@@ -116,11 +130,12 @@ class AgentQ:
     # Reward-and-Value-based updates
     alpha = self._alpha
     
+    # Reward-prediction-error
+    rpe = self._reward_update(self._q[choice], reward)
+    
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
-
-    # Reward-based update - Update chosen q for chosen action with observed reward
     
     # regret mechanism - enhanced learning for negative outcomes
     if self._regret and reward == 0:
@@ -152,7 +167,7 @@ class AgentQ:
       #     # contradiction: high estimate and high reward and v.v. --> confirmation-bias increases alpha
       #     alpha -= alpha/2
 
-    reward_update = alpha * self._reward_update(self._q[choice], reward)
+    reward_update = alpha * rpe
     # Value_new = Value_old - lr * Value_old + lr * Reward 
     # Standard (static) with lr=0.25 --> Value_new = (1-0.25) * Value_old + 0.25 * Reward
     # w/ regret=lr/2 --> (1 - (lr + regret*(1-Reward))) * Value_old + (lr + regret*(1-Reward)) * Reward
@@ -164,14 +179,20 @@ class AgentQ:
     self._h = np.zeros(self._n_actions)
     self._h[choice] += self._perseverance_bias
     
+    # Reward-uncertainty-biased directed exploration
+    # https://psycnet.apa.org/record/2018-48589-001?doi=1
+    # https://link.springer.com/article/10.3758/s13415-013-0220-4
+    recency_factor = 0.3
+    uncertainty_update = rpe**2 - self._u[choice]
+    self._u[choice] += recency_factor * uncertainty_update    
+    
   @property
   def q(self):
-    q = (self._q + self._h).copy()
+    q = (self._q + self._h + self._directed_exploration_bias * self._u).copy()
     return q
   
   def set_reward_update(self, update_rule: Callable):
     self._reward_update = update_rule
-    
 
 
 class AgentSindy:
@@ -651,17 +672,27 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   
   choices = np.expand_dims(experiment.choices, 1)
   rewards = np.expand_dims(experiment.rewards, 1)
+  Qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  hs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  us = np.zeros((experiment.choices.shape[0], agent._n_actions))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
   agent.new_sess()
   
   for trial in range(experiment.choices.shape[0]):
-    qs[trial] = agent.q
+    # track all states
+    Qs[trial] = agent.q
+    qs[trial] = agent._q
+    hs[trial] = agent._h
+    us[trial] = agent._u
+    if hasattr(agent, '_directed_exploration_bias'):
+      us[trial] *= agent._directed_exploration_bias
+    
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
     
-  return qs, choice_probs
+  return (Qs, qs, hs, us), choice_probs
 
 
 ###############

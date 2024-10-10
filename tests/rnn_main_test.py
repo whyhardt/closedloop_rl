@@ -6,9 +6,10 @@ import rnn_main
 
 rnn_main.main(
     checkpoint=False,
-    epochs=128,
-    alpha=0.25,
+    epochs=0,
+    alpha=0.,
     perseveration_bias=0.,
+    directed_exploration_bias=1.,
     n_submodels=1,
     bagging=False,
     analysis=True,

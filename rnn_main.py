@@ -54,6 +54,7 @@ def main(
   beta = 3,
   forget_rate = 0.,
   perseveration_bias = 0.,
+  directed_exploration_bias = 0.,
   regret = False,
   confirmation_bias = False,
   reward_update_rule: Callable = None,
@@ -87,7 +88,7 @@ def main(
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
   # environment = bandits.EnvironmentBanditsSwitch(0.1)
-  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias)  
+  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias)  
   if reward_update_rule is not None:
     agent.set_reward_update(reward_update_rule)
   print('Setup of the environment and agent complete.')
@@ -398,6 +399,7 @@ if __name__=='__main__':
   parser.add_argument('--perseveration_bias', type=float, default=0., help='Perseveration bias')
   parser.add_argument('--regret', action='store_true', help='Whether to include regret')
   parser.add_argument('--confirmation_bias', action='store_true', help='Whether to include confirmation bias')
+  parser.add_argument('--directed_exploration_bias', type=float, default=0., help='Directed exploration bias')
 
   # Environment parameters
   parser.add_argument('--sigma', type=float, default=0.1, help='Drift rate of the reward probabilities')
