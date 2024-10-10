@@ -238,13 +238,13 @@ def constructor_update_rule_sindy(sindy_models):
       blind_update, reward_update, action_update, learning_rate = 0, 0, 0, 1
       
       # action network
-      if choice == 1 and 'xH' in sindy_models:
+      if choice == 1 and 'xHa' in sindy_models:
         action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
       
       # value network      
       if choice == 1 and 'xLR' in sindy_models:
         # reward-based update for chosen action in case of reward
-        confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
+        # confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
         # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward]).reshape(1, -1))[-1]
         learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, 1-reward]).reshape(1, -1))[-1]
         # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=learning_latents.reshape(1, -1))[-1]

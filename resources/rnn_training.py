@@ -423,7 +423,7 @@ def penalty_correlated_update(model, batch_size: int = 1):
     
     return reg_rnn/i
 
-def penalty_q_range(y_pred):
+def penalty_beta_range(model):
     """Compute the penalty for the network resulting in Q-Values higher than 1 and lower than 0."""
     
-    return torch.mean(y_pred - 0.8) - torch.mean(y_pred)
+    return model.beta

@@ -184,12 +184,19 @@ class RLRNN(BaseRNN):
         self._n_actions = n_actions
         self._hidden_size = hidden_size
         self._prev_action = torch.zeros(self._n_actions)
+        self._activation = nn.Sigmoid()
         
         # define input size according to arguments (network configuration)
         self.beta = nn.Parameter(torch.tensor(1.))
         
         # action-based subnetwork
         self.xH = self.setup_subnetwork(2, hidden_size, dropout)
+        
+        # action-based subnetwork for previously chosen option
+        self.xHa = self.setup_subnetwork(2, hidden_size, dropout)
+        
+        # action-based subnetwork for previously not-chosen option
+        self.xHn = self.setup_subnetwork(2, hidden_size, dropout)
         
         # reward-blind subnetwork
         self.xQf = self.setup_subnetwork(n_actions-1, hidden_size, dropout)
@@ -224,60 +231,93 @@ class RLRNN(BaseRNN):
         # get back previous states (same order as in return statement)
         blind_update, reward_update, spillover_update = 0, 0, 0
         blind_state, reward_state, spillover_state = state[:, 0], state[:, 1], state[:, 2]
+        eye = torch.eye(self._n_actions, device=self.device)
         
-        # alternative to compute the non-chosen update in an independent manner --> that way as many non-chosen elements as available can be updated indepentendly  
-        # not_chosen_value = ((1-action) * value).view(-1, self._n_actions-1, 1)
-        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
+        # next_blind_state, next_reward_state, next_spillover_state = torch.zeros_like(blind_state), torch.zeros_like(reward_state), torch.zeros_like(spillover_state)
+        next_value = torch.zeros_like(value) + value
+        for i in range(self._n_actions):
+            v = value[:, i].view(-1, 1)
+            
+            blind_update, blind_state = self.call_subnetwork('xQf', v)
+            
+            inputs = torch.concat([v, reward], dim=-1)
+            learning_rate, learning_latent = self.call_subnetwork('xLR', inputs)
+            learning_rate = torch.nn.functional.sigmoid(learning_rate)
+            reward_update_raw = reward - v
+            reward_update = learning_rate * reward_update_raw
+
+            next_v = action[:, i].view(-1, 1) * reward_update + (1-action[:, i].view(-1, 1))*blind_update
+            next_value += eye[i] * next_v
+            
+        # # alternative to compute the non-chosen update in an independent manner --> that way as many non-chosen elements as available can be updated indepentendly  
+        # # not_chosen_value = ((1-action) * value).view(-1, self._n_actions-1, 1)
+        # not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        # chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
         
-        # 1. reward-blind update for non-chosen elements
-        blind_update, blind_state = self.call_subnetwork('xQf', not_chosen_value) 
-        self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
+        # # 1. reward-blind update for non-chosen elements
+        # blind_update, blind_state = self.call_subnetwork('xQf', not_chosen_value) 
+        # self.append_timestep_sample('xQf', value, value + (1-action) * blind_update)
         
-        # 2. Compute learning rate for the reward-update of the chosen element
-        inputs = torch.concat([chosen_value, reward], dim=-1).float()
-        learning_rate, learning_latent = self.call_subnetwork('xLR', inputs)
-        learning_rate = torch.nn.functional.sigmoid(learning_rate)
-        reward_update_raw = reward - chosen_value
+        # # 2. Compute learning rate for the reward-update of the chosen element
+        # inputs = torch.concat([chosen_value, reward], dim=-1).float()
+        # learning_rate, learning_latent = self.call_subnetwork('xLR', inputs)
+        # learning_rate = torch.nn.functional.sigmoid(learning_rate)
+        # reward_update_raw = reward - chosen_value
         # reward_update_raw, reward_state = self.call_subnetwork('xQr', inputs)
         # self.append_timestep_sample('xQr', action*value, action*(value+reward_update_raw))
         
-        reward_update = learning_rate * reward_update_raw
+        # reward_update = learning_rate * reward_update_raw
         
-        # estimate = (chosen_value > self.init_value).float()
-        # confirmation = estimate * reward + (1-estimate) * (1-reward)
-        # self.append_timestep_sample('ccb', confirmation)
-        self.append_timestep_sample('cp', 1-reward)
-        self.append_timestep_sample('cQ', chosen_value)
-        # self.append_timestep_sample('xLR', torch.zeros_like(learning_latent), learning_latent, single_entries=True)
-        self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
+        # # estimate = (chosen_value > self.init_value).float()
+        # # confirmation = estimate * reward + (1-estimate) * (1-reward)
+        # # self.append_timestep_sample('ccb', confirmation)
+        # self.append_timestep_sample('cp', 1-reward)
+        # self.append_timestep_sample('cQ', chosen_value)
+        # # self.append_timestep_sample('xLR', torch.zeros_like(learning_latent), learning_latent, single_entries=True)
+        # self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
 
-        next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
+        # next_value = value + action * reward_update + (1-action) * (blind_update + spillover_update)
+        # next_value = self._activation(next_value)
+        
         return next_value, torch.stack([blind_state, reward_state, spillover_state], dim=1)
     
     def action_network(self, state, value, action):
-        not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
-        chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
+        
+        next_state = torch.zeros_like(state).squeeze(1)
+        next_value = torch.zeros_like(value)
+        
+        for i in range(self._n_actions):
+            v = value[:, i]
+            same_action_as_before = action[:, i] * self._prev_action[:, i]
+            inputs = torch.stack([v, same_action_as_before], dim=-1)
+            update, state_update = self.call_subnetwork('xH', inputs)
+            next_state += state_update
+            next_value += torch.eye(self._n_actions, device=self.device)[i] * update
+        
+        # not_chosen_value = torch.sum((1-action) * value, dim=-1).view(-1, 1)
+        # chosen_value = torch.sum(action * value, dim=-1).view(-1, 1)
 
-        # action based update for chosen element        
-        same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
-        inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
-        action_update_chosen, state_chosen = self.call_subnetwork('xH', inputs)
+        # # action based update for chosen element        
+        # # same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
+        # same_action_as_before = 1 - torch.mean(torch.abs(action-self._prev_action), dim=-1)
+        # inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
+        # action_update_chosen, state_chosen = self.call_subnetwork('xH', inputs)
         
-        # action based update for non-chosen element        
-        same_action_as_before = 1-(torch.argmin(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
-        inputs = torch.concat([not_chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
-        action_update_not_chosen, state_not_chosen = self.call_subnetwork('xH', inputs)
+        # # action based update for non-chosen element
+        # # same_action_as_before = 1-(torch.argmin(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
+        # same_action_as_before = 1 - same_action_as_before # torch.mean(torch.abs((1-action)-self._prev_action), dim=-1)
+        # inputs = torch.concat([not_chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
+        # action_update_not_chosen, state_not_chosen = self.call_subnetwork('xH', inputs)
         
-        state = state_chosen + state_not_chosen
-        new_value = action * action_update_chosen + (1-action) * action_update_not_chosen  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        # next_state = state_chosen + state_not_chosen
+        # next_value = value + action * action_update_chosen + (1-action) * action_update_not_chosen  # accumulation of action-based update possible; but hard reset for non-chosen action 
         
         self._prev_action = action
         
-        # self.append_timestep_sample('xHa', value, new_value)
-        # self.append_timestep_sample('xHn', value, new_value)
+        # self.append_timestep_sample('xHa', value, value + action * action_update_chosen)
+        # self.append_timestep_sample('xHn', value, value + (1-action) * action_update_not_chosen)
         
-        return new_value, state.unsqueeze(1)
+        return next_value, next_state.unsqueeze(1)
     
     def uncertainty_network(self, state, value, action, reward):
         # action based update for previously chosen element
@@ -346,8 +386,10 @@ class RLRNN(BaseRNN):
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
             action_value, action_state = self.action_network(action_state, action_value, a)
-            self.append_timestep_sample('xHa', reward_value, reward_value + a * action_value)
-            self.append_timestep_sample('xHn', reward_value, reward_value + (1-a) * action_value)
+            # self.append_timestep_sample('xHa', reward_value, reward_value + a * action_value)
+            # self.append_timestep_sample('xHn', reward_value, reward_value + (1-a) * action_value)
+            
+            reward_value = torch.clip(reward_value, 0, 1)
             logit = (reward_value + action_value) * self.beta
             
             logits[t, :, :] = logit.clone()

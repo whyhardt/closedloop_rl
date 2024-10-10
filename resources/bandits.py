@@ -298,14 +298,13 @@ class AgentNetwork:
 
     def get_value(self):
       """Return the value of the agent's current state."""
-      state = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
-      value = state[0, 0]
-      return value
+      value = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
+      return value[0, 0]
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      value = self.get_value() * self._model.beta.item()
-      choice_probs = np.exp(value) / np.sum(np.exp(value))
+      decision_variable = self.get_value() * self._model.beta.item()
+      choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
       return choice_probs
 
     def get_choice(self):
@@ -323,7 +322,7 @@ class AgentNetwork:
             
     @property
     def q(self):
-      return copy(self.get_value())
+      return self.get_value()
 
 
 ################
@@ -373,6 +372,70 @@ class EnvironmentBanditsFlips:
 
     # Return the reward
     return float(reward)
+
+  @property
+  def n_actions(self) -> int:
+    return 2
+  
+
+class EnvironmentBanditsSwitch:
+  """Env for 2-armed bandit task with fixed sets of reward probs that switch in blocks."""
+
+  def __init__(
+      self,
+      block_flip_prob: float = 0.02,
+      reward_prob_high: float = 0.75,
+      reward_prob_low: float = 0.25,
+      reward_prob_middle: float = 0.5,
+      **kwargs,
+  ):
+    # Assign the input parameters as properties
+    self._block_flip_prob = block_flip_prob
+    self._reward_prob_high = reward_prob_high
+    self._reward_prob_low = reward_prob_low
+    self._reward_prob_middle = reward_prob_middle
+    
+    # Choose a random block to start in
+    self._block = np.random.randint(3)
+    
+    # Set up the new block
+    self.new_block()
+
+  def new_block(self):
+    """Switch the reward probabilities for a new block."""
+    
+    # Choose a new random block
+    block = np.random.randint(0, 3)
+    while block == self._block:
+      block = np.random.randint(3)
+    self._block = block
+    
+    # Set the reward probabilites
+    if self._block == 0:
+      self._reward_probs = [self._reward_prob_high, self._reward_prob_low]
+    elif self._block == 1:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_middle]
+    elif self._block == 2:
+      self._reward_probs = [self._reward_prob_low, self._reward_prob_high]
+
+  def step(self, choice):
+    """Step the model forward given chosen action."""
+    # Choose the reward probability associated with agent's choice
+    reward_prob_trial = self.reward_probs[choice]
+
+    # Sample a reward with this probability
+    reward = float(np.random.binomial(1, reward_prob_trial))
+
+    # Check whether to flip the block
+    if np.random.uniform() < self._block_flip_prob:
+      self.new_block()
+
+    # Return the reward
+    return float(reward)
+
+  @property
+  def reward_probs(self) -> np.ndarray:
+    return self._reward_probs.copy()
 
   @property
   def n_actions(self) -> int:

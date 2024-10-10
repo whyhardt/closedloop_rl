@@ -86,6 +86,7 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+  # environment = bandits.EnvironmentBanditsSwitch(0.1)
   agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias)  
   if reward_update_rule is not None:
     agent.set_reward_update(reward_update_rule)
@@ -409,7 +410,7 @@ if __name__=='__main__':
   
   main(
     # train = True, 
-    checkpoint = False,
+    checkpoint = args.checkpoint,
     # model = 'params/params_rnn_a025_b3_cb.pkl',
     model = args.model,
     
