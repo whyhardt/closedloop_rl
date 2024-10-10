@@ -308,18 +308,21 @@ class AgentNetwork:
         else:
           self._model = model
         self._model.eval()
-        self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
+        
         self.new_sess()
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
       self._model.initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
+      self._q = torch.zeros((1, 2)) + self._q_init
+      self._h = torch.zeros((1, 2))
+      self._u = torch.zeros((1, 2))
 
     def get_value(self):
       """Return the value of the agent's current state."""
-      value = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
+      value = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
       return value[0, 0]
     
     def get_choice_probs(self) -> np.ndarray:
@@ -340,7 +343,10 @@ class AgentNetwork:
       self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
-            
+      self._q = self._model.get_state()[-3].cpu().numpy()
+      self._h = self._model.get_state()[-2].cpu().numpy()
+      self._u = self._model.get_state()[-1].cpu().numpy()
+
     @property
     def q(self):
       return self.get_value()

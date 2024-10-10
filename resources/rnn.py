@@ -53,15 +53,17 @@ class BaseRNN(nn.Module):
         # submodel: one state per model in model ensemble
         # substate: one state per subnetwork in model
         self.set_state(
-            torch.zeros([batch_size, 1, 1, self._hidden_size], dtype=torch.float, device=self.device),
             torch.zeros([batch_size, 1, 3, self._hidden_size], dtype=torch.float, device=self.device),
+            torch.zeros([batch_size, 1, 1, self._hidden_size], dtype=torch.float, device=self.device),
+            torch.zeros([batch_size, 1, 1, self._hidden_size], dtype=torch.float, device=self.device),
+            self.init_value + torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device),
             torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device),
-            (self.init_value + torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device))
+            torch.zeros([batch_size, 1, self._n_actions], dtype=torch.float, device=self.device),
             )
         
         return self.get_state(return_dict=return_dict)
         
-    def set_state(self, habit_state: torch.Tensor, value_state: torch.Tensor, habit: torch.Tensor, value: torch.Tensor):
+    def set_state(self, value_state: torch.Tensor, habit_state: torch.Tensor, uncertainty_state: torch.Tensor, value: torch.Tensor, habit: torch.Tensor, uncertainty: torch.Tensor):
         """this method sets the hidden state
         
         Args:
@@ -69,7 +71,7 @@ class BaseRNN(nn.Module):
         """
         
         # self._state = dict(hidden_habit=habit_state, hidden_value=value_state, habit=habit, value=value)
-        self._state = tuple([habit_state, value_state, habit, value])
+        self._state = tuple([value_state, habit_state, uncertainty_state, value, habit, uncertainty])
       
     def get_state(self, detach=False, return_dict=False) -> Union[Tuple[torch.Tensor], Dict[str, torch.Tensor]]:
         """this method returns the hidden state
@@ -83,7 +85,7 @@ class BaseRNN(nn.Module):
             state = [s.detach() for s in state]
 
         if return_dict:
-            keys = ['hidden_habit', 'hidden_value', 'habit', 'value']
+            keys = ['hidden_value', 'hidden_habit', 'hidden_uncertainty', 'value', 'habit', 'uncertainty']
             state = {keys[i]: state[i] for i in range(len(state))}
         
         return state
@@ -320,18 +322,18 @@ class RLRNN(BaseRNN):
         return next_value, next_state.unsqueeze(1)
     
     def uncertainty_network(self, state, value, action, reward):
-        # action based update for previously chosen element
-        chosen_value = torch.sum(action*value, dim=-1).view(-1, 1)
-        not_chosen_value = torch.sum((1-action)*value, dim=-1).view(-1, 1)
+        next_state = torch.zeros_like(state).squeeze(1)
+        next_value = torch.zeros_like(value)
         
-        same_action_as_before = 1-(torch.argmax(action, dim=-1)-torch.argmax(self._prev_action, dim=-1))
-        inputs = torch.concat([chosen_value, same_action_as_before.view(-1, 1)], dim=-1)
-        action_update, state = self.call_subnetwork('xH', inputs)
-        value = action * action_update  # accumulation of action-based update possible; but hard reset for non-chosen action 
+        for i in range(self._n_actions):
+            v = value[:, i]
+            same_action_as_before = action[:, i] * self._prev_action[:, i]
+            inputs = torch.stack([v, same_action_as_before], dim=-1)
+            update, state_update = self.call_subnetwork('xH', inputs)
+            next_state += state_update
+            next_value += torch.eye(self._n_actions, device=self.device)[i] * update
         
-        self._prev_action = action
-        
-        return value, state.unsqueeze(1)
+        return next_value, next_state.unsqueeze(1)
     
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
@@ -371,10 +373,12 @@ class RLRNN(BaseRNN):
             self.set_state(*prev_state)
         else:
             self.initial_state(batch_size=inputs.shape[1])
-        action_state, reward_state, action_value, reward_value = self.get_state()
+        reward_state, action_state, uncertainty_state, reward_value, action_value, uncertainty_value = self.get_state()
         # remove model dim for forward pass -> only one model
+        uncertainty_state = uncertainty_state.squeeze(1)
         action_state = action_state.squeeze(1)
         reward_state = reward_state.squeeze(1)
+        uncertainty_value = uncertainty_value.squeeze(1)
         action_value = action_value.squeeze(1)
         reward_value = reward_value.squeeze(1)
         
@@ -386,16 +390,20 @@ class RLRNN(BaseRNN):
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
             action_value, action_state = self.action_network(action_state, action_value, a)
+            # uncertainty_value, uncertainty_state = self.action_network(uncertainty_state, uncertainty_value, r)
+            
             # self.append_timestep_sample('xHa', reward_value, reward_value + a * action_value)
             # self.append_timestep_sample('xHn', reward_value, reward_value + (1-a) * action_value)
             
             reward_value = torch.clip(reward_value, 0, 1)
+            action_value = torch.clip(action_value, 0, 1)
+            uncertainty_value = torch.clip(uncertainty_value, 0, 1)
             logit = (reward_value + action_value) * self.beta
             
             logits[t, :, :] = logit.clone()
             
         # add model dim again and set state
-        self.set_state(action_state.unsqueeze(1), reward_state.unsqueeze(1), action_value.unsqueeze(1), reward_value.unsqueeze(1))
+        self.set_state(reward_state.unsqueeze(1), action_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), action_value.unsqueeze(1), uncertainty_value.unsqueeze(1))
         
         if batch_first:
             logits = logits.permute(1, 0, 2)
@@ -572,7 +580,7 @@ class EnsembleRNN:
             state = [s.detach() for s in state]
             
         if return_dict:
-            keys = ['hidden_habit', 'hidden_value', 'habit', 'value']
+            keys = ['hidden_value', 'hidden_habit', 'hidden_uncertainty', 'value', 'habit', 'uncertainty']
             state = {keys[i]: state[i] for i in range(len(state))}
         else:
             state = tuple(state)
