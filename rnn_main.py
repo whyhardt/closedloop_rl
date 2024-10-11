@@ -321,7 +321,7 @@ def main(
       choices=choices,
       rewards=rewards,
       timeseries=Qs[:, :, 0],
-      timeseries_name='Q Arm 0',
+      timeseries_name='q+h+u',
       color=colors,
       binary=True,
       fig_ax=(fig, axs[2]),
@@ -332,7 +332,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=qs[:, :, 0],
-        timeseries_name='q Arm 0',
+        timeseries_name='q',
         color=colors,
         binary=True,
         fig_ax=(fig, axs[3]),
@@ -343,7 +343,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=hs[:, :, 0],
-        timeseries_name='h Arm 0',
+        timeseries_name='h',
         color=colors,
         binary=True,
         fig_ax=(fig, axs[4]),
@@ -354,12 +354,12 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=us[:, :, 0],
-        timeseries_name='u Arm 0',
+        timeseries_name='u',
         color=colors,
         binary=True,
         fig_ax=(fig, axs[5]),
         )
-
+    
     plt.show()
 
   return loss_test

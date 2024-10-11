@@ -389,15 +389,15 @@ class RLRNN(BaseRNN):
             
             # compute the updates
             reward_value, reward_state = self.value_network(reward_state, reward_value, a, r)
-            action_value, action_state = self.action_network(action_state, action_value, a)
+            # action_value, action_state = self.action_network(action_state, action_value, a)
             # uncertainty_value, uncertainty_state = self.action_network(uncertainty_state, uncertainty_value, r)
             
             # self.append_timestep_sample('xHa', reward_value, reward_value + a * action_value)
             # self.append_timestep_sample('xHn', reward_value, reward_value + (1-a) * action_value)
             
-            reward_value = torch.clip(reward_value, 0, 1)
-            action_value = torch.clip(action_value, 0, 1)
-            uncertainty_value = torch.clip(uncertainty_value, 0, 1)
+            # reward_value = torch.clip(reward_value, 0, 1)
+            # action_value = torch.clip(action_value, 0, 1)
+            # uncertainty_value = torch.clip(uncertainty_value, 0, 1)
             logit = (reward_value + action_value) * self.beta
             
             logits[t, :, :] = logit.clone()
