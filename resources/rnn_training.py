@@ -58,31 +58,32 @@ def batch_train(
     for t in range(0, xs.shape[1]-1, n_steps_per_call):
         n_steps = min(xs.shape[1]-t-1, n_steps_per_call)
         state = model.get_state(detach=True)
-        y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
+        y_pred, _, vae_outputs = model(xs[:, t:t+n_steps], state, batch_first=True)
         
-        # loss = loss_fn(y_pred[:, -1], xs[:, t+n_steps, :-1])
-        loss = 0
+        reconstruction_loss = torch.tensor(0., device=y_pred.device)
+        kl_div = torch.tensor(0., device=y_pred.device)
         for i in range(n_steps):
-            loss += loss_fn(y_pred[:, i], ys[:, t+i])
-        loss /= n_steps
+            reconstruction_loss += loss_fn(y_pred[:, i], ys[:, t+i])
+            kl_div += torch.mean(0.5 * torch.sum(torch.exp(vae_outputs[:, i, :, 1]) + torch.square(vae_outputs[:, i, :, 0]) - 1 - vae_outputs[:, i, :, 1], dim=-1))
+        reconstruction_loss /= n_steps
+        kl_div /= n_steps          
+        
+        loss = reconstruction_loss + kl_div #* 1e1
         
         if torch.is_grad_enabled():
             
-            # add penalty for computing Q-Values bigger than 1 --> Necessary to find a good beta-value
-            # loss += 1e-1 * penalty_q_range(y_pred)
-            
             # backpropagation
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()  # retain_graph=True
             optimizer.step()
     
-    return model, optimizer, loss.item()
+    return model, optimizer, (loss.item(), reconstruction_loss.item(), kl_div.item())
     
 
 def fit_model(
     model: Union[BaseRNN, EnsembleRNN],
-    dataset_train: DatasetRNN,
-    dataset_test: DatasetRNN,
+    dataset_train: DatasetRNN = None,
+    dataset_test: DatasetRNN = None,
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
@@ -96,6 +97,13 @@ def fit_model(
     n_steps_per_call: int = -1,
     verbose: bool = True,
 ):
+    
+    # make sure that either epochs and training dataset or at least a test dataset are given
+    if dataset_train == None and epochs > 0:
+        raise Warning('dataset_train is None but epochs are higher than 0. Setting epochs to 0')
+        epochs = 0
+    if dataset_train == None and dataset_test == None:
+        raise ValueError('dataset_train and dataset_test are both None. Give at least one dataset.')
     
     # initialize submodels
     if isinstance(model, BaseRNN):
@@ -123,21 +131,23 @@ def fit_model(
         raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
     
     # set up learning rate scheduler for each optimizer
-    scheduler = [ReduceLROnPlateau(optim) for optim in optimizers]
+    # scheduler = [ReduceLROnPlateau(optim, patience=1e2) for optim in optimizers]
     
-    # initialize dataloader
-    if batch_size == -1:
-        batch_size = len(dataset_train)//n_submodels
-    # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    if bagging:
-        # use random sampling with replacement
-        if n_oversampling == -1:
-            n_oversampling = batch_size
-        sampler = RandomSampler(dataset_train, replacement=True, num_samples=n_oversampling)
-        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
-    else:
-        # use normal dataloader instance with sampling without replacement
-        dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
+    if dataset_train is not None:
+        # initialize dataloader
+        if batch_size == -1:
+            batch_size = len(dataset_train)//n_submodels
+        # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        if bagging:
+            # use random sampling with replacement
+            if n_oversampling == -1:
+                n_oversampling = batch_size
+            sampler = RandomSampler(dataset_train, replacement=True, num_samples=n_oversampling)
+            dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
+        else:
+            # use normal dataloader instance with sampling without replacement
+            dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
+        batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size
     if dataset_test is not None:
         dataloader_test = DataLoader(dataset_test, batch_size=len(dataset_test))
     
@@ -176,13 +186,16 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size
     
     # start training
     while continue_training:
         try:
             loss_train = 0
+            loss_train_rec = 0
+            loss_train_kl = 0
             loss_test = 0
+            loss_test_rec = 0
+            loss_test_kl = 0
             t_start = time.time()
             n_calls_to_train_model += 1
             if isinstance(model, EnsembleRNN):
@@ -217,8 +230,12 @@ def fit_model(
                         # keep_predictions=True,
                         # loss_fn = categorical_log_likelihood
                     )
-                    loss_train += loss_i
+                    loss_train += loss_i[0]
+                    loss_train_rec += loss_i[1]
+                    loss_train_kl += loss_i[2]
                 loss_train /= batch_iteration_constant
+                loss_train_rec /= batch_iteration_constant
+                loss_train_kl /= batch_iteration_constant
             
             if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
@@ -258,29 +275,34 @@ def fit_model(
                         # loss_fn = categorical_log_likelihood
                     )
                 models[0].train()
+                loss_test_rec = loss_test[1]
+                loss_test_kl = loss_test[2]
+                loss_test = loss_test[0]
 
             # adapt learning rate based on validation loss
-            last_lr = 0
-            for s in scheduler:
-                s.step(loss_test)
-                last_lr += s.get_last_lr()[-1]
-            last_lr /= len(scheduler)
+            # last_lr = 0
+            # for s in scheduler:
+            #     s.step(loss_test)
+            #     last_lr += s.get_last_lr()[-1]
+            # last_lr /= len(scheduler)
             
             # check for convergence
             dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
             convergence_value += recency_factor * (np.abs(dloss) - convergence_value)
-            converged = convergence_value < convergence_threshold or last_lr < convergence_threshold
+            converged = convergence_value < convergence_threshold #or last_lr < convergence_threshold
             continue_training = not converged and n_calls_to_train_model < epochs
             last_loss = 0
-            last_loss += loss_test
+            last_loss += loss_test if dataset_test is not None else loss_train
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Training loss: {loss_train:.7f}'                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- L(Training): {loss_train:.7f}'                
                 if dataset_test is not None:
-                    msg += f'; Validation loss: {loss_test:.7f}'
-                msg += f'; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'
-                msg += f'; Learning rate: {last_lr}'
+                    msg += f'; L(Validation): {loss_test:.7f}'
+                msg += f'; Time: {time.time()-t_start:.4f}s; Convergence: {convergence_value:.2e}'
+                # msg += f'; Learning rate: {last_lr:.2e}'
+                msg += f'; L(Reconstr): {loss_test_rec if dataset_test is not None else loss_train_rec:.4f}'
+                msg += f'; L(KL): {loss_test_kl if dataset_test is not None else loss_train_kl:.4f}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -303,7 +325,7 @@ def fit_model(
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         
-    return model_backup, optimizer_backup, loss_train
+    return model_backup, optimizer_backup, loss_test if dataset_test is not None else loss_train
 
 
 def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimizer], xs, ys, n_best: int = None, n_children: int = None):

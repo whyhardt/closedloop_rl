@@ -86,7 +86,7 @@ def main(
     datafilter_setup = {
         'xLR': ['ca', 1, True],
         'xQf': ['ca', 0, True],
-        'xH': [['ca', 1, True], ['ca_repeat', 1, True]],
+        'xH': ['ca', 1, True],
         'xHf': ['ca', 0, True],
         'xU': ['ca', 1, True],
         'xUf': ['ca', 0, True],

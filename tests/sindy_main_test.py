@@ -20,7 +20,7 @@ sindy_main.main(
     forget_rate=0.,
     perseveration_bias=0.25,
     beta=5,
-    # directed_exploration_bias=1.,
+    directed_exploration_bias=1.,
     undirected_exploration_bias=5.,
     
     analysis=True,

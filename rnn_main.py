@@ -236,9 +236,9 @@ def main(
   with torch.no_grad():
     _, _, loss_test = rnn_training.fit_model(
         model=model,
+        epochs=1,
         dataset_train=dataset_test,
-        dataset_test=None,
-        n_steps_per_call=1,
+        n_steps_per_call=-1,
     )
   
   # -----------------------------------------------------------

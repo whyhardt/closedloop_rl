@@ -257,7 +257,7 @@ class AgentSindy:
       
       # beta network (independent of action)
       if 'xB' in self._models:
-        beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))
+        beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))# - self._beta_base
         self._beta = self._beta_base + beta_update[0, 0]
       
   def new_sess(self):
@@ -285,7 +285,7 @@ class AgentSindy:
   
   @property
   def q(self):
-    return (self._q + self._h).copy()
+    return (self._q + self._h + self._u).copy()
   
   @property
   def beta(self):
@@ -727,8 +727,8 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
   
-  # if hasattr(agent, '_directed_exploration_bias'):
-  #   us *= agent._directed_exploration_bias
+  if hasattr(agent, '_directed_exploration_bias'):
+    us *= agent._directed_exploration_bias
   
   return (Qs, qs, hs, us, bs), choice_probs
 
