@@ -1,24 +1,12 @@
-import pysindy as ps
-import numpy as np
-import matplotlib.pyplot as plt 
+import torch
+from typing import OrderedDict
 
-q_init = 0.5
-reward = np.linspace(0, 1, 100)
-q = np.linspace(0, 1, 100)
+logits1 = torch.tensor([[[(0.5)*3, 0.]]], dtype=float)
+logits2 = torch.tensor([[[(.5+.6)*3, .6*3]]], dtype=float)
+logits = torch.concat((logits1, logits2), dim=0)
+print(logits.shape)
+print(logits)
 
-cb = np.zeros((100, 100))
-for i in range(100):
-    for j in range(100):
-        cb[i, j] = (q[i]-q_init)*(reward[j] - 0.5)/2
+softmax = torch.nn.Softmax(2)
 
-q_mesh, reward_mesh = np.meshgrid(q, reward)
-cb = (q_mesh-q_init)*(reward_mesh - 0.5)/2
-plt.imshow(cb, cmap='viridis', interpolation='nearest')
-plt.colorbar()
-plt.title('Confirmation bias')
-plt.xlabel('Q-Value')
-plt.ylabel('Reward')
-plt.show()
-
-# plt.plot(cb[0])
-# plt.show()
+print(softmax(logits))

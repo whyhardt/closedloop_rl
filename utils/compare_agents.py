@@ -9,22 +9,24 @@ from resources.bandits import AgentQ, EnvironmentBanditsSwitch, plot_session, cr
 
 agent1 = AgentQ(
     alpha=0.25,
-    beta=3.,
+    beta=5.,
     forget_rate=0.,
     perseveration_bias=0.,
     regret=False,
     confirmation_bias=False,
     directed_exploration_bias=0.,
+    undirected_exploration_bias=0.,
     )
 
 agent2 = AgentQ(
     alpha=0.25,
-    beta=3.,
+    beta=5.,
     forget_rate=0.,
     perseveration_bias=0.,
     regret=False,
     confirmation_bias=False,
-    directed_exploration_bias=1.,
+    directed_exploration_bias=0.,
+    undirected_exploration_bias=5.,
     )
 
 env = EnvironmentBanditsSwitch(0.05, reward_prob_high=1.0, reward_prob_low=0.5)
@@ -33,8 +35,8 @@ colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 
 trajectory = create_dataset(agent1, env, 256, 1)[1][0]
 
-qs1, probs1 = get_update_dynamics(trajectory, agent1)
-qs2, probs2 = get_update_dynamics(trajectory, agent2)
+values1, probs1 = get_update_dynamics(trajectory, agent1)
+values2, probs2 = get_update_dynamics(trajectory, agent2)
 
 choices = trajectory.choices
 rewards = trajectory.rewards
@@ -44,25 +46,29 @@ list_Qs = []
 list_qs = []
 list_hs = []
 list_us = []
+list_bs = []
 
 list_probs.append(np.expand_dims(probs1, 0))
-list_Qs.append(np.expand_dims(qs1[0], 0))
-list_qs.append(np.expand_dims(qs1[1], 0))
-list_hs.append(np.expand_dims(qs1[2], 0))
-list_us.append(np.expand_dims(qs1[3], 0))
+list_Qs.append(np.expand_dims(values1[0], 0))
+list_qs.append(np.expand_dims(values1[1], 0))
+list_hs.append(np.expand_dims(values1[2], 0))
+list_us.append(np.expand_dims(values1[3], 0))
+list_bs.append(np.expand_dims(values1[4], 0))
 list_probs.append(np.expand_dims(probs2, 0))
-list_Qs.append(np.expand_dims(qs2[0], 0))
-list_qs.append(np.expand_dims(qs2[1], 0))
-list_hs.append(np.expand_dims(qs2[2], 0))
-list_us.append(np.expand_dims(qs2[3], 0))
+list_Qs.append(np.expand_dims(values2[0], 0))
+list_qs.append(np.expand_dims(values2[1], 0))
+list_hs.append(np.expand_dims(values2[2], 0))
+list_us.append(np.expand_dims(values2[3], 0))
+list_bs.append(np.expand_dims(values2[4], 0))
 
 probs = np.concatenate(list_probs, axis=0)
 Qs = np.concatenate(list_Qs, axis=0)
 qs = np.concatenate(list_qs, axis=0)
 hs = np.concatenate(list_hs, axis=0)
 us = np.concatenate(list_us, axis=0)
+bs = np.concatenate(list_bs, axis=0)
 
-fig, axs = plt.subplots(6, 1, figsize=(20, 10))
+fig, axs = plt.subplots(7, 1, figsize=(20, 10))
 
 reward_probs = np.stack([trajectory.reward_probabilities[:, i] for i in range(agent1._n_actions)], axis=0)
 plot_session(
@@ -131,6 +137,17 @@ plot_session(
     color=colors,
     binary=True,
     fig_ax=(fig, axs[5]),
+    )
+
+plot_session(
+    compare=True,
+    choices=choices,
+    rewards=rewards,
+    timeseries=bs[:, :, 0],
+    timeseries_name='beta',
+    color=colors,
+    binary=True,
+    fig_ax=(fig, axs[6]),
     )
 
 plt.show()

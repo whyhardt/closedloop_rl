@@ -121,7 +121,7 @@ def create_dataset(
     elif isinstance(data[0], BanditSession):
       qs = get_update_dynamics(data[session], agent)[0]
     
-    dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
+    dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[0][trimming:], axis=-1))))
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
@@ -229,39 +229,6 @@ def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], 
     control_features.remove(relevant_feature)
     
   return x_train_relevant, control_relevant, x_features+control_features
-
-
-def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward):
-      # mimic behavior of rnn with sindy
-      
-      blind_update, reward_update, action_update, learning_rate = 0, 0, 0, 1
-      
-      # action network
-      if choice == 1 and 'xHa' in sindy_models:
-        action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
-      
-      # value network      
-      if choice == 1 and 'xLR' in sindy_models:
-        # reward-based update for chosen action in case of reward
-        # confirmation_bias = (q > 0.5) * (reward > 0.5) + (q < 0.5) * (reward < 0.5)
-        # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward]).reshape(1, -1))[-1]
-        learning_rate = sindy_models['xLR'].predict(np.array([0]), u=np.array([q, reward, 1-reward]).reshape(1, -1))[-1]
-        # learning_rate = sindy_models['xLR'].predict(np.array([0]), u=learning_latents.reshape(1, -1))[-1]
-        
-      if choice == 1 and 'xQr' in sindy_models:
-        # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
-      elif choice == 1 and not 'xQr' in sindy_models:
-        reward_update = reward-q
-         
-      if choice == 0 and 'xQf' in sindy_models:
-        # blind update for non-chosen action
-        blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([q]).reshape(1, -1))[-1] - q
-      
-      return q+blind_update+reward_update*learning_rate, action_update
-    
-  return update_rule_sindy
 
 
 def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = log_loss):

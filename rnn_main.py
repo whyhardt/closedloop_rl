@@ -22,15 +22,15 @@ def main(
   model = None,
 
   # rnn parameters
-  hidden_size = 4,
-  dropout = 0.25,
+  hidden_size = 8,
+  dropout = 0.1,
   use_lstm = False,
 
   # ensemble parameters
-  evolution_interval = 100,
+  evolution_interval = -1,
   n_submodels = 1,
   init_population = -1,
-  ensemble = rnn_training.ensembleTypes.BEST,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
+  ensemble = rnn_training.ensembleTypes.AVERAGE,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
   voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
 
   # training parameters
@@ -39,29 +39,32 @@ def main(
   dataset_test = None,
   experiment_list_test = None,
   
+  # data and training parameters
+  epochs = 128,
   n_trials_per_session = 64,
-  n_sessions = 128,
+  n_sessions = 4096,
   bagging = False,
   n_oversampling = -1,
-  epochs = 1024,
-  n_steps_per_call = -1,  # -1 for full sequence
+  n_steps_per_call = 8,  # -1 for full sequence
   batch_size = -1,  # -1 for one batch per epoch
-  learning_rate = 1e-3,
+  learning_rate = 1e-2,
   convergence_threshold = 1e-6,
+  weight_decay = 0,
   
   # ground truth parameters
   alpha = 0.25,
   beta = 3,
   forget_rate = 0.,
   perseveration_bias = 0.,
-  directed_exploration_bias = 0.,
+  directed_exploration_bias = 0,
+  undirected_exploration_bias = 0,
   regret = False,
   confirmation_bias = False,
-  reward_update_rule: Callable = None,
+  reward_prediction_error: Callable = None,
   
   # environment parameters
   n_actions = 2,
-  sigma = 0.2,
+  sigma = 0.1,
   correlated_reward = False,
   non_binary_reward = False,
 
@@ -72,8 +75,8 @@ def main(
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xLR', 'xH', 'xHa', 'xHn']
-  control_list = ['ca', 'cr', 'cQ', 'cp', 'ca_prev']
+  x_train_list = ['xQf', 'xLR', 'xH', 'xHf', 'xU', 'xUf', 'xB']
+  control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ', 'cU_0', 'cU_1']
   for i in range(hidden_size):
     x_train_list.append(f'xLR_{i}')
   sindy_feature_list = x_train_list + control_list
@@ -87,10 +90,10 @@ def main(
 
   # setup
   environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  # environment = bandits.EnvironmentBanditsSwitch(0.1)
-  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias)  
-  if reward_update_rule is not None:
-    agent.set_reward_update(reward_update_rule)
+  # environment = bandits.EnvironmentBanditsSwitch(sigma)
+  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
+  if reward_prediction_error is not None:
+    agent.set_reward_prediction_error(reward_prediction_error)
   print('Setup of the environment and agent complete.')
 
   if epochs > 0:
@@ -133,6 +136,8 @@ def main(
         perseveration_bias,
         regret,
         confirmation_bias,
+        directed_exploration_bias,
+        undirected_exploration_bias,
         non_binary_reward,
         verbose=True,
     )
@@ -162,7 +167,7 @@ def main(
         ).to(device)
             for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate) for m in model]
+  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, weight_decay=weight_decay) for m in model]
 
   print('Setup of the RNN model complete.')
 
@@ -219,7 +224,7 @@ def main(
       model = model[0]
       optimizer_rnn = optimizer_rnn[0]
   
-  print(f'Trained beta of RNN is: {model.beta.item()}')
+  print(f'Trained initial beta of RNN is: {model._beta_base.item()}')
   
   # validate model
   print('\nTesting the trained hybrid RNN on a test dataset...')
@@ -257,6 +262,7 @@ def main(
     list_qs = []
     list_hs = []
     list_us = []
+    list_bs = []
 
     # get q-values from groundtruth
     qs_test, probs_test = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
@@ -265,6 +271,7 @@ def main(
     list_qs.append(np.expand_dims(qs_test[1], 0))
     list_hs.append(np.expand_dims(qs_test[2], 0))
     list_us.append(np.expand_dims(qs_test[3], 0))
+    list_bs.append(np.expand_dims(qs_test[4], 0))
 
     # get q-values from trained rnn
     qs_rnn, probs_rnn = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
@@ -273,6 +280,7 @@ def main(
     list_qs.append(np.expand_dims(qs_rnn[1], 0))
     list_hs.append(np.expand_dims(qs_rnn[2], 0))
     list_us.append(np.expand_dims(qs_rnn[3], 0))
+    list_bs.append(np.expand_dims(qs_rnn[4], 0))
 
     colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 
@@ -282,6 +290,7 @@ def main(
     qs = np.concatenate(list_qs, axis=0)
     hs = np.concatenate(list_hs, axis=0)
     us = np.concatenate(list_us, axis=0)
+    bs = np.concatenate(list_bs, axis=0)
     
     # normalize q-values
     def normalize(qs):
@@ -289,7 +298,7 @@ def main(
 
     # qs = normalize(qs)
 
-    fig, axs = plt.subplots(6, 1, figsize=(20, 10))
+    fig, axs = plt.subplots(7, 1, figsize=(20, 10))
 
     reward_probs = np.stack([experiment_list_test[session_id].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
     bandits.plot_session(
@@ -297,7 +306,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=reward_probs,
-        timeseries_name='Reward Probs',
+        timeseries_name='p(R)',
         labels=[f'Arm {a}' for a in range(n_actions)],
         color=['tab:purple', 'tab:cyan'],
         binary=not non_binary_reward,
@@ -309,7 +318,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=probs[:, :, 0],
-        timeseries_name='Choice Probs',
+        timeseries_name='p(A)',
         color=colors,
         labels=['Ground Truth', 'RNN'],
         binary=not non_binary_reward,
@@ -321,7 +330,7 @@ def main(
       choices=choices,
       rewards=rewards,
       timeseries=Qs[:, :, 0],
-      timeseries_name='q+h+u',
+      timeseries_name='Q0',
       color=colors,
       binary=True,
       fig_ax=(fig, axs[2]),
@@ -343,7 +352,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=hs[:, :, 0],
-        timeseries_name='h',
+        timeseries_name='a',
         color=colors,
         binary=True,
         fig_ax=(fig, axs[4]),
@@ -358,10 +367,24 @@ def main(
         color=colors,
         binary=True,
         fig_ax=(fig, axs[5]),
-        )
+    )
     
+    bandits.plot_session(
+        compare=True,
+        choices=choices,
+        rewards=rewards,
+        timeseries=bs[:, :, 0],
+        timeseries_name='b',
+        color=colors,
+        binary=True,
+        fig_ax=(fig, axs[6]),
+    )
+
     plt.show()
 
+    print(f'Average beta of ground truth is: beta_avg = {np.round(np.mean(qs_test[4]), 2)}')
+    print(f'Average beta of RNN is: beta_avg = {np.round(np.mean(qs_rnn[4]), 2)}')
+    
   return loss_test
 
 
@@ -396,7 +419,6 @@ if __name__=='__main__':
   parser.add_argument('--perseveration_bias', type=float, default=0., help='Perseveration bias')
   parser.add_argument('--regret', action='store_true', help='Whether to include regret')
   parser.add_argument('--confirmation_bias', action='store_true', help='Whether to include confirmation bias')
-  parser.add_argument('--directed_exploration_bias', type=float, default=0., help='Directed exploration bias')
 
   # Environment parameters
   parser.add_argument('--sigma', type=float, default=0.1, help='Drift rate of the reward probabilities')
@@ -438,6 +460,7 @@ if __name__=='__main__':
     perseveration_bias = args.perseveration_bias,
     regret = args.regret,
     confirmation_bias = args.confirmation_bias,
+    # directed_exploration_bias = 0,
     # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters

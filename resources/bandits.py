@@ -1,6 +1,6 @@
 """Environments + agents for 2-armed bandit task."""
 # pylint: disable=line-too-long
-from typing import NamedTuple, Union, Optional, List, Dict, Callable
+from typing import NamedTuple, Union, Optional, Dict, Callable, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -9,6 +9,7 @@ from copy import copy, deepcopy
 import torch
 from torch import nn
 import torch.utils
+import pysindy as ps
 
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.rnn_utils import DatasetRNN
@@ -79,7 +80,8 @@ class AgentQ:
     """
     
     self._alpha = alpha
-    self._beta = beta
+    self._alpha_uncertainty = alpha
+    self._beta_init = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseveration_bias
@@ -93,7 +95,7 @@ class AgentQ:
     _check_in_0_1_range(self._alpha, 'alpha')
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
-    self._reward_update = lambda q, reward: reward-q
+    self._reward_prediction_error = lambda q, reward: reward-q
     
     self.new_sess()
 
@@ -101,13 +103,15 @@ class AgentQ:
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
-    self._u = np.zeros(self._n_actions)
+    self._u = self._q_init + np.zeros(self._n_actions)
+    
+    self.beta = self._beta_init
     
     self._reward_history = np.zeros((self._n_actions, 5))
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = np.exp(self.q * self._beta)
+    decision_variable = np.exp(self.q * self.beta)
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
@@ -131,7 +135,7 @@ class AgentQ:
     alpha = self._alpha
     
     # Reward-prediction-error
-    rpe = self._reward_update(self._q[choice], reward)
+    rpe = self._reward_prediction_error(self._q[choice], reward)
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
@@ -182,79 +186,86 @@ class AgentQ:
     # Reward-uncertainty-biased directed exploration
     # https://psycnet.apa.org/record/2018-48589-001?doi=1
     # https://link.springer.com/article/10.3758/s13415-013-0220-4
-    recency_factor = 0.3
     uncertainty_update = rpe**2 - self._u[choice]
-    self._u[choice] += recency_factor * uncertainty_update    
+    self._u[choice] += self._alpha_uncertainty * uncertainty_update  
+    
+    # Reward-uncertainty-biased undirected exploration
+    self.beta = self._beta_init - self._undirected_exploration_bias * np.sum(self._u)  
     
   @property
   def q(self):
     q = (self._q + self._h + self._directed_exploration_bias * self._u).copy()
     return q
   
-  def set_reward_update(self, update_rule: Callable):
-    self._reward_update = update_rule
+  def set_reward_prediction_error(self, update_rule: Callable):
+    self._reward_prediction_error = update_rule
 
 
 class AgentSindy:
 
   def __init__(
       self,
-      rnn: RLRNN,
+      sindy_models: Dict[str, ps.SINDy],
       n_actions: int=2,
       beta: float=1.,
       deterministic: bool=False,
       ):
     
-    self._rnn = rnn
-    self._rnn.eval()
-    self._rnn.set_device('cpu')
-    self._rnn.to(torch.device('cpu'))
-    self._rnn.initial_state()
-    
+    self._models = sindy_models
     self._q_init = 0.5
     self._deterministic = deterministic
-    self._beta = beta
+    self._beta_base = beta
     self._n_actions = n_actions
     self._prev_choice = None
-
-    self._update_rule = lambda q, choice, reward: q[choice] + reward
-    self._update_rule_formula = None
     
-  def set_update_rule(self, update_rule: callable, update_rule_formula: str=None):
-    self._update_rule=update_rule
-    self._update_rule_formula=update_rule_formula
-
-  @property
-  def update_rule(self):
-    if self._update_rule_formula is not None:
-      return self._update_rule_formula
-    else:
-      return f'{self._update_rule}'
+    self.new_sess()
 
   def update(self, choice: int, reward: int):
-    # the chosen action must be updated first and the non-chosen actions afterwards 
-    # necessary due to spillover effects from chosen action to non-chosen actions
-    
-    # learning_latents = self._rnn.call_subnetwork('xLR', torch.tensor([self._q[choice], reward]).float().reshape(1, 2))[1].detach().cpu().numpy()
-    
-    # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward)
-    self._q[choice] = q
-    self._h[choice] = h
-    
-    # 2. update non-chosen actions
-    for c in range(self._n_actions):
-      if c == choice:
-        # skip already updated chosen action
-        continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward)
-      self._q[c] = q
-      self._h[c] = h
+
+      choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
+      
+      for action in range(self._n_actions):
+        chosen = 1 - np.abs(choice - action)
+        
+        # reward network
+        if chosen == 1:
+          # current action was chosen
+          if 'xLR' in self._models:
+            learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward, 1-reward]).reshape(1, -1))[-1]
+            reward_prediction_error = reward - self._q[action]
+            self._q[action] += learning_rate * reward_prediction_error
+        
+          if 'xH' in self._models:
+            self._h[action] = self._models['xH'].predict(np.array([self._h[action]]), u=np.array([choice_repeat]).reshape(1, -1))# - self._h[action]
+
+          if 'xU' in self._models:
+            self._u[action] = self._models['xU'].predict(np.array([self._u[action]]), u=np.array([self._q[action], reward]).reshape(1, -1))# - self._u[action]
+          
+        else:  # chosen == 0
+          # current action was not chosen
+          if 'xQf' in self._models:
+            self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]# - self._q[action]
+          if 'xHf' in self._models:
+            self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))# - self._h[action]
+          if 'xUf' in self._models:
+            self._u[action] = self._models['xUf'].predict(np.array([self._u[action]]), u=np.array([0]).reshape(1, -1))# - self._u[action]
+        
+        # compute updates for current action
+        # self._q[action] += reward_update
+        # self._h[action] += action_update
+        # self._u[action] += uncertainty_update 
+      
+      # beta network (independent of action)
+      if 'xB' in self._models:
+        beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))
+        self._beta = self._beta_base + beta_update[0, 0]
       
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
+    self._u = np.zeros(self._n_actions)
+    self._beta = self._beta_base
     self._prev_choice = -1
     
   def get_choice_probs(self) -> np.ndarray:
@@ -275,6 +286,10 @@ class AgentSindy:
   @property
   def q(self):
     return (self._q + self._h).copy()
+  
+  @property
+  def beta(self):
+    return self._beta
 
 
 class AgentNetwork:
@@ -303,31 +318,34 @@ class AgentNetwork:
         if device != model.device:
           model = model.to(device)
         if isinstance(model, RLRNN):
-          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, model._vo, model._vs, list(model.history.keys()), device=model.device).to(model.device)
+          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
           self._model.load_state_dict(model.state_dict())
         else:
           self._model = model
         self._model.eval()
         self._n_actions = n_actions
         
+        # self._directed_exploration_bias = self._model._directed_exploration_bias.item()
+        
         self.new_sess()
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      self._model.initial_state(batch_size=1)
+      self._model.set_initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
-      self._q = torch.zeros((1, 2)) + self._q_init
-      self._h = torch.zeros((1, 2))
-      self._u = torch.zeros((1, 2))
+      self._q = self._model.get_state()[-3].cpu().numpy()
+      self._h = self._model.get_state()[-2].cpu().numpy()
+      self._u = self._model.get_state()[-1].cpu().numpy()
+      self.beta = self._model._beta.item()
 
-    def get_value(self):
+    def get_logit(self):
       """Return the value of the agent's current state."""
-      value = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
-      return value[0, 0]
+      logit = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy() #* self._directed_exploration_bias
+      return logit[0, 0]
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      decision_variable = self.get_value() * self._model.beta.item()
+      decision_variable = self.get_logit() * self._model._beta.item()
       choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
       return choice_probs
 
@@ -346,10 +364,11 @@ class AgentNetwork:
       self._q = self._model.get_state()[-3].cpu().numpy()
       self._h = self._model.get_state()[-2].cpu().numpy()
       self._u = self._model.get_state()[-1].cpu().numpy()
+      self.beta = self._model._beta.item()
 
     @property
     def q(self):
-      return self.get_value()
+      return self.get_logit()
 
 
 ################
@@ -422,8 +441,10 @@ class EnvironmentBanditsSwitch:
     self._reward_prob_low = reward_prob_low
     self._reward_prob_middle = reward_prob_middle
     
+    self._n_blocks = 7
+    
     # Choose a random block to start in
-    self._block = np.random.randint(3)
+    self._block = np.random.randint(self._n_blocks)
     
     # Set up the new block
     self.new_block()
@@ -432,9 +453,9 @@ class EnvironmentBanditsSwitch:
     """Switch the reward probabilities for a new block."""
     
     # Choose a new random block
-    block = np.random.randint(0, 3)
+    block = np.random.randint(0, self._n_blocks)
     while block == self._block:
-      block = np.random.randint(3)
+      block = np.random.randint(0, self._n_blocks)
     self._block = block
     
     # Set the reward probabilites
@@ -444,7 +465,15 @@ class EnvironmentBanditsSwitch:
       self._reward_probs = [self._reward_prob_middle, self._reward_prob_middle]
     elif self._block == 2:
       self._reward_probs = [self._reward_prob_low, self._reward_prob_high]
-
+    elif self._block == 3:
+      self._reward_probs = [self._reward_prob_low, self._reward_prob_middle]
+    elif self._block == 4:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_high]
+    elif self._block == 5:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_low]
+    elif self._block == 6:
+      self._reward_probs = [self._reward_prob_high, self._reward_prob_middle]
+      
   def step(self, choice):
     """Step the model forward given chosen action."""
     # Choose the reward probability associated with agent's choice
@@ -682,23 +711,26 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   hs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   us = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  bs = np.zeros((experiment.choices.shape[0], 1))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
   agent.new_sess()
   
   for trial in range(experiment.choices.shape[0]):
     # track all states
-    Qs[trial] = agent.q
+    Qs[trial] = agent.q * agent.beta
     qs[trial] = agent._q
     hs[trial] = agent._h
     us[trial] = agent._u
-    if hasattr(agent, '_directed_exploration_bias'):
-      us[trial] *= agent._directed_exploration_bias
+    bs[trial] = agent.beta
     
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
-    
-  return (Qs, qs, hs, us), choice_probs
+  
+  # if hasattr(agent, '_directed_exploration_bias'):
+  #   us *= agent._directed_exploration_bias
+  
+  return (Qs, qs, hs, us, bs), choice_probs
 
 
 ###############
@@ -709,9 +741,9 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
 def plot_session(
   choices: np.ndarray,
   rewards: np.ndarray,
-  timeseries: List[np.ndarray],
+  timeseries: Tuple[np.ndarray],
   timeseries_name: str,
-  labels: Optional[List[str]] = None,
+  labels: Optional[Tuple[str]] = None,
   title: str = '',
   x_label = 'Trials',
   fig_ax = None,
