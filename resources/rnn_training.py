@@ -24,9 +24,10 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
     def __init__(self, size_average=None, reduce=None, reduction: str = 'mean') -> None:
         super().__init__(size_average, reduce, reduction)
     
-    def forward(logits: torch.Tensor, target: torch.Tensor):
-        # Mask any errors for which label is negative
-        mask = torch.logical_not(target < 0)
+    def forward(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor = None):
+        # mask has True for values to pass and False for values to omit
+        if mask is None:
+            mask = torch.ones_like(logits, device=logits.device)
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
         log_liks = target * log_probs
         masked_log_liks = torch.multiply(log_liks, mask)
@@ -40,7 +41,7 @@ def batch_train(
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = -1,
-    loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),#nn.BCEWithLogitsLoss()#
+    loss_fn: nn.modules.loss._Loss = nn.BCEWithLogitsLoss(),#nn.CrossEntropyLoss(),#
     ):
 
     """
@@ -55,28 +56,31 @@ def batch_train(
     state = model.get_state(detach=True)
     
     # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
+    loss_batch = 0
+    iterations = 0
     for t in range(0, xs.shape[1]-1, n_steps_per_call):
         n_steps = min(xs.shape[1]-t-1, n_steps_per_call)
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
-        # loss = loss_fn(y_pred[:, -1], xs[:, t+n_steps, :-1])
+        mask = xs[:, t:t+n_steps, 0] > -1
+        # loss = loss_fn(y_pred, ys[:, t:t+n_steps], mask.unsqueeze(-1))
         loss = 0
         for i in range(n_steps):
-            loss += loss_fn(y_pred[:, i], ys[:, t+i])
+            loss += loss_fn(y_pred[:, i] * mask[:, i].view(-1, 1), ys[:, t+i] * mask[:, i].view(-1, 1))
         loss /= n_steps
         
         if torch.is_grad_enabled():
-            
-            # add penalty for computing Q-Values bigger than 1 --> Necessary to find a good beta-value
-            # loss += 1e-1 * penalty_q_range(y_pred)
             
             # backpropagation
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
+
+        loss_batch += loss.item()
+        iterations += 1
     
-    return model, optimizer, loss.item()
+    return model, optimizer, loss_batch/iterations
     
 
 def fit_model(
@@ -123,7 +127,7 @@ def fit_model(
         raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
     
     # set up learning rate scheduler for each optimizer
-    scheduler = [ReduceLROnPlateau(optim) for optim in optimizers]
+    # scheduler = [ReduceLROnPlateau(optim) for optim in optimizers]
     
     # initialize dataloader
     if batch_size == -1:
@@ -151,7 +155,7 @@ def fit_model(
 
         # Sum the parameters of all submodels
         for key in averaged_state_dict:
-            averaged_state_dict[key].detach().zero_()
+            averaged_state_dict[key].zero_()
             for model in models:
                 averaged_state_dict[key] += model.state_dict()[key]
             if model.state_dict()[key].dtype in (torch.int64, torch.int32):
@@ -215,7 +219,7 @@ def fit_model(
                         optimizer=optimizers[i_model],
                         n_steps_per_call=n_steps_per_call,
                         # keep_predictions=True,
-                        # loss_fn = categorical_log_likelihood
+                        # loss_fn = categorical_log_likelihood()
                     )
                     loss_train += loss_i
                 loss_train /= batch_iteration_constant
@@ -255,32 +259,32 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[0],
-                        # loss_fn = categorical_log_likelihood
+                        # loss_fn = categorical_log_likelihood()
                     )
                 models[0].train()
 
             # adapt learning rate based on validation loss
-            last_lr = 0
-            for s in scheduler:
-                s.step(loss_test)
-                last_lr += s.get_last_lr()[-1]
-            last_lr /= len(scheduler)
+            # last_lr = 0
+            # for s in scheduler:
+            #     s.step(loss_test)
+            #     last_lr += s.get_last_lr()[-1]
+            # last_lr /= len(scheduler)
             
             # check for convergence
             dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
             convergence_value += recency_factor * (np.abs(dloss) - convergence_value)
-            converged = convergence_value < convergence_threshold or last_lr < convergence_threshold
+            converged = convergence_value < convergence_threshold# or last_lr < convergence_threshold
             continue_training = not converged and n_calls_to_train_model < epochs
             last_loss = 0
             last_loss += loss_test
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Training loss: {loss_train:.7f}'                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- L(Training): {loss_train:.7f}'                
                 if dataset_test is not None:
-                    msg += f'; Validation loss: {loss_test:.7f}'
-                msg += f'; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'
-                msg += f'; Learning rate: {last_lr}'
+                    msg += f'; L(Validation): {loss_test:.7f}'
+                msg += f'; Time: {time.time()-t_start:.2f}s; Convergence value: {convergence_value:.2e}'
+                # msg += f'; Learning rate: {last_lr}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:

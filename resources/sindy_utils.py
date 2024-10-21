@@ -74,6 +74,7 @@ def create_dataset(
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
+  clear_offset: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
   trimming: int = 0,
@@ -130,7 +131,7 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = torch.concat(history).detach().cpu().numpy()[trimming:]
+        values = np.round(torch.concat(history).detach().cpu().numpy()[trimming:], 2)
         if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
         if key in keys_x:
@@ -156,10 +157,16 @@ def create_dataset(
     x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
   
+  if clear_offset:
+    x_min = np.min(np.min(np.stack(x_train_list), axis=0), axis=0)
+    for i in range(len(x_train_list)):
+      # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
+      x_train_list[i] = x_train_list[i] - x_min
+      
   if normalize:
     index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
     # compute scaling parameters
-    x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
+    x_max, x_min = np.max(np.stack(x_train_list), axis=-1), np.min(np.stack(x_train_list), axis=-1)
     # beta = x_max - x_min
     beta = dq_darms_max[0]
     # beta = 3

@@ -73,8 +73,8 @@ def fit_model(
         sindy_models[x_feature] = ps.SINDy(
             # optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=optimizer_alpha, verbose=True),
             optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
-            # optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
-            # optimizer=ps.SSR(criteria="model_residual"),
+            # differentiation_method=ps.SmoothedFiniteDifference(),
+            # differentiation_method=ps.SINDyDerivative(kind='kalman', alpha=0.5),
             feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
             feature_names=feature_names_i,

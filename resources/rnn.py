@@ -186,7 +186,7 @@ class RLRNN(BaseRNN):
         
         # trainable parameters
         self._beta_base = nn.Parameter(torch.tensor(1.))
-        self._directed_exploration_bias_raw = nn.Parameter(torch.tensor(1.))
+        # self._directed_exploration_bias_raw = nn.Parameter(torch.tensor(1.))
         
         # action-based subnetwork
         self.xH = self.setup_subnetwork(2, hidden_size, dropout)
@@ -208,9 +208,6 @@ class RLRNN(BaseRNN):
         
         # learning-rate subnetwork
         self.xLR = self.setup_subnetwork(2, hidden_size, dropout)
-        
-        # reward-based subnetwork
-        self.xQr = self.setup_subnetwork(2, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
@@ -272,7 +269,7 @@ class RLRNN(BaseRNN):
             next_state += state_update_chosen + state_update_not_chosen
             next_value += eye[i] * (update_chosen * action[:, i].view(-1, 1) + update_not_chosen * (1-action[:, i].view(-1, 1)))
 
-        next_value = torch.nn.functional.tanh(next_value)
+        # next_value = torch.nn.functional.tanh(next_value)
         self._prev_action = action
         
         return next_value, next_state.unsqueeze(1)
@@ -359,7 +356,7 @@ class RLRNN(BaseRNN):
             old_rv, old_av, old_uv = reward_value.clone(), action_value.clone(), uncertainty_value.clone() 
             reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r)
             action_value, action_state = self.action_network(action_state, action_value, a)
-            uncertainty_value, uncertainty_state = self.uncertainty_network(uncertainty_state, uncertainty_value, reward_value, a, r)
+            # uncertainty_value, uncertainty_state = self.uncertainty_network(uncertainty_state, uncertainty_value, reward_value, a, r)
             
             reward_value = torch.clip(reward_value, 0, 1)
             # action_value = torch.clip(action_value, -1, 1)
@@ -375,14 +372,17 @@ class RLRNN(BaseRNN):
             self.append_timestep_sample('cp', 1-r)
             self.append_timestep_sample('ca_repeat', 1-torch.sum(torch.abs(a-self._prev_action), dim=-1)/self._n_actions)
             self.append_timestep_sample('cQ', old_rv)
-            self.append_timestep_sample('cU', uncertainty_value, single_entries=True)
+            # self.append_timestep_sample('cU', uncertainty_value, single_entries=True)
             self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
-            self.append_timestep_sample('xQf', old_rv, a*old_rv + (1-a)*reward_value)
-            self.append_timestep_sample('xH', old_av, (1-a)*old_av + a*action_value)
-            self.append_timestep_sample('xHf', old_av, a*old_av + (1-a)*action_value)
-            self.append_timestep_sample('xU', old_uv, (1-a)*old_uv + a*uncertainty_value)
-            self.append_timestep_sample('xUf', old_uv, a*old_uv + (1-a)*uncertainty_value)
-            self.append_timestep_sample('xB', torch.zeros_like(self._beta), self._beta)
+            # self.append_timestep_sample('xQf', old_rv, a*old_rv + (1-a)*reward_value)
+            # self.append_timestep_sample('xH', old_av, (1-a)*old_av + a*action_value)
+            # self.append_timestep_sample('xHf', old_av, a*old_av + (1-a)*action_value)
+            self.append_timestep_sample('xQf', old_rv, reward_value)
+            self.append_timestep_sample('xH', old_av, action_value)
+            self.append_timestep_sample('xHf', old_av, action_value)
+            # self.append_timestep_sample('xU', old_uv, (1-a)*old_uv + a*uncertainty_value)
+            # self.append_timestep_sample('xUf', old_uv, a*old_uv + (1-a)*uncertainty_value)
+            # self.append_timestep_sample('xB', torch.zeros_like(self._beta), self._beta)
 
         # add model dim again and set state
         self.set_state(reward_state.unsqueeze(1), action_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), action_value.unsqueeze(1), uncertainty_value.unsqueeze(1))

@@ -12,7 +12,7 @@ class DatasetRNN(Dataset):
         ys: torch.Tensor, 
         sequence_length: int = None,
         stride: int = 1,
-        device=torch.device('cpu'),
+        device=None,
         ):
         """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
         Actions can be either one-hot encoded or indexes.
@@ -23,6 +23,9 @@ class DatasetRNN(Dataset):
             batch_size (Optional[int], optional): Sets batch size if desired else uses n_samples as batch size.
             device (torch.Device, optional): Torch device. If None, uses cuda if available else cpu.
         """
+        
+        if device is None:
+            device = torch.device('cpu')
         
         # check for type of xs and ys
         if not isinstance(xs, torch.Tensor):
@@ -92,7 +95,7 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, non_binary_reward, verbose=False):
+def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, verbose=False):
     # create name for corresponding rnn
   
     if use_lstm:
@@ -123,8 +126,8 @@ def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rat
     if undirected_exploration_bias > 0:
         params_path += '_ude' + str(undirected_exploration_bias).replace('.', '')
     
-    if non_binary_reward:
-        params_path += '_nonbinary'
+    # if non_binary_reward:
+    #     params_path += '_nonbinary'
         
     params_path += '.pkl'
     

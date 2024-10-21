@@ -142,7 +142,7 @@ class AgentQ:
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
     
     # regret mechanism - enhanced learning for negative outcomes
-    if self._regret and reward == 0:
+    if self._regret and reward < 0.5:
       alpha = self._alpha * 2
     
     # add confirmation bias to learning rate
@@ -150,26 +150,13 @@ class AgentQ:
     if self._confirmation_bias:
       
       # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
-      # Approach 1:
-      # confirmation_bias = sigmoid(x)/5
-      # with x being a confidence and confirmation variable like in differentiable approach
-      
-      # Approach 2 (more straightforward with SINDy):
-      # differentiable confirmation bias
+      # differentiable confirmation bias:
       alpha += (self._q[choice]-self._q_init)*(reward - 0.5)/2
       
       # full learning rate equation w/ confirmation bias only: 
       # (xLR)[k+1]    = 0.25 + (Q-0.5) * (Reward - 0.5) / 2
       #               = 0.25 + 0.5*Q*Reward - 0.25*Q - 0.25*Reward + 0.125
       # SINDy target: = 0.375 - 0.25*Q - 0.25*Reward + 0.5*Q*Reward
-      
-      # non-differentiable approach with hard thresholds
-      # if self._q[choice] > 0.75 and reward > 0.5 or self._q[choice] < 0.25 and reward < 0.5:
-      #     # confirmation: high estimate and high reward and v.v. --> confirmation-bias increases alpha
-      #     alpha += alpha/2
-      # elif self._q[choice] > 0.75 and reward < 0.5 or self._q[choice] < 0.25 and reward > 0.5:
-      #     # contradiction: high estimate and high reward and v.v. --> confirmation-bias increases alpha
-      #     alpha -= alpha/2
 
     reward_update = alpha * rpe
     # Value_new = Value_old - lr * Value_old + lr * Reward 
@@ -340,7 +327,7 @@ class AgentNetwork:
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy() #* self._directed_exploration_bias
+      logit = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy()# + self._model.get_state()[-1].cpu().numpy() #* self._directed_exploration_bias
       return logit[0, 0]
     
     def get_choice_probs(self) -> np.ndarray:
@@ -727,8 +714,8 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
   
-  # if hasattr(agent, '_directed_exploration_bias'):
-  #   us *= agent._directed_exploration_bias
+  if hasattr(agent, '_directed_exploration_bias'):
+    us *= agent._directed_exploration_bias
   
   return (Qs, qs, hs, us, bs), choice_probs
 
@@ -770,7 +757,7 @@ def plot_session(
   
   choose_high = choices == 1
   choose_low = choices == 0
-  rewarded = rewards == 1
+  rewarded = rewards > 0.5
   y_high = np.max(timeseries) + 0.1
   y_low = np.min(timeseries) - 0.1
   
@@ -812,7 +799,7 @@ def plot_session(
     else:  # Skip legend.
       ax.plot(timeseries[i], color=color[i])
 
-  if choices.max() <= 1 and binary:
+  if choices.max() <= 1:
     # Rewarded high
     ax.scatter(
         np.argwhere(choose_high & rewarded),

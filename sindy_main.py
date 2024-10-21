@@ -13,11 +13,13 @@ from resources.bandits import AgentQ, AgentSindy, AgentNetwork, EnvironmentBandi
 from resources.sindy_utils import create_dataset, check_library_setup, bandit_loss
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model
+from utils.convert_dataset import to_datasetrnn
 
 warnings.filterwarnings("ignore")
 
 def main(
     model = None,
+    data = None,
     
     # generated training dataset parameters
     n_trials_per_session = 200,
@@ -59,8 +61,8 @@ def main(
     # single_entries = {
     #     'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
     # }
-    z_train_list = ['xLR', 'xQf', 'xH', 'xHf', 'xU', 'xUf', 'xB']
-    control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ', 'cU_0', 'cU_1']
+    z_train_list = ['xLR', 'xQf', 'xH', 'xHf']#, 'xU', 'xUf', 'xB']
+    control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']#, 'cU_0', 'cU_1']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -70,9 +72,9 @@ def main(
         'xQf': [],
         'xH': [],
         'xHf': [],
-        'xU': ['cQ', 'cr'],
-        'xUf': [],
-        'xB': ['cU_0', 'cU_1'],
+        # 'xU': ['cQ', 'cr'],
+        # 'xUf': [],
+        # 'xB': ['cU_0', 'cU_1'],
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -86,10 +88,10 @@ def main(
     datafilter_setup = {
         'xLR': ['ca', 1, True],
         'xQf': ['ca', 0, True],
-        'xH': [['ca', 1, True], ['ca_repeat', 1, True]],
+        'xH': ['ca', 1, True],
         'xHf': ['ca', 0, True],
-        'xU': ['ca', 1, True],
-        'xUf': ['ca', 0, True],
+        # 'xU': ['ca', 1, True],
+        # 'xUf': ['ca', 0, True],
     }
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -98,14 +100,20 @@ def main(
     # set up ground truth agent and environment
     # environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
     environment = EnvironmentBanditsSwitch(sigma)
-    agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)
-    if reward_prediction_error is not None:
-        agent.set_reward_prediction_error(reward_prediction_error)
-    _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
-
+    if data is None:
+        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)
+        if reward_prediction_error is not None:
+            agent.set_reward_prediction_error(reward_prediction_error)
+        _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
+        _, experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
+    else:
+        _, experiment_list_train = to_datasetrnn(data)
+        experiment_list_test = [experiment_list_train[-1]]
+        experiment_list_train = experiment_list_train[:-1]
+        
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, non_binary_reward, verbose=True)
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
@@ -122,8 +130,7 @@ def main(
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
     # create dataset for sindy training, fit sindy, set up sindy agent
-    experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)[1]
-    z_train, control, feature_names, beta_correction = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, shuffle=False, trimming=100)
+    z_train, control, feature_names, beta_correction = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, clear_offset=True, shuffle=False, trimming=n_trials_per_session//2)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
     agent_sindy = AgentSindy(sindy_models, n_actions, agent_rnn._model._beta_base.item(), True)
     # beta = agent_rnn._model._beta.item() #* beta_correction
@@ -145,7 +152,7 @@ def main(
     # --------------------------------------------------------------
 
     if analysis:
-        labels = ['Ground Truth', 'RNN', 'SINDy']
+        labels = ['Ground Truth', 'RNN', 'SINDy'] if data is None else ['RNN', 'SINDy']
         experiment_test = experiment_list_test[0]
         choices = experiment_test.choices
         rewards = experiment_test.rewards
@@ -158,13 +165,14 @@ def main(
         list_bs = []
 
         # get q-values from groundtruth
-        qs_test, probs_test = get_update_dynamics(experiment_list_test[0], agent)
-        list_probs.append(np.expand_dims(probs_test, 0))
-        list_Qs.append(np.expand_dims(qs_test[0], 0))
-        list_qs.append(np.expand_dims(qs_test[1], 0))
-        list_hs.append(np.expand_dims(qs_test[2], 0))
-        list_us.append(np.expand_dims(qs_test[3], 0))
-        list_bs.append(np.expand_dims(qs_test[4], 0))
+        if data is None:
+            qs_test, probs_test = get_update_dynamics(experiment_list_test[0], agent)
+            list_probs.append(np.expand_dims(probs_test, 0))
+            list_Qs.append(np.expand_dims(qs_test[0], 0))
+            list_qs.append(np.expand_dims(qs_test[1], 0))
+            list_hs.append(np.expand_dims(qs_test[2], 0))
+            list_us.append(np.expand_dims(qs_test[3], 0))
+            list_bs.append(np.expand_dims(qs_test[4], 0))
 
         # get q-values from trained rnn
         qs_rnn, probs_rnn = get_update_dynamics(experiment_list_test[0], agent_rnn)

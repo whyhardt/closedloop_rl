@@ -9,7 +9,7 @@ from resources.bandits import AgentQ, EnvironmentBanditsSwitch, plot_session, cr
 
 agent1 = AgentQ(
     alpha=0.25,
-    beta=5.,
+    beta=3.,
     forget_rate=0.,
     perseveration_bias=0.,
     regret=False,
@@ -20,13 +20,13 @@ agent1 = AgentQ(
 
 agent2 = AgentQ(
     alpha=0.25,
-    beta=5.,
+    beta=3.,
     forget_rate=0.,
-    perseveration_bias=0.,
+    perseveration_bias=0.25,
     regret=False,
     confirmation_bias=False,
     directed_exploration_bias=0.,
-    undirected_exploration_bias=5.,
+    undirected_exploration_bias=0.,
     )
 
 env = EnvironmentBanditsSwitch(0.05, reward_prob_high=1.0, reward_prob_low=0.5)

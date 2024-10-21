@@ -1,14 +1,12 @@
 #@title Import libraries
 import sys
 import os
-import warnings
 
-import pickle
 import time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Collection, Callable
+from typing import Callable
 import argparse
 
 # warnings.filterwarnings("ignore")
@@ -16,10 +14,12 @@ import argparse
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
+from utils import convert_dataset
 
 def main(
   checkpoint = False,
   model = None,
+  data = None,
 
   # rnn parameters
   hidden_size = 8,
@@ -45,7 +45,7 @@ def main(
   n_sessions = 4096,
   bagging = False,
   n_oversampling = -1,
-  n_steps_per_call = 8,  # -1 for full sequence
+  n_steps_per_call = 16,  # -1 for full sequence
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-2,
   convergence_threshold = 1e-6,
@@ -87,45 +87,50 @@ def main(
     init_population = n_submodels
   elif init_population < n_submodels:
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
+  
+  if data is None:
+    # setup
+    environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+    # environment = bandits.EnvironmentBanditsSwitch(sigma)
+    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
+    if reward_prediction_error is not None:
+      agent.set_reward_prediction_error(reward_prediction_error)
+    print('Setup of the environment and agent complete.')
 
-  # setup
-  environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-  # environment = bandits.EnvironmentBanditsSwitch(sigma)
-  agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
-  if reward_prediction_error is not None:
-    agent.set_reward_prediction_error(reward_prediction_error)
-  print('Setup of the environment and agent complete.')
+    if epochs > 0:
+      if dataset_train is None:    
+        print('Creating the training dataset...', end='\r')
+        dataset_train, _ = bandits.create_dataset(
+            agent=agent,
+            environment=environment,
+            n_trials_per_session=n_trials_per_session,
+            n_sessions=n_sessions,
+            device=device)    
 
-  if epochs > 0:
-    if dataset_train is None:    
-      print('Creating the training dataset...', end='\r')
-      dataset_train, _ = bandits.create_dataset(
+      if dataset_val is None:
+        print('Creating the validation dataset...', end='\r')
+        dataset_val, _ = bandits.create_dataset(
+            agent=agent,
+            environment=environment,
+            n_trials_per_session=64,
+            n_sessions=16,
+            device=device)
+      
+    if dataset_test is None:
+      print('Creating the test dataset...', end='\r')
+      dataset_test, experiment_list_test = bandits.create_dataset(
           agent=agent,
           environment=environment,
-          n_trials_per_session=n_trials_per_session,
-          n_sessions=n_sessions,
-          device=device)    
-
-    if dataset_val is None:
-      print('Creating the validation dataset...', end='\r')
-      dataset_val, _ = bandits.create_dataset(
-          agent=agent,
-          environment=environment,
-          n_trials_per_session=64,
-          n_sessions=16,
+          n_trials_per_session=200,
+          n_sessions=1024,
           device=device)
     
-  if dataset_test is None:
-    print('Creating the test dataset...', end='\r')
-    dataset_test, experiment_list_test = bandits.create_dataset(
-        agent=agent,
-        environment=environment,
-        n_trials_per_session=200,
-        n_sessions=1024,
-        device=device)
-  
-  print('Setup of datasets complete.')
-  
+    print('Setup of datasets complete.')
+  else:
+    dataset_train, experiment_list_test = convert_dataset.to_datasetrnn(data)
+    dataset_val = dataset_train
+    dataset_test = dataset_train
+    
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
         'params/params',
@@ -138,7 +143,6 @@ def main(
         confirmation_bias,
         directed_exploration_bias,
         undirected_exploration_bias,
-        non_binary_reward,
         verbose=True,
     )
   else:
@@ -252,6 +256,7 @@ def main(
     model.to(torch.device('cpu'))
     rnn_agent = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
     
+    labels = ['Ground Truth', 'RNN'] if data is None else ['RNN'] 
     session_id = 0
 
     choices = experiment_list_test[session_id].choices
@@ -265,13 +270,14 @@ def main(
     list_bs = []
 
     # get q-values from groundtruth
-    qs_test, probs_test = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
-    list_probs.append(np.expand_dims(probs_test, 0))
-    list_Qs.append(np.expand_dims(qs_test[0], 0))
-    list_qs.append(np.expand_dims(qs_test[1], 0))
-    list_hs.append(np.expand_dims(qs_test[2], 0))
-    list_us.append(np.expand_dims(qs_test[3], 0))
-    list_bs.append(np.expand_dims(qs_test[4], 0))
+    if data is None:
+      qs_test, probs_test = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
+      list_probs.append(np.expand_dims(probs_test, 0))
+      list_Qs.append(np.expand_dims(qs_test[0], 0))
+      list_qs.append(np.expand_dims(qs_test[1], 0))
+      list_hs.append(np.expand_dims(qs_test[2], 0))
+      list_us.append(np.expand_dims(qs_test[3], 0))
+      list_bs.append(np.expand_dims(qs_test[4], 0))
 
     # get q-values from trained rnn
     qs_rnn, probs_rnn = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
@@ -320,7 +326,7 @@ def main(
         timeseries=probs[:, :, 0],
         timeseries_name='p(A)',
         color=colors,
-        labels=['Ground Truth', 'RNN'],
+        labels=labels,
         binary=not non_binary_reward,
         fig_ax=(fig, axs[1]),
         )
@@ -381,8 +387,9 @@ def main(
     )
 
     plt.show()
-
-    print(f'Average beta of ground truth is: beta_avg = {np.round(np.mean(qs_test[4]), 2)}')
+    
+    if data is None:
+      print(f'Average beta of ground truth is: beta_avg = {np.round(np.mean(qs_test[4]), 2)}')
     print(f'Average beta of RNN is: beta_avg = {np.round(np.mean(qs_rnn[4]), 2)}')
     
   return loss_test
