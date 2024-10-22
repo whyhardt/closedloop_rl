@@ -320,19 +320,16 @@ class AgentNetwork:
       """Reset the network for the beginning of a new session."""
       self._model.set_initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
-      self._q = self._model.get_state()[-3].cpu().numpy()
-      self._h = self._model.get_state()[-2].cpu().numpy()
-      self._u = self._model.get_state()[-1].cpu().numpy()
-      self.beta = self._model._beta.item()
+      self.set_state()
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._model.get_state()[-3].cpu().numpy() + self._model.get_state()[-2].cpu().numpy()# + self._model.get_state()[-1].cpu().numpy() #* self._directed_exploration_bias
-      return logit[0, 0]
+      logit = self._q + self._h# + self._u #* self._directed_exploration_bias
+      return logit
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      decision_variable = self.get_logit() * self._model._beta.item()
+      decision_variable = self.get_logit() * self._beta
       choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
       return choice_probs
 
@@ -348,14 +345,21 @@ class AgentNetwork:
       self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
-      self._q = self._model.get_state()[-3].cpu().numpy()
-      self._h = self._model.get_state()[-2].cpu().numpy()
-      self._u = self._model.get_state()[-1].cpu().numpy()
-      self.beta = self._model._beta.item()
+      self.set_state()
+    
+    def set_state(self):
+      self._q = self._model.get_state()[-3].cpu().numpy()[0, 0]
+      self._h = self._model.get_state()[-2].cpu().numpy()[0, 0]
+      self._u = self._model.get_state()[-1].cpu().numpy()[0, 0]
+      self._beta = self._model.beta.item()
 
     @property
     def q(self):
       return self.get_logit()
+    
+    @property
+    def beta(self):
+      return self._beta
 
 
 ################
@@ -363,7 +367,16 @@ class AgentNetwork:
 ################
 
 
-class EnvironmentBanditsFlips:
+class Environment:
+  
+  def __init__(self):
+    pass
+  
+  def step(self, choice):
+    pass
+
+
+class EnvironmentBanditsFlips(Environment):
   """Env for 2-armed bandit task with reward probs that flip in blocks."""
 
   def __init__(
@@ -372,6 +385,9 @@ class EnvironmentBanditsFlips:
       reward_prob_high: float = 0.8,
       reward_prob_low: float = 0.2,
   ):
+    
+    super(EnvironmentBanditsFlips, self).__init__()
+    
     # Assign the input parameters as properties
     self._block_flip_prob = block_flip_prob
     self._reward_prob_high = reward_prob_high
@@ -411,7 +427,7 @@ class EnvironmentBanditsFlips:
     return 2
   
 
-class EnvironmentBanditsSwitch:
+class EnvironmentBanditsSwitch(Environment):
   """Env for 2-armed bandit task with fixed sets of reward probs that switch in blocks."""
 
   def __init__(
@@ -422,6 +438,9 @@ class EnvironmentBanditsSwitch:
       reward_prob_middle: float = 0.5,
       **kwargs,
   ):
+    
+    super(EnvironmentBanditsSwitch, self).__init__()
+    
     # Assign the input parameters as properties
     self._block_flip_prob = block_flip_prob
     self._reward_prob_high = reward_prob_high
@@ -485,7 +504,7 @@ class EnvironmentBanditsSwitch:
     return 2
 
 
-class EnvironmentBanditsDrift:
+class EnvironmentBanditsDrift(Environment):
   """Environment for a drifting two-armed bandit task.
 
   Reward probabilities on each arm are sampled randomly between 0 and 1. On each
@@ -505,6 +524,9 @@ class EnvironmentBanditsDrift:
       correlated_reward: bool = False,
       ):
     """Initialize the environment."""
+    
+    super(EnvironmentBanditsDrift, self).__init__()
+    
     # Check inputs
     if sigma < 0:
       msg = f'Argument sigma but must be greater than 0. Found: {sigma}.'
@@ -583,8 +605,8 @@ class BanditSession(NamedTuple):
   n_trials: int
   
 
-Agent = Union[AgentQ, AgentNetwork]
-Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift]
+Agent = Union[AgentQ, AgentNetwork, AgentSindy]
+# Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift, EnvironmentBanditsSwitch]
 
 
 ###############
@@ -717,7 +739,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   if hasattr(agent, '_directed_exploration_bias'):
     us *= agent._directed_exploration_bias
   
-  return (Qs, qs, hs, us, bs), choice_probs
+  return (Qs, qs, hs, us, bs), choice_probs, agent
 
 
 ###############

@@ -64,7 +64,7 @@ def fit_model(
         control_i = remove_control_features(control_i, feature_names_i[1:], library_setup[x_feature])
         feature_names_i = [x_feature] + library_setup[x_feature]
         
-        # add a dummy control feature if no control features are remaining
+        # add a dummy control feature if no control features are remaining - otherwise sindy breaks --> TODO: find out why
         if control_i is None:
             control_i = [np.zeros_like(x_train_i[0]) for _ in range(len(x_train_i))]
             feature_names_i = feature_names_i + ['u']

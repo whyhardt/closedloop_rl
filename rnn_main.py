@@ -127,9 +127,15 @@ def main(
     
     print('Setup of datasets complete.')
   else:
-    dataset_train, experiment_list_test = convert_dataset.to_datasetrnn(data)
-    dataset_val = dataset_train
-    dataset_test = dataset_train
+    dataset, experiment_list_test = convert_dataset.to_datasetrnn(data)
+    indexes_dataset = np.arange(len(dataset.xs))
+    np.random.shuffle(indexes_dataset)
+    xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.8*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.8*len(dataset.xs))]]
+    xs_val, ys_val = dataset.xs[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]], dataset.ys[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]]
+    xs_test, ys_test = dataset.xs[indexes_dataset[int(0.9*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.9*len(dataset.xs)):]]
+    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
+    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
+    dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
@@ -228,7 +234,7 @@ def main(
       model = model[0]
       optimizer_rnn = optimizer_rnn[0]
   
-  print(f'Trained initial beta of RNN is: {model._beta_base.item()}')
+  print(f'Trained initial beta of RNN is: {model.beta.item()}')
   
   # validate model
   print('\nTesting the trained hybrid RNN on a test dataset...')
@@ -271,7 +277,7 @@ def main(
 
     # get q-values from groundtruth
     if data is None:
-      qs_test, probs_test = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
+      qs_test, probs_test, _ = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
       list_probs.append(np.expand_dims(probs_test, 0))
       list_Qs.append(np.expand_dims(qs_test[0], 0))
       list_qs.append(np.expand_dims(qs_test[1], 0))
@@ -280,7 +286,7 @@ def main(
       list_bs.append(np.expand_dims(qs_test[4], 0))
 
     # get q-values from trained rnn
-    qs_rnn, probs_rnn = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
+    qs_rnn, probs_rnn, _ = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
     list_probs.append(np.expand_dims(probs_rnn, 0))
     list_Qs.append(np.expand_dims(qs_rnn[0], 0))
     list_qs.append(np.expand_dims(qs_rnn[1], 0))
@@ -336,7 +342,7 @@ def main(
       choices=choices,
       rewards=rewards,
       timeseries=Qs[:, :, 0],
-      timeseries_name='Q0',
+      timeseries_name='Q',
       color=colors,
       binary=True,
       fig_ax=(fig, axs[2]),

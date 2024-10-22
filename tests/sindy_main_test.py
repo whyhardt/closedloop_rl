@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import sindy_main
 
 sindy_main.main(
-    model = 'params/sugawara2021_143.pkl',
+    model = 'params/benchmarking/sugawara2021_143_19.pkl',
     data = 'data/sugawara2021_143_processed.csv',
     
     # sindy parameters

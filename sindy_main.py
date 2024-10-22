@@ -70,7 +70,7 @@ def main(
     library_setup = {
         'xLR': ['cQ', 'cr', 'cp'],
         'xQf': [],
-        'xH': [],
+        'xH': ['ca_repeat'],
         'xHf': [],
         # 'xU': ['cQ', 'cr'],
         # 'xUf': [],
@@ -97,20 +97,6 @@ def main(
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
         raise ValueError('Library setup does not match feature list.')
 
-    # set up ground truth agent and environment
-    # environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
-    environment = EnvironmentBanditsSwitch(sigma)
-    if data is None:
-        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)
-        if reward_prediction_error is not None:
-            agent.set_reward_prediction_error(reward_prediction_error)
-        _, experiment_list_test = create_dataset_bandits(agent, environment, 200, 1)
-        _, experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
-    else:
-        _, experiment_list_train = to_datasetrnn(data)
-        experiment_list_test = [experiment_list_train[-1]]
-        experiment_list_train = experiment_list_train[:-1]
-        
     # set up rnn agent and expose q-values to train sindy
     if model is None:
         params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, verbose=True)
@@ -129,23 +115,35 @@ def main(
         rnn = EnsembleRNN(model_list, voting_type=voting_type)
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
 
+    # set up ground truth agent and environment
+    # environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+    # environment = EnvironmentBanditsSwitch(sigma)
+    if data is None:
+        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)
+        if reward_prediction_error is not None:
+            agent.set_reward_prediction_error(reward_prediction_error)
+            # _, experiment_list_test = create_dataset_bandits(agent_rnn, environment, 200, 1)
+            # _, experiment_list_train = create_dataset_bandits(agent_rnn, environment, n_trials_per_session, n_sessions)
+    else:
+        _, experiment_list_train = to_datasetrnn(data)
+        experiment_list_test = [experiment_list_train[-1]]
+        experiment_list_train = experiment_list_train[:-1]            
+
     # create dataset for sindy training, fit sindy, set up sindy agent
-    z_train, control, feature_names, beta_correction = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, normalize=False, clear_offset=True, shuffle=False, trimming=n_trials_per_session//2)
+    print(f'SINDy Beta: {agent_rnn._model.beta.item():.2f}')
+    z_train, control, feature_names = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, clear_offset=False, shuffle=True, trimming=False)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, True, False, threshold, regularization)
-    agent_sindy = AgentSindy(sindy_models, n_actions, agent_rnn._model._beta_base.item(), True)
-    # beta = agent_rnn._model._beta.item() #* beta_correction
-    # print(f'\nBeta for SINDy: {beta}')  # agent_rnn._model.beta.item()
-    # agent_sindy._beta = beta  # agent_rnn._model.beta.item()
+    agent_sindy = AgentSindy(sindy_models, n_actions, agent_rnn._model.beta.item(), True)
 
     print('Calculating RNN and SINDy loss in X...', end='\r')
     test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
     test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
     print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
     print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
-    test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], coordinates="z")
-    test_loss_rnn_z = bandit_loss(agent_rnn, experiment_list_test[:10], coordinates="z")
-    print(f'RNN Loss in Z (comparing choice probabilities; Target: Subject): {test_loss_rnn_z}')
-    print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
+    # test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], coordinates="z")
+    # test_loss_rnn_z = bandit_loss(agent_rnn, experiment_list_test[:10], coordinates="z")
+    # print(f'RNN Loss in Z (comparing choice probabilities; Target: Subject): {test_loss_rnn_z}')
+    # print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
     
     # --------------------------------------------------------------
     # Analysis
@@ -166,7 +164,7 @@ def main(
 
         # get q-values from groundtruth
         if data is None:
-            qs_test, probs_test = get_update_dynamics(experiment_list_test[0], agent)
+            qs_test, probs_test, _ = get_update_dynamics(experiment_list_test[0], agent)
             list_probs.append(np.expand_dims(probs_test, 0))
             list_Qs.append(np.expand_dims(qs_test[0], 0))
             list_qs.append(np.expand_dims(qs_test[1], 0))
@@ -175,7 +173,7 @@ def main(
             list_bs.append(np.expand_dims(qs_test[4], 0))
 
         # get q-values from trained rnn
-        qs_rnn, probs_rnn = get_update_dynamics(experiment_list_test[0], agent_rnn)
+        qs_rnn, probs_rnn, _ = get_update_dynamics(experiment_list_test[0], agent_rnn)
         list_probs.append(np.expand_dims(probs_rnn, 0))
         list_Qs.append(np.expand_dims(qs_rnn[0], 0))
         list_qs.append(np.expand_dims(qs_rnn[1], 0))
@@ -184,7 +182,7 @@ def main(
         list_bs.append(np.expand_dims(qs_rnn[4], 0))
         
         # get q-values from trained sindy
-        qs_sindy, probs_sindy = get_update_dynamics(experiment_list_test[0], agent_sindy)
+        qs_sindy, probs_sindy, _ = get_update_dynamics(experiment_list_test[0], agent_sindy)
         list_probs.append(np.expand_dims(probs_sindy, 0))
         list_Qs.append(np.expand_dims(qs_sindy[0], 0))
         list_qs.append(np.expand_dims(qs_sindy[1], 0))
@@ -242,7 +240,7 @@ def main(
         choices=choices,
         rewards=rewards,
         timeseries=Qs[:, :, 0],
-        timeseries_name='Q0',
+        timeseries_name='Q',
         color=colors,
         binary=True,
         fig_ax=(fig, axs[2]),

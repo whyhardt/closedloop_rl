@@ -77,7 +77,7 @@ def create_dataset(
   clear_offset: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
-  trimming: int = 0,
+  trimming: bool = False,
   ):
   
   if not isinstance(data, Environment):
@@ -100,6 +100,8 @@ def create_dataset(
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   
+  trimming = int(n_trials_per_session*0.8) if trimming else 0
+  
   # x_train = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_x)))
   # control = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_c)))
   x_train = {key: [] for key in keys_x}
@@ -108,7 +110,7 @@ def create_dataset(
   # the maximum encountered difference between the Q-Values of the single options should (theoretically) be the beta value
   # requirement: enough samples that a pre-beta difference of abs(q[0]-q[1]) is reached at some point by chance 
   # --> More secure coverability through active learning possible  
-  dq_darms_max = 0  #np.zeros(n_sessions)
+  # dq_darms_max = 0  #np.zeros(n_sessions)
   
   for session in range(n_sessions):
     if isinstance(data, Environment):
@@ -118,11 +120,15 @@ def create_dataset(
         choice = agent.get_choice()
         reward = data.step(choice)
         agent.update(choice, reward)
-        
-    elif isinstance(data[0], BanditSession):
-      qs = get_update_dynamics(data[session], agent)[0]
     
-    dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[0][trimming:], axis=-1))))
+    elif isinstance(data[0], BanditSession):# and not isinstance(agent, AgentNetwork):
+      # fill up history of rnn-agent
+      _, _, agent = get_update_dynamics(data[session], agent)
+    
+    # elif isinstance(data[0], BanditSession) and isinstance(agent, AgentNetwork):
+    #   qs = data[session].q
+    
+    # dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
@@ -131,7 +137,7 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = np.round(torch.concat(history).detach().cpu().numpy()[trimming:], 2)
+        values = np.round(torch.concat(history).detach().cpu().numpy()[trimming:], 4)
         if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
         if key in keys_x:
@@ -163,28 +169,28 @@ def create_dataset(
       # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
       x_train_list[i] = x_train_list[i] - x_min
       
-  if normalize:
-    index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
-    # compute scaling parameters
-    x_max, x_min = np.max(np.stack(x_train_list), axis=-1), np.min(np.stack(x_train_list), axis=-1)
-    # beta = x_max - x_min
-    beta = dq_darms_max[0]
-    # beta = 3
-    # normalize data (TODO: find better solution for cQr)
-    for i in range(len(x_train_list)):
-      # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
-      x_train_list[i] = (x_train_list[i] - x_min) / beta
-      if 'cQr' in keys_c:
-        control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
-  else:
-    beta = 1
+  # if normalize:
+  #   index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
+  #   # compute scaling parameters
+  #   x_max, x_min = np.max(np.stack(x_train_list), axis=-1), np.min(np.stack(x_train_list), axis=-1)
+  #   # beta = x_max - x_min
+  #   beta = dq_darms_max[0]
+  #   # beta = 3
+  #   # normalize data (TODO: find better solution for cQr)
+  #   for i in range(len(x_train_list)):
+  #     # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
+  #     x_train_list[i] = (x_train_list[i] - x_min) / beta
+  #     if 'cQr' in keys_c:
+  #       control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
+  # else:
+  #   beta = 1
   
   if shuffle:
     shuffle_idx = np.random.permutation(len(x_train_list))
     x_train_list = [x_train_list[i] for i in shuffle_idx]
     control_list = [control_list[i] for i in shuffle_idx]
   
-  return x_train_list, control_list, feature_names, beta
+  return x_train_list, control_list, feature_names
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
