@@ -193,8 +193,8 @@ def main(
   if epochs > 0:
     start_time = time.time()
     
-    #Fit the hybrid RNN
-    print('Training the hybrid RNN...')
+    #Fit the RNN
+    print('Training the RNN...')
     for m in model:
       m.train()
     model, optimizer_rnn, _ = rnn_training.fit_model(
@@ -241,7 +241,7 @@ def main(
   print(f'Trained initial beta of RNN is: {model.beta.item()}')
   
   # validate model
-  print('\nTesting the trained hybrid RNN on a test dataset...')
+  print('\nTesting the trained RNN on a test dataset...')
   if isinstance(model, list):
     for m in model:
       m.eval()
@@ -276,8 +276,6 @@ def main(
     list_Qs = []
     list_qs = []
     list_hs = []
-    list_us = []
-    list_bs = []
 
     # get q-values from groundtruth
     if data is None:
@@ -286,25 +284,19 @@ def main(
       list_Qs.append(np.expand_dims(qs_test[0], 0))
       list_qs.append(np.expand_dims(qs_test[1], 0))
       list_hs.append(np.expand_dims(qs_test[2], 0))
-      list_us.append(np.expand_dims(qs_test[3], 0))
-      list_bs.append(np.expand_dims(qs_test[4], 0))
-
+      
     # get q-values from trained rnn
     qs_rnn, probs_rnn, _ = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
     list_probs.append(np.expand_dims(probs_rnn, 0))
     list_Qs.append(np.expand_dims(qs_rnn[0], 0))
     list_qs.append(np.expand_dims(qs_rnn[1], 0))
     list_hs.append(np.expand_dims(qs_rnn[2], 0))
-    list_us.append(np.expand_dims(qs_rnn[3], 0))
-    list_bs.append(np.expand_dims(qs_rnn[4], 0))
 
     # concatenate all choice probs and q-values
     probs = np.concatenate(list_probs, axis=0)
     Qs = np.concatenate(list_Qs, axis=0)
     qs = np.concatenate(list_qs, axis=0)
     hs = np.concatenate(list_hs, axis=0)
-    us = np.concatenate(list_us, axis=0)
-    bs = np.concatenate(list_bs, axis=0)
 
     colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
     
@@ -314,7 +306,7 @@ def main(
 
     # qs = normalize(qs)
 
-    fig, axs = plt.subplots(7, 1, figsize=(20, 10))
+    fig, axs = plt.subplots(5, 1, figsize=(20, 10))
 
     reward_probs = np.stack([experiment_list_test[session_id].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
     bandits.plot_session(
@@ -374,34 +366,8 @@ def main(
         fig_ax=(fig, axs[4]),
         )
 
-    bandits.plot_session(
-        compare=True,
-        choices=choices,
-        rewards=rewards,
-        timeseries=us[:, :, 0],
-        timeseries_name='u',
-        color=colors,
-        binary=True,
-        fig_ax=(fig, axs[5]),
-    )
-    
-    bandits.plot_session(
-        compare=True,
-        choices=choices,
-        rewards=rewards,
-        timeseries=bs[:, :, 0],
-        timeseries_name='b',
-        color=colors,
-        binary=True,
-        fig_ax=(fig, axs[6]),
-    )
-
     plt.show()
-    
-    if data is None:
-      print(f'Average beta of ground truth is: beta_avg = {np.round(np.mean(qs_test[4]), 2)}')
-    print(f'Average beta of RNN is: beta_avg = {np.round(np.mean(qs_rnn[4]), 2)}')
-    
+        
   return loss_test
 
 

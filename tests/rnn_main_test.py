@@ -8,9 +8,9 @@ losses = []
 for i in range(1):
     loss = rnn_main.main(
         checkpoint=False,
-        epochs=128,
-        model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
-        data = 'data/sugawara2021_143_processed.csv',
+        epochs=1,
+        # model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
+        # data = 'data/sugawara2021_143_processed.csv',
 
         dropout=0.1,
         bagging=False,
@@ -18,9 +18,9 @@ for i in range(1):
         # weight_decay=1e-3,
         
         sigma=0.1,
-        n_sessions=4096,
+        n_sessions=64,#4096,
         n_oversampling=-1,
-        batch_size=128,
+        batch_size=32,
         
         alpha=0.25,
         forget_rate=0.2,

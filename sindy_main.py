@@ -161,8 +161,6 @@ def main(
         list_Qs = []
         list_qs = []
         list_hs = []
-        list_us = []
-        list_bs = []
 
         # get q-values from groundtruth
         if data is None:
@@ -171,8 +169,6 @@ def main(
             list_Qs.append(np.expand_dims(qs_test[0], 0))
             list_qs.append(np.expand_dims(qs_test[1], 0))
             list_hs.append(np.expand_dims(qs_test[2], 0))
-            list_us.append(np.expand_dims(qs_test[3], 0))
-            list_bs.append(np.expand_dims(qs_test[4], 0))
 
         # get q-values from trained rnn
         qs_rnn, probs_rnn, _ = get_update_dynamics(experiment_list_test[0], agent_rnn)
@@ -180,8 +176,6 @@ def main(
         list_Qs.append(np.expand_dims(qs_rnn[0], 0))
         list_qs.append(np.expand_dims(qs_rnn[1], 0))
         list_hs.append(np.expand_dims(qs_rnn[2], 0))
-        list_us.append(np.expand_dims(qs_rnn[3], 0))
-        list_bs.append(np.expand_dims(qs_rnn[4], 0))
         
         # get q-values from trained sindy
         qs_sindy, probs_sindy, _ = get_update_dynamics(experiment_list_test[0], agent_sindy)
@@ -189,16 +183,12 @@ def main(
         list_Qs.append(np.expand_dims(qs_sindy[0], 0))
         list_qs.append(np.expand_dims(qs_sindy[1], 0))
         list_hs.append(np.expand_dims(qs_sindy[2], 0))
-        list_us.append(np.expand_dims(qs_sindy[3], 0))
-        list_bs.append(np.expand_dims(qs_sindy[4], 0))
 
         # concatenate all choice probs and q-values
         probs = np.concatenate(list_probs, axis=0)
         Qs = np.concatenate(list_Qs, axis=0)
         qs = np.concatenate(list_qs, axis=0)
         hs = np.concatenate(list_hs, axis=0)
-        us = np.concatenate(list_us, axis=0)
-        bs = np.concatenate(list_bs, axis=0)
 
         colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 

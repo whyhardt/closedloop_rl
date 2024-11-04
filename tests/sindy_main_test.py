@@ -11,12 +11,13 @@ features_list = []
 for i in range(1):
     i = 1
     _, _ , features, fig, axs = sindy_main.main(
-        model = 'params/benchmarking/sugawara2021_143_19.pkl',
-        data = 'data/sugawara2021_143_processed.csv',
+        # model = 'params/benchmarking/sugawara2021_143_19.pkl',
+        # data = 'data/sugawara2021_143_processed.csv',
         
         # sindy parameters
         polynomial_degree=2,
         threshold=0.05,
+        verbose=True,
         
         # generated training dataset parameters
         n_trials_per_session = 1024,
@@ -30,8 +31,6 @@ for i in range(1):
         beta=3.,
         
         analysis=True,
-        
-        verbose=True,
     )
 
     features_list.append(np.concatenate([np.array(features[key][1]).reshape(1, -1) for key in features], axis=-1))
