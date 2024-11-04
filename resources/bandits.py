@@ -1,6 +1,6 @@
 """Environments + agents for 2-armed bandit task."""
 # pylint: disable=line-too-long
-from typing import NamedTuple, Union, Optional, List, Dict, Callable
+from typing import NamedTuple, Union, Optional, Dict, Callable, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -9,6 +9,7 @@ from copy import copy, deepcopy
 import torch
 from torch import nn
 import torch.utils
+import pysindy as ps
 
 from resources.rnn import RLRNN, EnsembleRNN
 from resources.rnn_utils import DatasetRNN
@@ -54,49 +55,63 @@ class AgentQ:
 
   def __init__(
       self,
+      n_actions: int = 2,
       alpha: float = 0.2,
       beta: float = 3.,
-      n_actions: int = 2,
       forget_rate: float = 0.,
-      perseverance_bias: float = 0.,
-      correlated_reward: bool = False,
-      regret: bool = False,
-      confirmation_bias: bool = False,
+      perseveration_bias: float = 0.,
+      alpha_penalty: float = -1,
+      confirmation_bias: float = 0.,
+      directed_exploration_bias: float = 0.,
+      undirected_exploration_bias: float = 0.,
       ):
     """Update the agent after one step of the task.
-
+    
     Args:
-      alpha: scalar learning rate
-      beta: scalar softmax inverse temperature parameter.
+      alpha (float): Baseline learning rate between 0 and 1.
+      beta (float): softmax inverse noise temperature. Regulates the noise in the decision-selection.
       n_actions: number of actions (default=2)
-      forgetting_rate: rate at which q values decay toward the initial values (default=0)
-      perseveration_bias: rate at which q values move toward previous action (default=0)
+      forget_rate (float): rate at which q values decay toward the initial values (default=0)
+      perseveration_bias (float): rate at which q values move toward previous action (default=0)
+      regret (bool): asymmetrical learning rates in the form of pessimistic reinforcement learning
+      confirmation_bias (bool): higher learning rate for believe-confirming outcomes and lower learning rate otherwise
+      directed_exploration_bias (float): rate at which uncertain options are biased for directed exploration (can be negative (uncertainty-averse) and positive (uncertainty-exploration))
+      undirected_exploration_bias (float): rate at which the inverse noise temperature is adapted based on the overall uncertainty of the given options.
     """
-    self._alpha_reward = alpha
-    self._alpha_penalty = alpha*2 if regret else alpha
-    self._beta = beta
+    
+    self._alpha = alpha
+    self._alpha_uncertainty = alpha
+    self._beta_init = beta
     self._n_actions = n_actions
     self._forget_rate = forget_rate
-    self._perseverance_bias = perseverance_bias
-    self._correlated_reward = correlated_reward
+    self._perseverance_bias = perseveration_bias
+    self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._confirmation_bias = confirmation_bias
+    self._directed_exploration_bias = directed_exploration_bias
+    self._undirected_exploration_bias = undirected_exploration_bias
     self._q_init = 0.5
     self.new_sess()
 
-    _check_in_0_1_range(self._alpha_reward, 'alpha_r')
-    _check_in_0_1_range(self._alpha_penalty, 'alpha_p')
+    _check_in_0_1_range(self._alpha, 'alpha')
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
-    self._reward_update = lambda q, reward: reward-q
+    self._reward_prediction_error = lambda q, reward: reward-q
+    
+    self.new_sess()
 
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
+    self._u = self._q_init + np.zeros(self._n_actions)
+    
+    self.beta = self._beta_init
+    
+    self._reward_history = np.zeros((self._n_actions, 5))
 
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = np.exp(self.q * self._beta)
+    decision_variable = np.exp(self.q * self.beta)
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
@@ -117,91 +132,122 @@ class AgentQ:
     """
     
     # Reward-and-Value-based updates
+    # asymmetric learning rates
+    alpha = self._alpha if reward > 0.5 else self._alpha_penalty
+    
+    # Reward-prediction-error
+    rpe = self._reward_prediction_error(self._q[choice], reward)
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
     non_chosen_action = np.arange(self._n_actions) != choice
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
-
-    # Reward-based update - Update chosen q for chosen action with observed reward
-    # adjust alpha according to regret mechanism (if activated)
-    alpha = self._alpha_reward if reward == 1 else self._alpha_penalty
+    
     # add confirmation bias to learning rate
-    if self._confirmation_bias:
-      alpha += (self._q[choice]-self._q_init)*(reward - 0.5)
-    reward_update = alpha * self._reward_update(self._q[choice], reward)
-     
+    # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
+    # if self._confirmation_bias:  
+    # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+    # differentiable confirmation bias:
+    alpha += self._confirmation_bias * (self._q[choice]-self._q_init)*(reward - 0.5)
+      
+      # full learning rate equation w/ confirmation bias only: 
+      # (xLR)[k+1]    = 0.25 + (Q-0.5) * (Reward - 0.5) / 2
+      #               = 0.25 + 0.5*Q*Reward - 0.25*Q - 0.25*Reward + 0.125
+      # SINDy target: = 0.375 - 0.25*Q - 0.25*Reward + 0.5*Q*Reward
+
+    reward_update = alpha * rpe
+    # Value_new = Value_old - lr * Value_old + lr * Reward 
+    # Standard (static) with lr=0.25 --> Value_new = (1-0.25) * Value_old + 0.25 * Reward
+    # w/ regret=lr/2 --> (1 - (lr + regret*(1-Reward))) * Value_old + (lr + regret*(1-Reward)) * Reward
+    # w/ confirmation bias with cb=lr/2 
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
-    # Correlated update - Update non-chosen q for non-chosen action with observed reward
-    if self._correlated_reward:
-      self._q[self._n_actions-1] -= 0.5*reward_update
-    
-    # Action-based updates
+    # Perseveration: Action-based updates
     self._h = np.zeros(self._n_actions)
     self._h[choice] += self._perseverance_bias
     
+    # Reward-uncertainty-biased directed exploration
+    # https://psycnet.apa.org/record/2018-48589-001?doi=1
+    # https://link.springer.com/article/10.3758/s13415-013-0220-4
+    uncertainty_update = rpe**2 - self._u[choice]
+    self._u[choice] += self._alpha_uncertainty * uncertainty_update  
+    
+    # Reward-uncertainty-biased undirected exploration
+    self.beta = self._beta_init - self._undirected_exploration_bias * np.sum(self._u)  
+    
   @property
   def q(self):
-    q = (self._q + self._h).copy()
+    q = (self._q + self._h + self._directed_exploration_bias * self._u).copy()
     return q
   
-  def set_reward_update(self, update_rule: Callable):
-    self._reward_update = update_rule
-    
+  def set_reward_prediction_error(self, update_rule: Callable):
+    self._reward_prediction_error = update_rule
 
 
 class AgentSindy:
 
   def __init__(
       self,
+      sindy_models: Dict[str, ps.SINDy],
       n_actions: int=2,
       beta: float=1.,
       deterministic: bool=False,
       ):
-
+    
+    self._models = sindy_models
     self._q_init = 0.5
     self._deterministic = deterministic
-    self._beta = beta
+    self._beta_base = beta
     self._n_actions = n_actions
     self._prev_choice = None
-
-    self._update_rule = lambda q, choice, reward: q[choice] + reward
-    self._update_rule_formula = None
     
-  def set_update_rule(self, update_rule: callable, update_rule_formula: str=None):
-    self._update_rule=update_rule
-    self._update_rule_formula=update_rule_formula
-
-  @property
-  def update_rule(self):
-    if self._update_rule_formula is not None:
-      return self._update_rule_formula
-    else:
-      return f'{self._update_rule}'
+    self._n_parameters = self._count_sindy_parameters()
+    
+    self.new_sess()
 
   def update(self, choice: int, reward: int):
-    # the chosen action must be updated first and the non-chosen actions afterwards 
-    # necessary due to spillover effects from chosen action to non-chosen actions
-    
-    # 1. update chosen action
-    q, h = self._update_rule(self._q[choice], self._h[choice], 1, reward)
-    self._q[choice] = q
-    self._h[choice] = h
-    
-    # 2. update non-chosen actions
-    for c in range(self._n_actions):
-      if c == choice:
-        # skip already updated chosen action
-        continue
-      q, h = self._update_rule(self._q[c], self._h[c], 0, reward)
-      self._q[c] = q
-      self._h[c] = h
+
+      choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
+      
+      for action in range(self._n_actions):
+        chosen = 1 - np.abs(choice - action)
+        
+        # reward network
+        if chosen == 1:
+          # current action was chosen
+          if 'xLR' in self._models:
+            learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward, 1-reward]).reshape(1, -1))[-1]
+            reward_prediction_error = reward - self._q[action]
+            self._q[action] += learning_rate * reward_prediction_error
+        
+          if 'xH' in self._models:
+            self._h[action] = self._models['xH'].predict(np.array([self._h[action]]), u=np.array([choice_repeat]).reshape(1, -1))# - self._h[action]
+
+          if 'xU' in self._models:
+            self._u[action] = self._models['xU'].predict(np.array([self._u[action]]), u=np.array([self._q[action], reward]).reshape(1, -1))# - self._u[action]
           
+        else:  # chosen == 0
+          # current action was not chosen
+          if 'xQf' in self._models:
+            self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]# - self._q[action]
+          if 'xHf' in self._models:
+            self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))# - self._h[action]
+          if 'xUf' in self._models:
+            self._u[action] = self._models['xUf'].predict(np.array([self._u[action]]), u=np.array([0]).reshape(1, -1))# - self._u[action]
+
+      # beta network (independent of action)
+      if 'xB' in self._models:
+        beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))
+        self._beta = self._beta_base + beta_update[0, 0]
+        
+      self._prev_choice = 0+choice
+      
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
+    self._u = np.zeros(self._n_actions)
+    self._beta = self._beta_base
     self._prev_choice = -1
     
   def get_choice_probs(self) -> np.ndarray:
@@ -219,9 +265,39 @@ class AgentSindy:
       choice = np.random.choice(self._n_actions, p=choice_probs)
     return choice
   
+  def _count_sindy_parameters(self, without_self=False):
+    """Count the SINDy coefficients across all sub-models which are not zero
+
+    Returns:
+        int: number of sindy coefficients which are not zero
+    """
+    
+    n_parameters = 0
+    
+    for m in self._models:
+      index_self = self._models[m].get_feature_names().index(m)
+      coeff_self = self._models[m].coefficients()[0, index_self]
+      coeffs = self._models[m].coefficients()[0]
+      if without_self and coeff_self == 1 and np.sum(coeffs[coeffs != index_self]) == 0:
+        # the values are passed through the sub-model without any processing. 
+        # coeff_self = 1 and the rest is 0: 
+        # Example: models['xH'](Input: 1234) -> Output: 1234
+        # Sub-model won't be considered for SINDy-Coefficients.
+        continue
+      else:
+        for c in coeffs:
+          if c != 0:
+            n_parameters += 1
+     
+    return n_parameters
+        
   @property
   def q(self):
     return (self._q + self._h).copy()
+  
+  @property
+  def beta(self):
+    return self._beta
 
 
 class AgentNetwork:
@@ -250,30 +326,32 @@ class AgentNetwork:
         if device != model.device:
           model = model.to(device)
         if isinstance(model, RLRNN):
-          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, model._vo, model._vs, list(model.history.keys()), device=model.device).to(model.device)
+          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
           self._model.load_state_dict(model.state_dict())
         else:
           self._model = model
         self._model.eval()
-        self._xs = torch.zeros((1, 2))-1
         self._n_actions = n_actions
+        
+        # self._directed_exploration_bias = self._model._directed_exploration_bias.item()
+        
         self.new_sess()
 
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
-      self._model.initial_state(batch_size=1)
+      self._model.set_initial_state(batch_size=1)
       self._xs = torch.zeros((1, 2))-1
+      self.set_state()
 
-    def get_value(self):
+    def get_logit(self):
       """Return the value of the agent's current state."""
-      state = self._model.get_state()[-2].cpu().numpy() + self._model.get_state()[-1].cpu().numpy()
-      value = state[0, 0]
-      return value
+      logit = self._q + self._h# + self._u #* self._directed_exploration_bias
+      return logit
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      value = self.get_value()
-      choice_probs = np.exp(value) / np.sum(np.exp(value))
+      decision_variable = self.get_logit() * self._beta
+      choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
       return choice_probs
 
     def get_choice(self):
@@ -288,10 +366,21 @@ class AgentNetwork:
       self._xs = torch.tensor([[choice, reward]], device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
-            
+      self.set_state()
+    
+    def set_state(self):
+      self._q = self._model.get_state()[-3].cpu().numpy()[0, 0]
+      self._h = self._model.get_state()[-2].cpu().numpy()[0, 0]
+      self._u = self._model.get_state()[-1].cpu().numpy()[0, 0]
+      self._beta = self._model.beta.item()
+
     @property
     def q(self):
-      return copy(self.get_value())
+      return self.get_logit()
+    
+    @property
+    def beta(self):
+      return self._beta
 
 
 ################
@@ -299,7 +388,16 @@ class AgentNetwork:
 ################
 
 
-class EnvironmentBanditsFlips:
+class Environment:
+  
+  def __init__(self):
+    pass
+  
+  def step(self, choice):
+    pass
+
+
+class EnvironmentBanditsFlips(Environment):
   """Env for 2-armed bandit task with reward probs that flip in blocks."""
 
   def __init__(
@@ -308,6 +406,9 @@ class EnvironmentBanditsFlips:
       reward_prob_high: float = 0.8,
       reward_prob_low: float = 0.2,
   ):
+    
+    super(EnvironmentBanditsFlips, self).__init__()
+    
     # Assign the input parameters as properties
     self._block_flip_prob = block_flip_prob
     self._reward_prob_high = reward_prob_high
@@ -345,9 +446,86 @@ class EnvironmentBanditsFlips:
   @property
   def n_actions(self) -> int:
     return 2
+  
+
+class EnvironmentBanditsSwitch(Environment):
+  """Env for 2-armed bandit task with fixed sets of reward probs that switch in blocks."""
+
+  def __init__(
+      self,
+      block_flip_prob: float = 0.02,
+      reward_prob_high: float = 0.75,
+      reward_prob_low: float = 0.25,
+      reward_prob_middle: float = 0.5,
+      **kwargs,
+  ):
+    
+    super(EnvironmentBanditsSwitch, self).__init__()
+    
+    # Assign the input parameters as properties
+    self._block_flip_prob = block_flip_prob
+    self._reward_prob_high = reward_prob_high
+    self._reward_prob_low = reward_prob_low
+    self._reward_prob_middle = reward_prob_middle
+    
+    self._n_blocks = 7
+    
+    # Choose a random block to start in
+    self._block = np.random.randint(self._n_blocks)
+    
+    # Set up the new block
+    self.new_block()
+
+  def new_block(self):
+    """Switch the reward probabilities for a new block."""
+    
+    # Choose a new random block
+    block = np.random.randint(0, self._n_blocks)
+    while block == self._block:
+      block = np.random.randint(0, self._n_blocks)
+    self._block = block
+    
+    # Set the reward probabilites
+    if self._block == 0:
+      self._reward_probs = [self._reward_prob_high, self._reward_prob_low]
+    elif self._block == 1:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_middle]
+    elif self._block == 2:
+      self._reward_probs = [self._reward_prob_low, self._reward_prob_high]
+    elif self._block == 3:
+      self._reward_probs = [self._reward_prob_low, self._reward_prob_middle]
+    elif self._block == 4:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_high]
+    elif self._block == 5:
+      self._reward_probs = [self._reward_prob_middle, self._reward_prob_low]
+    elif self._block == 6:
+      self._reward_probs = [self._reward_prob_high, self._reward_prob_middle]
+      
+  def step(self, choice):
+    """Step the model forward given chosen action."""
+    # Choose the reward probability associated with agent's choice
+    reward_prob_trial = self.reward_probs[choice]
+
+    # Sample a reward with this probability
+    reward = float(np.random.binomial(1, reward_prob_trial))
+
+    # Check whether to flip the block
+    if np.random.uniform() < self._block_flip_prob:
+      self.new_block()
+
+    # Return the reward
+    return float(reward)
+
+  @property
+  def reward_probs(self) -> np.ndarray:
+    return self._reward_probs.copy()
+
+  @property
+  def n_actions(self) -> int:
+    return 2
 
 
-class EnvironmentBanditsDrift:
+class EnvironmentBanditsDrift(Environment):
   """Environment for a drifting two-armed bandit task.
 
   Reward probabilities on each arm are sampled randomly between 0 and 1. On each
@@ -367,6 +545,9 @@ class EnvironmentBanditsDrift:
       correlated_reward: bool = False,
       ):
     """Initialize the environment."""
+    
+    super(EnvironmentBanditsDrift, self).__init__()
+    
     # Check inputs
     if sigma < 0:
       msg = f'Argument sigma but must be greater than 0. Found: {sigma}.'
@@ -414,8 +595,10 @@ class EnvironmentBanditsDrift:
     # Add gaussian noise to reward probabilities
     drift = np.random.normal(loc=0, scale=self._sigma, size=self._n_actions)
     if not self._correlated_rewards:
+      # non-correlated reward probabilities
       self._reward_probs += drift
     else:
+      # in the case of correlated reward probabilities: adding to one option means substracting the same drift from the other
       for i in range(self._n_actions//2):
         self._reward_probs[i] += drift[i]
         self._reward_probs[i-1] -= drift[i]
@@ -438,13 +621,13 @@ class BanditSession(NamedTuple):
   """Holds data for a single session of a bandit task."""
   choices: np.ndarray
   rewards: np.ndarray
-  timeseries: np.ndarray
+  reward_probabilities: np.ndarray
   q: np.ndarray
   n_trials: int
   
 
-Agent = Union[AgentQ, AgentNetwork]
-Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift]
+Agent = Union[AgentQ, AgentNetwork, AgentSindy]
+# Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift, EnvironmentBanditsSwitch]
 
 
 ###############
@@ -474,23 +657,23 @@ def run_experiment(
   reward_probs = np.zeros((n_trials+1, environment.n_actions))
 
   for trial in range(n_trials+1):
-    # First record environment reward probs
+    # Log environment reward probabilities and Q-Values
     reward_probs[trial] = environment.reward_probs
     qs[trial] = agent.q
-    # First agent makes a choice
+    # First - agent makes a choice
     choice = agent.get_choice()
-    # Then environment computes a reward
+    # Second - environment computes a reward
     reward = environment.step(choice)
     # Log choice and reward
     choices[trial] = choice
     rewards[trial] = reward
-    # Agent learns
+    # Third - agent updates its believes based on chosen action and received reward
     agent.update(choice, reward)
     
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),
                              rewards=rewards[:-1],
-                             timeseries=reward_probs[:-1],
+                             reward_probabilities=reward_probs[:-1],
                              q=qs[:-1])
   return experiment, choices.astype(int), rewards
 
@@ -554,17 +737,30 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   
   choices = np.expand_dims(experiment.choices, 1)
   rewards = np.expand_dims(experiment.rewards, 1)
+  Qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  hs = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  us = np.zeros((experiment.choices.shape[0], agent._n_actions))
+  bs = np.zeros((experiment.choices.shape[0], 1))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
   agent.new_sess()
   
   for trial in range(experiment.choices.shape[0]):
-    qs[trial] = agent.q
+    # track all states
+    Qs[trial] = agent.q * agent.beta
+    qs[trial] = agent._q
+    hs[trial] = agent._h
+    us[trial] = agent._u
+    bs[trial] = agent.beta
+    
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
-    
-  return qs, choice_probs
+  
+  if hasattr(agent, '_directed_exploration_bias'):
+    us *= agent._directed_exploration_bias
+  
+  return (Qs, qs, hs, us, bs), choice_probs, agent
 
 
 ###############
@@ -575,16 +771,17 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
 def plot_session(
   choices: np.ndarray,
   rewards: np.ndarray,
-  timeseries: List[np.ndarray],
+  timeseries: Tuple[np.ndarray],
   timeseries_name: str,
-  labels: Optional[List[str]] = None,
+  labels: Optional[Tuple[str]] = None,
   title: str = '',
   x_label = 'Trials',
   fig_ax = None,
   compare=False,
   color=None,
   binary=False,
-  axis_info=True,
+  x_axis_info=True,
+  y_axis_info=True,
   ):
   """Plot data from a single behavioral session of the bandit task.
 
@@ -604,7 +801,7 @@ def plot_session(
   
   choose_high = choices == 1
   choose_low = choices == 0
-  rewarded = rewards == 1
+  rewarded = rewards > 0.5
   y_high = np.max(timeseries) + 0.1
   y_low = np.min(timeseries) - 0.1
   
@@ -646,7 +843,7 @@ def plot_session(
     else:  # Skip legend.
       ax.plot(timeseries[i], color=color[i])
 
-  if choices.max() <= 1 and binary:
+  if choices.max() <= 1:
     # Rewarded high
     ax.scatter(
         np.argwhere(choose_high & rewarded),
@@ -683,15 +880,20 @@ def plot_session(
         color='red',
         marker='|')
 
-  if axis_info:
+  if x_axis_info:
     ax.set_xlabel(x_label)
-    ax.set_ylabel(timeseries_name)
-    ax.set_title(title)
   else:
     ax.set_xticks(np.linspace(1, len(choices), 6))
     ax.set_xticklabels(['']*6)
+    
+  if y_axis_info:
+    pass
+    # ax.set_ylabel(timeseries_name)
+  else:
     ax.set_yticks(np.linspace(0, 1, 5))
     ax.set_yticklabels(['']*5)
+    
+  ax.set_title(title)
     
 
 def show_valuemetric(experiment_list, label=None):

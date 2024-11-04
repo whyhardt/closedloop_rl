@@ -64,29 +64,45 @@ def fit_model(
         control_i = remove_control_features(control_i, feature_names_i[1:], library_setup[x_feature])
         feature_names_i = [x_feature] + library_setup[x_feature]
         
-        # add a dummy control feature if no control features are remaining
+        # add a dummy control feature if no control features are remaining - otherwise sindy breaks --> TODO: find out why
         if control_i is None:
             control_i = [np.zeros_like(x_train_i[0]) for _ in range(len(x_train_i))]
             feature_names_i = feature_names_i + ['u']
         
+        # define weighted thresholds for SR3 for a polynomial library where polynomials are penalized with increasing degree
+        len_library = np.math.factorial(len(feature_names_i) + polynomial_degree) // (np.math.factorial(len(feature_names_i)) * np.math.factorial(polynomial_degree))
+        thresholds = np.zeros((1, len_library))
+        thresholds[0, 0] = 0
+        thresholds[0, :1+len(feature_names_i)] = 0.1
+        thresholds[0, 1+len(feature_names_i):] = 0.45
+        # thresholds = np.zeros((len_library, 1))
+        # thresholds[0, 0] = 0
+        # thresholds[:1+len(feature_names_i), 0] = 0.1
+        # thresholds[1+len(feature_names_i):, 0] = 0.45
+        
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            optimizer=ps.STLSQ(threshold=0.03, verbose=False, alpha=optimizer_alpha),
-            # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
-            # optimizer=ps.ConstrainedSR3(thresholder="L1", threshold=optimizer_threshold, verbose=True),
-            # optimizer=ps.SSR(criteria="model_residual"),
+            optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=5, verbose=verbose, fit_intercept=False),
+            # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=verbose),
+            # optimizer=ps.SR3(thresholder="weighted_l1", thresholds=thresholds, verbose=verbose, fit_intercept=True),
+            # optimizer=ps.SSR(kappa=10, verbose=verbose),
+            # optimizer=ps.FROLS(),
             feature_library=ps.PolynomialLibrary(polynomial_degree),
             discrete_time=True,
             feature_names=feature_names_i,
         )
-        
+
         # fit sindy model
-        sindy_models[x_feature].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True, ensemble=False, library_ensemble=False)
+        sindy_models[x_feature].fit(x_train_i, u=control_i, t=1, multiple_trajectories=True)
         # post-process sindy weights
         for i in range(len(sindy_models[x_feature].model.steps[-1][1].coef_[0])):
-            if i == 1 and np.abs(1-sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]) < optimizer_threshold:
-                sindy_models[x_feature].model.steps[-1][1].coef_[0, 1] = 1.
-            elif i != 1 and sindy_models[x_feature].model.steps[-1][1].coef_[0, i] < optimizer_threshold:
+            # case: coefficient is x_feature[k] 
+            # --> Target in the case of non-available dynamics: 
+            # x_feature[k+1] = 1.0 x_feature[k] and not e.g. x_feature[k+1] = 1.03 x_feature[k]
+            if i == 1 and (np.abs(1-sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]) < optimizer_threshold or np.abs(sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]) < optimizer_threshold):
+                sindy_models[x_feature].model.steps[-1][1].coef_[0, 1] = float(int(sindy_models[x_feature].model.steps[-1][1].coef_[0, 1]))
+            # case: any other coefficient
+            elif i != 1 and np.abs(sindy_models[x_feature].model.steps[-1][1].coef_[0, i]) < optimizer_threshold and sindy_models[x_feature].model.steps[-1][1].coef_[0, i] != 0:
                 sindy_models[x_feature].model.steps[-1][1].coef_[0, i] = 0.
         if get_loss:
             loss_model = 1-sindy_models[x_feature].score(x_train_i, u=control_i, t=1, multiple_trajectories=True)
@@ -100,12 +116,3 @@ def fit_model(
         return sindy_models, loss
     else:
         return sindy_models
-        
-def setup_sindy_agent(
-    update_rule, 
-    n_actions: int = None,
-    ):
-    agent_sindy = AgentSindy(n_actions, deterministic=True)
-    agent_sindy.set_update_rule(update_rule)
-    
-    return agent_sindy

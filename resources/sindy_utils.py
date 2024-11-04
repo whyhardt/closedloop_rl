@@ -74,9 +74,10 @@ def create_dataset(
   n_trials_per_session: int,
   n_sessions: int,
   normalize: bool = False,
+  clear_offset: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
-  trimming: int = 0,
+  trimming: bool = False,
   ):
   
   if not isinstance(data, Environment):
@@ -99,6 +100,8 @@ def create_dataset(
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   
+  trimming = int(n_trials_per_session*0.1) if trimming else 0
+  
   # x_train = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_x)))
   # control = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_c)))
   x_train = {key: [] for key in keys_x}
@@ -107,7 +110,7 @@ def create_dataset(
   # the maximum encountered difference between the Q-Values of the single options should (theoretically) be the beta value
   # requirement: enough samples that a pre-beta difference of abs(q[0]-q[1]) is reached at some point by chance 
   # --> More secure coverability through active learning possible  
-  dq_darms_max = 0  #np.zeros(n_sessions)
+  # dq_darms_max = 0  #np.zeros(n_sessions)
   
   for session in range(n_sessions):
     if isinstance(data, Environment):
@@ -117,11 +120,15 @@ def create_dataset(
         choice = agent.get_choice()
         reward = data.step(choice)
         agent.update(choice, reward)
-        
-    elif isinstance(data[0], BanditSession):
-      qs = get_update_dynamics(data[session], agent)[0]
     
-    dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
+    elif isinstance(data[0], BanditSession):# and not isinstance(agent, AgentNetwork):
+      # fill up history of rnn-agent
+      _, _, agent = get_update_dynamics(data[session], agent)
+    
+    # elif isinstance(data[0], BanditSession) and isinstance(agent, AgentNetwork):
+    #   qs = data[session].q
+    
+    # dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
@@ -131,14 +138,19 @@ def create_dataset(
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
+        # check if dv/dt > tol; otherwise set v(t=1) = v(t=0)
+        dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
+        for i_action in range(values.shape[-1]):
+          values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-2, values[:, 1, i_action], values[:, 0, i_action])
+        values = np.round(values, 2)
+        if values.shape[-1] == 1:
+            values = np.repeat(values, 2, -1)
         if key in keys_x:
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
             x_train[key] += [v for v in values[:, :, i_action]]
         elif key in keys_c:
           # add control signals of one session as corresponding trajectory
-          if values.shape[-1] == 1:
-            values = np.repeat(values, 2, -1)
           for i_action in range(agent._n_actions):
             control[key] += [v for v in values[:, :, i_action]]
               
@@ -156,28 +168,34 @@ def create_dataset(
     x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
     control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
   
-  if normalize:
-    index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
-    # compute scaling parameters
-    x_max, x_min = np.max(np.stack(x_train_list)), np.min(np.stack(x_train_list))
-    # beta = x_max - x_min
-    beta = dq_darms_max[0]
-    # beta = 3
-    # normalize data (TODO: find better solution for cQr)
+  if clear_offset:
+    x_min = np.min(np.min(np.stack(x_train_list), axis=0), axis=0)
     for i in range(len(x_train_list)):
       # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
-      x_train_list[i] = (x_train_list[i] - x_min) / beta
-      if 'cQr' in keys_c:
-        control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
-  else:
-    beta = 1
+      x_train_list[i] = x_train_list[i] - x_min
+      
+  # if normalize:
+  #   index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
+  #   # compute scaling parameters
+  #   x_max, x_min = np.max(np.stack(x_train_list), axis=-1), np.min(np.stack(x_train_list), axis=-1)
+  #   # beta = x_max - x_min
+  #   beta = dq_darms_max[0]
+  #   # beta = 3
+  #   # normalize data (TODO: find better solution for cQr)
+  #   for i in range(len(x_train_list)):
+  #     # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
+  #     x_train_list[i] = (x_train_list[i] - x_min) / beta
+  #     if 'cQr' in keys_c:
+  #       control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
+  # else:
+  #   beta = 1
   
   if shuffle:
     shuffle_idx = np.random.permutation(len(x_train_list))
     x_train_list = [x_train_list[i] for i in shuffle_idx]
     control_list = [control_list[i] for i in shuffle_idx]
   
-  return x_train_list, control_list, feature_names, beta
+  return x_train_list, control_list, feature_names
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
@@ -231,34 +249,6 @@ def conditional_filtering(x_train: List[np.ndarray], control: List[np.ndarray], 
   return x_train_relevant, control_relevant, x_features+control_features
 
 
-def constructor_update_rule_sindy(sindy_models):
-  def update_rule_sindy(q, h, choice, reward):
-      # mimic behavior of rnn with sindy
-      
-      blind_update, reward_update, action_update = 0, 0, 0
-      
-      # action network
-      if choice == 1 and 'xH' in sindy_models:
-        action_update = sindy_models['xH'].predict(np.array([q]), u=np.array([choice]).reshape(1, -1))[-1] - q  # get only the difference between q and q_update as h is later added to q
-      
-      # value network      
-      if choice == 1 and reward == 1 and 'xQr_r' in sindy_models:
-        # reward-based update for chosen action in case of reward
-        reward_update = sindy_models['xQr_r'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
-      
-      if choice == 1 and reward == 0 and 'xQr_p' in sindy_models:
-        # reward-based update for chosen action in case of penalty
-        reward_update = sindy_models['xQr_p'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
-      
-      if choice == 0 and 'xQf' in sindy_models:
-        # blind update for non-chosen action
-        blind_update = sindy_models['xQf'].predict(np.array([q]), u=np.array([0]).reshape(1, -1))[-1] - q
-      
-      return q+blind_update+reward_update, action_update
-    
-  return update_rule_sindy
-
-
 def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = log_loss):
   """Compute the loss of the SINDy model directly on the data in x-coordinates i.e. predicting behavior.
   This loss is not used for SINDy-Training, but for analysis purposes only.
@@ -284,7 +274,7 @@ def sindy_loss_x(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSessio
   return loss_total/len(data)
 
 
-def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], loss_fn: Callable = mean_squared_error, coordinates: str = "x"):
+def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession], coordinates: str = "x"):
   """Compute the loss of the SINDy model directly on the data in z-coordinates i.e. predicting q-values.
   This loss is also used for SINDy-Training.
 
@@ -306,7 +296,11 @@ def bandit_loss(agent: Union[AgentSindy, AgentNetwork], data: List[BanditSession
       beta = agent._beta if hasattr(agent, "_beta") else 1
       y_pred = np.exp(agent.q * beta)/np.sum(np.exp(agent.q * beta))
       agent.update(choices[t], rewards[t])
-      y_target = np.eye(agent._n_actions)[choices[t+1]] if coordinates == "x" else qs[t]
-      loss_session += loss_fn(y_target, y_pred)
+      if coordinates == 'x':
+        y_target = np.eye(agent._n_actions)[choices[t+1]]
+        loss_session = log_loss(y_target, y_pred)
+      elif coordinates == 'z':
+        y_target = qs[t]
+        loss_session = mean_squared_error(y_target, y_pred)
     loss_total += loss_session/(t+1)
   return loss_total/len(data)

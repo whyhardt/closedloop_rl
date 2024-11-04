@@ -3,6 +3,7 @@ import sys
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 import time
 import copy
@@ -23,9 +24,10 @@ class categorical_log_likelihood(nn.modules.loss._Loss):
     def __init__(self, size_average=None, reduce=None, reduction: str = 'mean') -> None:
         super().__init__(size_average, reduce, reduction)
     
-    def forward(logits: torch.Tensor, target: torch.Tensor):
-        # Mask any errors for which label is negative
-        mask = torch.logical_not(target < 0)
+    def forward(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor = None):
+        # mask has True for values to pass and False for values to omit
+        if mask is None:
+            mask = torch.ones_like(logits, device=logits.device)
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
         log_liks = target * log_probs
         masked_log_liks = torch.multiply(log_liks, mask)
@@ -50,66 +52,33 @@ def batch_train(
         n_steps_per_call = xs.shape[1]
     
     # predict y and compute loss
-    model.initial_state(batch_size=len(xs))
+    model.set_initial_state(batch_size=len(xs))
     state = model.get_state(detach=True)
     
-    # for t in range(xs.shape[1]):
-    #     n_steps = min(xs.shape[1]-t, n_steps_per_call)
-    #     # for step in range(n_steps):
-    #     y_pred = torch.zeros((xs.shape[0], n_steps, model._n_actions), device=model.device)
-    #     y_pred[:, 0] = model(xs[:, t], state, batch_first=True)[0].squeeze(1)
-    #     state_buffer = model.get_state(detach=True)
-    #     y_pred[:, 1:] = model(xs[:, t+1:t+n_steps], state, batch_first=True)[0]
-        # state = model.get_state()
-        # if step == 0:
-        #     # save state for next big iteration
-        #     state_buffer = state
-        # model.set_state(*state_buffer)
-        
-        # # compute prediction loss and optimize network
-        # loss = 0
-        # for i in range(n_steps):
-        #     loss += loss_fn(y_pred[:, i], ys[:, t+i])
-        # loss /= n_steps
-        # # loss = loss_fn(y_pred, ys[:, t+n_steps-1])
-        # if torch.is_grad_enabled():
-            
-            # null hypothesis penalty
-            # reg_null = penalty_null_hypothesis(model, batch_size=128)
-            # loss += weight_reg_rnn * reg_null
-            
-            # parameter optimization
-        #     optimizer.zero_grad()
-        #     loss.backward()
-        #     optimizer.step()
-        # state = state_buffer
-    # --------------------------------------------------------------
-    # old procedure; may be to data inefficient due to big time steps
-    # --------------------------------------------------------------
-    
     # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
+    loss_batch = 0
+    iterations = 0
     for t in range(0, xs.shape[1]-1, n_steps_per_call):
         n_steps = min(xs.shape[1]-t-1, n_steps_per_call)
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
-        # loss = loss_fn(y_pred[:, -1], xs[:, t+n_steps, :-1])
-        loss = 0
-        for i in range(n_steps):
-            loss += loss_fn(y_pred[:, i], ys[:, t+i])
-        loss /= n_steps
+        # TODO: add mask for real data
+        # mask = xs[:, t:t+n_steps, 0] > -1  # check if checking -1 for first action only is enough
+        loss_t = loss_fn(y_pred.reshape(-1, model._n_actions), ys[:, t:t+n_steps].reshape(-1, model._n_actions))
+        
+        loss_batch += loss_t
+        iterations += 1
         
         if torch.is_grad_enabled():
             
-            # reg_null = penalty_null_hypothesis(model, batch_size=128)   # null hypothesis penalty
-            # loss += weight_reg_rnn * reg_null
-            
             # backpropagation
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss_t.backward()
+            # loss_batch.backward()
             optimizer.step()
     
-    return model, optimizer, loss.item()
+    return model, optimizer, loss_batch.item()/iterations
     
 
 def fit_model(
@@ -155,9 +124,12 @@ def fit_model(
     else:
         raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
     
+    # set up learning rate scheduler for each optimizer
+    # scheduler = [ReduceLROnPlateau(optim) for optim in optimizers]
+    
     # initialize dataloader
     if batch_size == -1:
-        batch_size = len(dataset_train)
+        batch_size = len(dataset_train)//n_submodels
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     if bagging:
         # use random sampling with replacement
@@ -176,29 +148,21 @@ def fit_model(
     optimizer_backup = optimizers[0]
     
     def average_parameters(models):
-        # avg_state_dict = {key: None for key in models[0].state_dict().keys()}
-        # for key in avg_state_dict.keys():
-        #     avg_state_dict[key] = torch.mean(torch.stack([model.state_dict()[key].data for model in models]), dim=0)
-        # return avg_state_dict
         
-        averaged_model = copy.deepcopy(models[0])
+        averaged_state_dict = copy.deepcopy(models[0].state_dict())
 
-        # Initialize the parameters to zero
-        for param in averaged_model.parameters():
-            param.data.zero_()
-        
         # Sum the parameters of all submodels
-        for model in models:
-            for avg_param, submodel_param in zip(averaged_model.parameters(), model.parameters()):
-                avg_param.data.add_(submodel_param.data)
-
-        # Average the parameters
-        for param in averaged_model.parameters():
-            param.data.div_(len(models))
+        for key in averaged_state_dict:
+            averaged_state_dict[key].zero_()
+            for model in models:
+                averaged_state_dict[key] += model.state_dict()[key]
+            if model.state_dict()[key].dtype in (torch.int64, torch.int32):
+                averaged_state_dict[key] = averaged_state_dict[key] // len(models)
+            else:
+                averaged_state_dict[key] /= len(models)
         
-        return averaged_model.state_dict()
+        return averaged_state_dict
     
-    loss_train = torch.inf
     if epochs == 0:
         continue_training = False
         msg = 'No training epochs specified. Model will not be trained.'
@@ -208,18 +172,21 @@ def fit_model(
         continue_training = True
         converged = False
         n_calls_to_train_model = 0
-        len_last_losses = min([20, epochs])
-        last_losses = torch.ones((len_last_losses,))
-        weights_losses = torch.linspace(0.5, 1, len_last_losses-1)
-        sum_weights_losses = torch.sum(weights_losses)
+        convergence_value = 1
+        last_loss = 1
+        recency_factor = 0.5
+    
+    loss_train = 0
+    loss_test = 0
+    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size
     
     # start training
     while continue_training:
         try:
-            t_start = time.time()
-            n_calls_to_train_model += 1
             loss_train = 0
             loss_test = 0
+            t_start = time.time()
+            n_calls_to_train_model += 1
             if isinstance(model, EnsembleRNN):
                 Warning('EnsembleRNN is not implemented for training yet. If you want to train an ensemble model, please train the submodels separately using the n_submodels argument and passing a single BaseRNN.')
                 with torch.no_grad():
@@ -236,41 +203,24 @@ def fit_model(
                         stride=-1,
                     )
             else:
-                for i in range(len(models)):
+                for i in range(batch_iteration_constant):
+                    i_model = i if len(models) > 1 else 0
                     # get next batch
                     xs, ys = next(iter(dataloader_train))
-                    xs = xs.to(models[i].device)
-                    ys = ys.to(models[i].device)
+                    xs = xs.to(models[i_model].device)
+                    ys = ys.to(models[i_model].device)
                     # train model
-                    models[i], optimizers[i], loss_i = batch_train(
-                        model=models[i],
+                    models[i_model], optimizers[i_model], loss_i = batch_train(
+                        model=models[i_model],
                         xs=xs,
                         ys=ys,
-                        optimizer=optimizers[i],
+                        optimizer=optimizers[i_model],
                         n_steps_per_call=n_steps_per_call,
                         # keep_predictions=True,
-                        # loss_fn = categorical_log_likelihood
+                        # loss_fn = categorical_log_likelihood()
                     )
                     loss_train += loss_i
-                    
-                    if dataset_test is not None:
-                        models[i].eval()
-                        with torch.no_grad():
-                            xs, ys = next(iter(dataloader_test))
-                            xs = xs.to(models[i].device)
-                            ys = ys.to(models[i].device)
-                            # train model
-                            models[i], optimizers[i], loss_i = batch_train(
-                                model=models[i],
-                                xs=xs,
-                                ys=ys,
-                                optimizer=optimizers[i],
-                                # loss_fn = categorical_log_likelihood
-                            )
-                        models[i].train()    
-                        loss_test += loss_i
-                loss_train /= len(models)
-                loss_test /= len(models)
+                loss_train /= batch_iteration_constant
             
             if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)
@@ -295,28 +245,44 @@ def fit_model(
                 models, optimizers = evolution_step(models, optimizers, xs.to(dataloader_train.dataset.device), ys.to(dataloader_train.dataset.device), n_best, n_children)
                 n_submodels = len(models)
             
-            # update last losses according to fifo principle
-            last_losses[:-1] = last_losses[1:].clone()
-            last_losses[-1] = copy.copy(loss_test)
+            if not isinstance(model, EnsembleRNN) and dataset_test is not None:
+                models[0].eval()
+                with torch.no_grad():
+                    xs, ys = next(iter(dataloader_test))
+                    xs = xs.to(models[0].device)
+                    ys = ys.to(models[0].device)
+                    # train model
+                    _, _, loss_test = batch_train(
+                        model=models[0],
+                        xs=xs,
+                        ys=ys,
+                        optimizer=optimizers[0],
+                        # loss_fn = categorical_log_likelihood()
+                    )
+                models[0].train()
 
+            # adapt learning rate based on validation loss
+            # last_lr = 0
+            # for s in scheduler:
+            #     s.step(loss_test)
+            #     last_lr += s.get_last_lr()[-1]
+            # last_lr /= len(scheduler)
+            
             # check for convergence
-            # convergence_value = torch.abs(loss - loss_new) / loss
-            # compute convergence value based on weighted mean of last 100 losses with weight encoding the position in the list
-            if n_calls_to_train_model < len_last_losses-1:
-                convergence_value = (torch.sum(torch.abs(torch.diff(last_losses)[-n_calls_to_train_model:]) * weights_losses[-n_calls_to_train_model:]) / torch.sum(weights_losses[-n_calls_to_train_model:])).item()
-                converged = False
-                continue_training = True
-            else:
-                convergence_value = (torch.sum(torch.abs(torch.diff(last_losses)) * weights_losses) / sum_weights_losses).item()
-                converged = convergence_value < convergence_threshold
-                continue_training = not converged and n_calls_to_train_model < epochs
+            dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
+            convergence_value += recency_factor * (np.abs(dloss) - convergence_value)
+            converged = convergence_value < convergence_threshold# or last_lr < convergence_threshold
+            continue_training = not converged and n_calls_to_train_model < epochs
+            last_loss = 0
+            last_loss += loss_test
             
             msg = None
             if verbose:
-                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- Training loss: {loss_train:.7f}'                
+                msg = f'Epoch {n_calls_to_train_model}/{epochs} --- L(Training): {loss_train:.7f}'                
                 if dataset_test is not None:
-                    msg += f'; Validation loss: {loss_test:.7f}'
-                msg += f'; Time: {time.time()-t_start:.4f}s; Convergence value: {convergence_value:.2e}'
+                    msg += f'; L(Validation): {loss_test:.7f}'
+                msg += f'; Time: {time.time()-t_start:.2f}s; Convergence value: {convergence_value:.2e}'
+                # msg += f'; Learning rate: {last_lr}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -333,8 +299,9 @@ def fit_model(
         model_backup = EnsembleRNN(models, voting_type=voting_type, device=models[0].device)
         optimizer_backup = optimizers
     else:
-        avg_state_dict = average_parameters(models)
-        models[0].load_state_dict(avg_state_dict)
+        if n_submodels > 1 and ensemble_type == ensembleTypes.AVERAGE:
+            avg_state_dict = average_parameters(models)
+            models[0].load_state_dict(avg_state_dict)
         model_backup = models[0]
         optimizer_backup = optimizers[0]
         
@@ -421,3 +388,8 @@ def penalty_correlated_update(model, batch_size: int = 1):
                         i += 1
     
     return reg_rnn/i
+
+def penalty_beta_range(model):
+    """Compute the penalty for the network resulting in Q-Values higher than 1 and lower than 0."""
+    
+    return model.beta

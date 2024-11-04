@@ -1,19 +1,7 @@
-import pysindy as ps
 import numpy as np
 
-data = np.random.random((100,1))
+losses = [0.5980473043930591, 0.5964810548715256, 0.5974744480458936, 0.5979135407874333, 0.5974515982009657, 0.5944620640433613, 0.5973375023309909, 0.5964690932077379]
+losses = np.array(losses)
 
-model = ps.SINDy(
-    ps.optimizers.STLSQ(),
-    ps.PolynomialLibrary(),
-    discrete_time=True,
-)
-
-model.fit(data)
-model.print()
-
-print(model.coefficients())
-
-model.model.steps[-1][1].coef_[0, 0] = 1.
-
-print(model.coefficients())
+print(np.mean(losses))
+print(np.std(losses))

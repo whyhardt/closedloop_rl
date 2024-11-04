@@ -109,7 +109,7 @@ def main(
                     beta=b,
                     forget_rate=forget_rate,
                     perseveration_bias=perseveration_bias,
-                    regret=regret,
+                    alpha_penalty=regret,
                     )
 
                 features, coeffs_bni = sindy_main(
@@ -117,7 +117,7 @@ def main(
                     beta = b,
                     forget_rate = forget_rate,
                     perseveration_bias = perseveration_bias,
-                    regret = regret,
+                    alpha_penalty = regret,
                 )
 
                 features = ['beta', 'n_submodels', 'loss'] + list(features)
