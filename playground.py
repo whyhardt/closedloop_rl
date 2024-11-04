@@ -1,12 +1,7 @@
-import torch
-from typing import OrderedDict
+import numpy as np
 
-logits1 = torch.tensor([[[(0.5)*3, 0.]]], dtype=float)
-logits2 = torch.tensor([[[(.5+.6)*3, .6*3]]], dtype=float)
-logits = torch.concat((logits1, logits2), dim=0)
-print(logits.shape)
-print(logits)
+losses = [0.5980473043930591, 0.5964810548715256, 0.5974744480458936, 0.5979135407874333, 0.5974515982009657, 0.5944620640433613, 0.5973375023309909, 0.5964690932077379]
+losses = np.array(losses)
 
-softmax = torch.nn.Softmax(2)
-
-print(softmax(logits))
+print(np.mean(losses))
+print(np.std(losses))

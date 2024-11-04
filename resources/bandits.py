@@ -60,13 +60,13 @@ class AgentQ:
       beta: float = 3.,
       forget_rate: float = 0.,
       perseveration_bias: float = 0.,
-      regret: bool = False,
-      confirmation_bias: bool = False,
+      alpha_penalty: float = -1,
+      confirmation_bias: float = 0.,
       directed_exploration_bias: float = 0.,
       undirected_exploration_bias: float = 0.,
       ):
     """Update the agent after one step of the task.
-
+    
     Args:
       alpha (float): Baseline learning rate between 0 and 1.
       beta (float): softmax inverse noise temperature. Regulates the noise in the decision-selection.
@@ -85,7 +85,7 @@ class AgentQ:
     self._n_actions = n_actions
     self._forget_rate = forget_rate
     self._perseverance_bias = perseveration_bias
-    self._regret = regret
+    self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._confirmation_bias = confirmation_bias
     self._directed_exploration_bias = directed_exploration_bias
     self._undirected_exploration_bias = undirected_exploration_bias
@@ -132,7 +132,8 @@ class AgentQ:
     """
     
     # Reward-and-Value-based updates
-    alpha = self._alpha
+    # asymmetric learning rates
+    alpha = self._alpha if reward > 0.5 else self._alpha_penalty
     
     # Reward-prediction-error
     rpe = self._reward_prediction_error(self._q[choice], reward)
@@ -141,17 +142,12 @@ class AgentQ:
     non_chosen_action = np.arange(self._n_actions) != choice
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
     
-    # regret mechanism - enhanced learning for negative outcomes
-    if self._regret and reward < 0.5:
-      alpha = self._alpha * 2
-    
     # add confirmation bias to learning rate
     # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
-    if self._confirmation_bias:
-      
-      # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
-      # differentiable confirmation bias:
-      alpha += (self._q[choice]-self._q_init)*(reward - 0.5)/2
+    # if self._confirmation_bias:  
+    # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+    # differentiable confirmation bias:
+    alpha += self._confirmation_bias * (self._q[choice]-self._q_init)*(reward - 0.5)
       
       # full learning rate equation w/ confirmation bias only: 
       # (xLR)[k+1]    = 0.25 + (Q-0.5) * (Reward - 0.5) / 2
@@ -205,6 +201,8 @@ class AgentSindy:
     self._n_actions = n_actions
     self._prev_choice = None
     
+    self._n_parameters = self._count_sindy_parameters()
+    
     self.new_sess()
 
   def update(self, choice: int, reward: int):
@@ -236,16 +234,13 @@ class AgentSindy:
             self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))# - self._h[action]
           if 'xUf' in self._models:
             self._u[action] = self._models['xUf'].predict(np.array([self._u[action]]), u=np.array([0]).reshape(1, -1))# - self._u[action]
-        
-        # compute updates for current action
-        # self._q[action] += reward_update
-        # self._h[action] += action_update
-        # self._u[action] += uncertainty_update 
-      
+
       # beta network (independent of action)
       if 'xB' in self._models:
         beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))
         self._beta = self._beta_base + beta_update[0, 0]
+        
+      self._prev_choice = 0+choice
       
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
@@ -270,6 +265,32 @@ class AgentSindy:
       choice = np.random.choice(self._n_actions, p=choice_probs)
     return choice
   
+  def _count_sindy_parameters(self, without_self=False):
+    """Count the SINDy coefficients across all sub-models which are not zero
+
+    Returns:
+        int: number of sindy coefficients which are not zero
+    """
+    
+    n_parameters = 0
+    
+    for m in self._models:
+      index_self = self._models[m].get_feature_names().index(m)
+      coeff_self = self._models[m].coefficients()[0, index_self]
+      coeffs = self._models[m].coefficients()[0]
+      if without_self and coeff_self == 1 and np.sum(coeffs[coeffs != index_self]) == 0:
+        # the values are passed through the sub-model without any processing. 
+        # coeff_self = 1 and the rest is 0: 
+        # Example: models['xH'](Input: 1234) -> Output: 1234
+        # Sub-model won't be considered for SINDy-Coefficients.
+        continue
+      else:
+        for c in coeffs:
+          if c != 0:
+            n_parameters += 1
+     
+    return n_parameters
+        
   @property
   def q(self):
     return (self._q + self._h).copy()
@@ -759,7 +780,8 @@ def plot_session(
   compare=False,
   color=None,
   binary=False,
-  axis_info=True,
+  x_axis_info=True,
+  y_axis_info=True,
   ):
   """Plot data from a single behavioral session of the bandit task.
 
@@ -858,15 +880,20 @@ def plot_session(
         color='red',
         marker='|')
 
-  if axis_info:
+  if x_axis_info:
     ax.set_xlabel(x_label)
-    ax.set_ylabel(timeseries_name)
-    ax.set_title(title)
   else:
     ax.set_xticks(np.linspace(1, len(choices), 6))
     ax.set_xticklabels(['']*6)
+    
+  if y_axis_info:
+    pass
+    # ax.set_ylabel(timeseries_name)
+  else:
     ax.set_yticks(np.linspace(0, 1, 5))
     ax.set_yticklabels(['']*5)
+    
+  ax.set_title(title)
     
 
 def show_valuemetric(experiment_list, label=None):

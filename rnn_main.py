@@ -49,17 +49,17 @@ def main(
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-2,
   convergence_threshold = 1e-6,
-  weight_decay = 0,
+  weight_decay = 0.,
   
   # ground truth parameters
   alpha = 0.25,
-  beta = 3,
+  beta = 3.,
   forget_rate = 0.,
   perseveration_bias = 0.,
-  directed_exploration_bias = 0,
-  undirected_exploration_bias = 0,
-  regret = False,
-  confirmation_bias = False,
+  directed_exploration_bias = 0.,
+  undirected_exploration_bias = 0.,
+  alpha_penalty = -1.,
+  confirmation_bias = 0.,
   reward_prediction_error: Callable = None,
   
   # environment parameters
@@ -77,8 +77,8 @@ def main(
   # tracked variables in the RNN
   x_train_list = ['xQf', 'xLR', 'xH', 'xHf', 'xU', 'xUf', 'xB']
   control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ', 'cU_0', 'cU_1']
-  for i in range(hidden_size):
-    x_train_list.append(f'xLR_{i}')
+  # for i in range(hidden_size):
+  #   x_train_list.append(f'xLR_{i}')
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -92,7 +92,7 @@ def main(
     # setup
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
     # environment = bandits.EnvironmentBanditsSwitch(sigma)
-    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, regret, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
+    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
     if reward_prediction_error is not None:
       agent.set_reward_prediction_error(reward_prediction_error)
     print('Setup of the environment and agent complete.')
@@ -130,12 +130,20 @@ def main(
     dataset, experiment_list_test = convert_dataset.to_datasetrnn(data)
     indexes_dataset = np.arange(len(dataset.xs))
     np.random.shuffle(indexes_dataset)
-    xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.8*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.8*len(dataset.xs))]]
-    xs_val, ys_val = dataset.xs[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]], dataset.ys[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]]
-    xs_test, ys_test = dataset.xs[indexes_dataset[int(0.9*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.9*len(dataset.xs)):]]
+    
+    xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.95*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.95*len(dataset.xs))]]
+    xs_val, ys_val = dataset.xs[indexes_dataset[int(0.95*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.95*len(dataset.xs)):]]
+    xs_test, ys_test = xs_val, ys_val
     dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
     dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
+    
+    # xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.8*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.8*len(dataset.xs))]]
+    # xs_val, ys_val = dataset.xs[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]], dataset.ys[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]]
+    # xs_test, ys_test = dataset.xs[indexes_dataset[int(0.9*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.9*len(dataset.xs)):]]
+    # dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
+    # dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
+    # dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
@@ -145,7 +153,7 @@ def main(
         beta,
         forget_rate,
         perseveration_bias,
-        regret,
+        alpha_penalty,
         confirmation_bias,
         directed_exploration_bias,
         undirected_exploration_bias,
@@ -294,8 +302,6 @@ def main(
     list_us.append(np.expand_dims(qs_rnn[3], 0))
     list_bs.append(np.expand_dims(qs_rnn[4], 0))
 
-    colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
-
     # concatenate all choice probs and q-values
     probs = np.concatenate(list_probs, axis=0)
     Qs = np.concatenate(list_Qs, axis=0)
@@ -303,6 +309,8 @@ def main(
     hs = np.concatenate(list_hs, axis=0)
     us = np.concatenate(list_us, axis=0)
     bs = np.concatenate(list_bs, axis=0)
+
+    colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
     
     # normalize q-values
     def normalize(qs):
@@ -430,8 +438,8 @@ if __name__=='__main__':
   parser.add_argument('--beta', type=float, default=3, help='Beta parameter for the Q-learning update rule')
   parser.add_argument('--forget_rate', type=float, default=0., help='Forget rate')
   parser.add_argument('--perseveration_bias', type=float, default=0., help='Perseveration bias')
-  parser.add_argument('--regret', action='store_true', help='Whether to include regret')
-  parser.add_argument('--confirmation_bias', action='store_true', help='Whether to include confirmation bias')
+  parser.add_argument('--alpha_p', type=float, default=-1., help='Learning rate for negative outcomes; if -1: same as alpha')
+  parser.add_argument('--confirmation_bias', type=float, default=0., help='Whether to include confirmation bias')
 
   # Environment parameters
   parser.add_argument('--sigma', type=float, default=0.1, help='Drift rate of the reward probabilities')
@@ -471,7 +479,7 @@ if __name__=='__main__':
     beta = args.beta,
     forget_rate = args.forget_rate,
     perseveration_bias = args.perseveration_bias,
-    regret = args.regret,
+    alpha_penalty = args.regret,
     confirmation_bias = args.confirmation_bias,
     # directed_exploration_bias = 0,
     # reward_update_rule = lambda q, reward: reward-q,

@@ -41,7 +41,7 @@ def batch_train(
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = -1,
-    loss_fn: nn.modules.loss._Loss = nn.BCEWithLogitsLoss(),#nn.CrossEntropyLoss(),#
+    loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     ):
 
     """
@@ -63,24 +63,22 @@ def batch_train(
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
-        mask = xs[:, t:t+n_steps, 0] > -1
-        # loss = loss_fn(y_pred, ys[:, t:t+n_steps], mask.unsqueeze(-1))
-        loss = 0
-        for i in range(n_steps):
-            loss += loss_fn(y_pred[:, i] * mask[:, i].view(-1, 1), ys[:, t+i] * mask[:, i].view(-1, 1))
-        loss /= n_steps
+        # TODO: add mask for real data
+        # mask = xs[:, t:t+n_steps, 0] > -1  # check if checking -1 for first action only is enough
+        loss_t = loss_fn(y_pred.reshape(-1, model._n_actions), ys[:, t:t+n_steps].reshape(-1, model._n_actions))
+        
+        loss_batch += loss_t
+        iterations += 1
         
         if torch.is_grad_enabled():
             
             # backpropagation
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
+            loss_t.backward()
+            # loss_batch.backward()
             optimizer.step()
-
-        loss_batch += loss.item()
-        iterations += 1
     
-    return model, optimizer, loss_batch/iterations
+    return model, optimizer, loss_batch.item()/iterations
     
 
 def fit_model(

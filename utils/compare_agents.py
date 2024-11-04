@@ -12,8 +12,8 @@ agent1 = AgentQ(
     beta=3.,
     forget_rate=0.,
     perseveration_bias=0.,
-    regret=False,
-    confirmation_bias=False,
+    alpha_penalty=-1,
+    confirmation_bias=0.,
     directed_exploration_bias=0.,
     undirected_exploration_bias=0.,
     )
@@ -22,9 +22,9 @@ agent2 = AgentQ(
     alpha=0.25,
     beta=3.,
     forget_rate=0.,
-    perseveration_bias=0.25,
-    regret=False,
-    confirmation_bias=False,
+    perseveration_bias=0.,
+    alpha_penalty=0.,
+    confirmation_bias=0.,
     directed_exploration_bias=0.,
     undirected_exploration_bias=0.,
     )
@@ -35,8 +35,8 @@ colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
 
 trajectory = create_dataset(agent1, env, 256, 1)[1][0]
 
-values1, probs1 = get_update_dynamics(trajectory, agent1)
-values2, probs2 = get_update_dynamics(trajectory, agent2)
+values1, probs1, _ = get_update_dynamics(trajectory, agent1)
+values2, probs2, _ = get_update_dynamics(trajectory, agent2)
 
 choices = trajectory.choices
 rewards = trajectory.rewards

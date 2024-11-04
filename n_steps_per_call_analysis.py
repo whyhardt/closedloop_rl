@@ -40,7 +40,7 @@ if __name__ == '__main__':
         beta = 3,
         forget_rate = 0.2,
         perseveration_bias = 0.25,
-        regret = True,
+        alpha_penalty = True,
         confirmation_bias = True,
         # reward_update_rule = lambda q, reward: reward-q,
         

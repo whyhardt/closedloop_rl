@@ -100,7 +100,7 @@ def create_dataset(
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   
-  trimming = int(n_trials_per_session*0.8) if trimming else 0
+  trimming = int(n_trials_per_session*0.1) if trimming else 0
   
   # x_train = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_x)))
   # control = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_c)))
@@ -137,7 +137,12 @@ def create_dataset(
         history = agent._model.history[key]
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
-        values = np.round(torch.concat(history).detach().cpu().numpy()[trimming:], 4)
+        values = torch.concat(history).detach().cpu().numpy()[trimming:]
+        # check if dv/dt > tol; otherwise set v(t=1) = v(t=0)
+        dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
+        for i_action in range(values.shape[-1]):
+          values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-2, values[:, 1, i_action], values[:, 0, i_action])
+        values = np.round(values, 2)
         if values.shape[-1] == 1:
             values = np.repeat(values, 2, -1)
         if key in keys_x:

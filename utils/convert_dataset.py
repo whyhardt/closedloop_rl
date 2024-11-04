@@ -1,6 +1,8 @@
 import sys
 import os
 
+from typing import List
+
 import pandas as pd
 import numpy as np
 
@@ -8,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn_utils import DatasetRNN
 from resources.bandits import BanditSession
 
-def to_datasetrnn(file: str, device = None) -> DatasetRNN:
+def to_datasetrnn(file: str, device = None) -> tuple[DatasetRNN, List[BanditSession]]:
     df = pd.read_csv(file, index_col=None)
     sessions = df['session'].unique()
     xs = np.zeros((len(sessions), 200, 3)) - 1

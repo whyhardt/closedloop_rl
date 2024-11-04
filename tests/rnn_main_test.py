@@ -3,32 +3,32 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
-
+    
 losses = []
-for i in range(1):
+for i in range(6,7):
     loss = rnn_main.main(
         checkpoint=False,
         epochs=128,
-        model=f'params/benchmarking/sugawara2021_143_{20}.pkl',
-        
-        n_submodels=1,
+        model=f'params/neurips2024/full_model_{i}.pkl',
+        # model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
+        # data = 'data/sugawara2021_143_processed.csv',
+
         dropout=0.1,
-        bagging=True,
-        learning_rate=0.001,
-        # weight_decay=0.001,
+        bagging=False,
+        learning_rate=0.01,
+        # weight_decay=1e-3,
         
-        data = 'data/sugawara2021_143_processed.csv',
+        sigma=0.1,
+        n_sessions=4096,
+        n_oversampling=-1,
+        batch_size=128,
         
-        # sigma=0.1,
-        # n_sessions=4096,
-        # n_oversampling=-1,
-        # batch_size=-1,
-        
-        # alpha=0.25,
-        # forget_rate=0.2,
-        # regret=True,
-        # confirmation_bias=True,
-        # perseveration_bias=0.25,
+        alpha=0.25,
+        forget_rate=0.2,
+        alpha_penalty=0.5,
+        confirmation_bias=0.5,
+        perseveration_bias=0.25,
+        beta=3.,
         
         analysis=True,
     )
@@ -37,5 +37,9 @@ for i in range(1):
     
 print(losses)
 import numpy as np
-print('Mean: ' + str(np.mean(losses)))
-print('Std: ' + str(np.std(losses)))
+mean = np.mean(losses)
+mean_str = str(np.round(mean, 4)).replace('.','')
+std = np.std(losses)
+std_str = str(np.round(std, 4)).replace('.','')
+print('Mean: ' + str(mean))
+print('Std: ' + str(std))
