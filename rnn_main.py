@@ -455,7 +455,7 @@ if __name__=='__main__':
     checkpoint = args.checkpoint,
     # model = 'params/params_rnn_a025_b3_cb.pkl',
     model = args.model,
-    
+
     # training parameters
     epochs=args.epochs,
     n_trials_per_session = args.n_trials_per_session,
