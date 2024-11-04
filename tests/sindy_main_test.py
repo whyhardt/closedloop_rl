@@ -11,7 +11,6 @@ features_list = []
 for i in range(1):
     i = 1
     _, _ , features, fig, axs = sindy_main.main(
-        # model = f'params/neurips2024/full_model_{i}.pkl',
         model = 'params/benchmarking/sugawara2021_143_19.pkl',
         data = 'data/sugawara2021_143_processed.csv',
         

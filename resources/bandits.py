@@ -62,8 +62,6 @@ class AgentQ:
       perseveration_bias: float = 0.,
       alpha_penalty: float = -1,
       confirmation_bias: float = 0.,
-      directed_exploration_bias: float = 0.,
-      undirected_exploration_bias: float = 0.,
       ):
     """Update the agent after one step of the task.
     
@@ -87,8 +85,6 @@ class AgentQ:
     self._perseverance_bias = perseveration_bias
     self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._confirmation_bias = confirmation_bias
-    self._directed_exploration_bias = directed_exploration_bias
-    self._undirected_exploration_bias = undirected_exploration_bias
     self._q_init = 0.5
     self.new_sess()
 
@@ -165,19 +161,11 @@ class AgentQ:
     # Perseveration: Action-based updates
     self._h = np.zeros(self._n_actions)
     self._h[choice] += self._perseverance_bias
-    
-    # Reward-uncertainty-biased directed exploration
-    # https://psycnet.apa.org/record/2018-48589-001?doi=1
-    # https://link.springer.com/article/10.3758/s13415-013-0220-4
-    uncertainty_update = rpe**2 - self._u[choice]
-    self._u[choice] += self._alpha_uncertainty * uncertainty_update  
-    
-    # Reward-uncertainty-biased undirected exploration
-    self.beta = self._beta_init - self._undirected_exploration_bias * np.sum(self._u)  
+
     
   @property
   def q(self):
-    q = (self._q + self._h + self._directed_exploration_bias * self._u).copy()
+    q = (self._q + self._h).copy()
     return q
   
   def set_reward_prediction_error(self, update_rule: Callable):
@@ -221,24 +209,14 @@ class AgentSindy:
             self._q[action] += learning_rate * reward_prediction_error
         
           if 'xH' in self._models:
-            self._h[action] = self._models['xH'].predict(np.array([self._h[action]]), u=np.array([choice_repeat]).reshape(1, -1))# - self._h[action]
+            self._h[action] = self._models['xH'].predict(np.array([self._h[action]]), u=np.array([choice_repeat]).reshape(1, -1))
 
-          if 'xU' in self._models:
-            self._u[action] = self._models['xU'].predict(np.array([self._u[action]]), u=np.array([self._q[action], reward]).reshape(1, -1))# - self._u[action]
-          
         else:  # chosen == 0
           # current action was not chosen
           if 'xQf' in self._models:
-            self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]# - self._q[action]
+            self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
           if 'xHf' in self._models:
-            self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))# - self._h[action]
-          if 'xUf' in self._models:
-            self._u[action] = self._models['xUf'].predict(np.array([self._u[action]]), u=np.array([0]).reshape(1, -1))# - self._u[action]
-
-      # beta network (independent of action)
-      if 'xB' in self._models:
-        beta_update = self._models['xB'].predict(np.array([0]), u=self._u.reshape(1, -1))
-        self._beta = self._beta_base + beta_update[0, 0]
+            self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))
         
       self._prev_choice = 0+choice
       
@@ -246,7 +224,6 @@ class AgentSindy:
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._h = np.zeros(self._n_actions)
-    self._u = np.zeros(self._n_actions)
     self._beta = self._beta_base
     self._prev_choice = -1
     
@@ -371,7 +348,6 @@ class AgentNetwork:
     def set_state(self):
       self._q = self._model.get_state()[-3].cpu().numpy()[0, 0]
       self._h = self._model.get_state()[-2].cpu().numpy()[0, 0]
-      self._u = self._model.get_state()[-1].cpu().numpy()[0, 0]
       self._beta = self._model.beta.item()
 
     @property
@@ -740,7 +716,6 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   Qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   hs = np.zeros((experiment.choices.shape[0], agent._n_actions))
-  us = np.zeros((experiment.choices.shape[0], agent._n_actions))
   bs = np.zeros((experiment.choices.shape[0], 1))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
@@ -751,16 +726,12 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
     Qs[trial] = agent.q * agent.beta
     qs[trial] = agent._q
     hs[trial] = agent._h
-    us[trial] = agent._u
     bs[trial] = agent.beta
     
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
   
-  if hasattr(agent, '_directed_exploration_bias'):
-    us *= agent._directed_exploration_bias
-  
-  return (Qs, qs, hs, us, bs), choice_probs, agent
+  return (Qs, qs, hs, bs), choice_probs, agent
 
 
 ###############
@@ -894,50 +865,3 @@ def plot_session(
     ax.set_yticklabels(['']*5)
     
   ax.set_title(title)
-    
-
-def show_valuemetric(experiment_list, label=None):
-  """Plot value metric over time from data in experiment_list."""
-  if experiment_list is None:
-      print(('Skipping experiment because None value was found for experiment_lists.\n'
-             'This is usually the case when using imported real data.'))
-      return
-  
-  reward_prob_bins = np.linspace(-1, 1, 50)
-  n_left = np.zeros(len(reward_prob_bins)-1)
-  n_right = np.zeros(len(reward_prob_bins)-1)
-
-  for sessdata in experiment_list:
-    reward_prob_diff = sessdata.timeseries[:, 0] - sessdata.timeseries[:, 1]
-    for reward_prob_i in range(len(n_left)):
-      trials_in_bin = np.logical_and(
-          (reward_prob_bins[reward_prob_i] < reward_prob_diff) ,
-          (reward_prob_diff < reward_prob_bins[reward_prob_i+1]))
-      n_left[reward_prob_i] += np.sum(
-          np.logical_and(trials_in_bin, sessdata.choices == 0.))
-      n_right[reward_prob_i] += np.sum(
-          np.logical_and(trials_in_bin, sessdata.choices == 1.))
-
-  choice_probs = n_left / (n_left + n_right)
-
-  xs = reward_prob_bins[:-1] - (reward_prob_bins[1]-reward_prob_bins[0])/2
-  ys = choice_probs
-  plt.plot(xs, ys, label=label)
-  plt.ylim((0, 1))
-  plt.xlabel('Difference in Reward Probability (left - right)')
-  plt.ylabel('Proportion of Leftward Choices')
-
-
-def show_total_reward_rate(experiment_list):
-  if experiment_list is None:
-      print('Skipping showing reward rate for Non experiment_list')
-      return
-  rewards = 0
-  trials = 0
-
-  for sessdata in experiment_list:
-    rewards += np.sum(sessdata.rewards)
-    trials += sessdata.n_trials
-
-  reward_rate = 100*rewards/trials
-  print(f'Total Reward Rate is: {reward_rate:0.3f}%')

@@ -56,8 +56,6 @@ def main(
   beta = 3.,
   forget_rate = 0.,
   perseveration_bias = 0.,
-  directed_exploration_bias = 0.,
-  undirected_exploration_bias = 0.,
   alpha_penalty = -1.,
   confirmation_bias = 0.,
   reward_prediction_error: Callable = None,
@@ -92,7 +90,7 @@ def main(
     # setup
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
     # environment = bandits.EnvironmentBanditsSwitch(sigma)
-    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)  
+    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias)  
     if reward_prediction_error is not None:
       agent.set_reward_prediction_error(reward_prediction_error)
     print('Setup of the environment and agent complete.')
@@ -155,8 +153,6 @@ def main(
         perseveration_bias,
         alpha_penalty,
         confirmation_bias,
-        directed_exploration_bias,
-        undirected_exploration_bias,
         verbose=True,
     )
   else:
@@ -481,7 +477,6 @@ if __name__=='__main__':
     perseveration_bias = args.perseveration_bias,
     alpha_penalty = args.regret,
     confirmation_bias = args.confirmation_bias,
-    # directed_exploration_bias = 0,
     # reward_update_rule = lambda q, reward: reward-q,
     
     # environment parameters

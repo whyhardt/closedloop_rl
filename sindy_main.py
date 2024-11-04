@@ -41,8 +41,6 @@ def main(
     forget_rate = 0.,
     perseveration_bias = 0.,
     beta = 3,
-    directed_exploration_bias = 0.,
-    undirected_exploration_bias = 0.,
     reward_prediction_error: Callable = None,
     
     # environment parameters
@@ -100,7 +98,7 @@ def main(
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, directed_exploration_bias, undirected_exploration_bias, verbose=True)
+        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
@@ -121,7 +119,7 @@ def main(
         # set up ground truth agent and environment
         environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
         # environment = EnvironmentBanditsSwitch(sigma)
-        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, directed_exploration_bias, undirected_exploration_bias)
+        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias)
         if reward_prediction_error is not None:
             agent.set_reward_prediction_error(reward_prediction_error)
         _, experiment_list_test = create_dataset_bandits(agent, environment, 100, 1)

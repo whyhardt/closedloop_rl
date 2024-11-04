@@ -5,13 +5,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
     
 losses = []
-for i in range(6,7):
+for i in range(1):
     loss = rnn_main.main(
         checkpoint=False,
         epochs=128,
-        model=f'params/neurips2024/full_model_{i}.pkl',
-        # model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
-        # data = 'data/sugawara2021_143_processed.csv',
+        model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
+        data = 'data/sugawara2021_143_processed.csv',
 
         dropout=0.1,
         bagging=False,
