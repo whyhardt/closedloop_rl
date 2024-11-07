@@ -82,7 +82,7 @@ def fit_model(
         
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=5, verbose=verbose, fit_intercept=False),
+            optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=5, verbose=verbose, fit_intercept=True),
             # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=verbose),
             # optimizer=ps.SR3(thresholder="weighted_l1", thresholds=thresholds, verbose=verbose, fit_intercept=True),
             # optimizer=ps.SSR(kappa=10, verbose=verbose),

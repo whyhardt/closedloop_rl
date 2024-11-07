@@ -5,29 +5,37 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
     
 losses = []
-for i in range(1):
+for i in range(1, 2):
     loss = rnn_main.main(
         checkpoint=False,
-        epochs=1,
-        # model=f'params/benchmarking/sugawara2021_143_{1}.pkl',
+        epochs_train=512,
+        epochs_finetune=1024,
+        
+        data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
+        model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
+        # model=f'params/benchmarking/sugawara2021_143_{i}.pkl',
         # data = 'data/sugawara2021_143_processed.csv',
 
-        dropout=0.1,
-        bagging=False,
-        learning_rate=0.01,
-        # weight_decay=1e-3,
+        lr_train=1e-2,
+        n_oversampling_train=-1,
+        batch_size_train=-1,
+        lr_finetune=1e-4,
+        n_oversampling_finetune=-1,
+        batch_size_finetune=-1,
+        dropout=0.2,
+        bagging=True,
+        weight_decay=1e-4,
         
-        sigma=0.1,
-        n_sessions=64,#4096,
-        n_oversampling=-1,
-        batch_size=32,
-        
-        alpha=0.25,
-        forget_rate=0.2,
-        alpha_penalty=0.5,
-        confirmation_bias=0.5,
-        perseveration_bias=0.25,
-        beta=3.,
+        # n_sessions=1024,
+        # n_trials_per_session=256,
+        # sigma=0.1,
+        # beta=3.,
+        # alpha=0.25,
+        # forget_rate=0.2,
+        # alpha_penalty=0.5,
+        # confirmation_bias=0.5,
+        # perseverance_bias=0.25,
+        # parameter_variance=-1.,
         
         analysis=True,
     )

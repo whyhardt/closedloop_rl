@@ -59,9 +59,10 @@ class AgentQ:
       alpha: float = 0.2,
       beta: float = 3.,
       forget_rate: float = 0.,
-      perseveration_bias: float = 0.,
+      perseverance_bias: float = 0.,
       alpha_penalty: float = -1,
       confirmation_bias: float = 0.,
+      parameter_variance: float = 0.,
       ):
     """Update the agent after one step of the task.
     
@@ -70,44 +71,66 @@ class AgentQ:
       beta (float): softmax inverse noise temperature. Regulates the noise in the decision-selection.
       n_actions: number of actions (default=2)
       forget_rate (float): rate at which q values decay toward the initial values (default=0)
-      perseveration_bias (float): rate at which q values move toward previous action (default=0)
-      regret (bool): asymmetrical learning rates in the form of pessimistic reinforcement learning
-      confirmation_bias (bool): higher learning rate for believe-confirming outcomes and lower learning rate otherwise
-      directed_exploration_bias (float): rate at which uncertain options are biased for directed exploration (can be negative (uncertainty-averse) and positive (uncertainty-exploration))
-      undirected_exploration_bias (float): rate at which the inverse noise temperature is adapted based on the overall uncertainty of the given options.
+      perseverance_bias (float): rate at which q values move toward previous action (default=0)
+      alpha_penalty (float): separate learning rate for negative outcomes
+      confirmation_bias (float): higher learning rate for believe-confirming outcomes and lower learning rate otherwise
+      parameter_variance (float): sets a variance around the model parameters' mean values to sample from a normal distribution e.g. at each new session. 0: no variance, -1: std = mean
     """
     
+    self._mean_beta = beta
+    self._mean_alpha = alpha
+    self._mean_alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
+    self._mean_confirmation_bias = confirmation_bias
+    self._mean_forget_rate = forget_rate
+    self._mean_perseverance_bias = perseverance_bias
+    
+    self._beta = beta
     self._alpha = alpha
-    self._alpha_uncertainty = alpha
-    self._beta_init = beta
-    self._n_actions = n_actions
-    self._forget_rate = forget_rate
-    self._perseverance_bias = perseveration_bias
     self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._confirmation_bias = confirmation_bias
+    self._forget_rate = forget_rate
+    self._perseverance_bias = perseverance_bias
+    
+    self._n_actions = n_actions
+    self._parameter_variance = parameter_variance
     self._q_init = 0.5
+    
     self.new_sess()
 
-    _check_in_0_1_range(self._alpha, 'alpha')
+    _check_in_0_1_range(alpha, 'alpha')
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
     self._reward_prediction_error = lambda q, reward: reward-q
     
     self.new_sess()
 
-  def new_sess(self):
+  def new_sess(self, sample_parameters=False):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
-    self._h = np.zeros(self._n_actions)
-    self._u = self._q_init + np.zeros(self._n_actions)
+    self._c = np.zeros(self._n_actions)
     
-    self.beta = self._beta_init
-    
-    self._reward_history = np.zeros((self._n_actions, 5))
-
+    # sample new parameters
+    if sample_parameters:
+      sanity = False
+      while not sanity:
+        # sample new parameters until all sanity checks are passed
+        self._beta = np.clip(np.random.normal(self._mean_beta, self._mean_beta if self._parameter_variance == -1 else self._parameter_variance), 0, 2*self._mean_beta)
+        self._alpha = np.clip(np.random.normal(self._mean_alpha, self._mean_alpha if self._parameter_variance == -1 else self._parameter_variance), 0 , 1)
+        self._alpha_penalty = np.clip(np.random.normal(self._mean_alpha_penalty, self._mean_alpha_penalty if self._parameter_variance == -1 else self._parameter_variance), 0, 1)
+        self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias if self._parameter_variance == -1 else self._parameter_variance), 0, 1)
+        self._forget_rate = np.clip(np.random.normal(self._mean_forget_rate, self._mean_forget_rate if self._parameter_variance == -1 else self._parameter_variance), 0, 1)
+        self._perseverance_bias = np.clip(np.random.normal(self._mean_perseverance_bias, self._mean_perseverance_bias if self._parameter_variance == -1 else self._parameter_variance), 0, 1)
+      
+        # sanity checks
+        # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
+        #     with max_confirmation = (q-q0)(r-q0) = +/- 0.25
+        max_learning_rate = self._alpha + self._confirmation_bias*0.25 < 1 and self._alpha_penalty + self._confirmation_bias*0.25 < 1
+        min_learning_rate = self._alpha + self._confirmation_bias*-0.25 > 0 and self._alpha_penalty + self._confirmation_bias*-0.25 > 0 
+        sanity = max_learning_rate and min_learning_rate
+      
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = np.exp(self.q * self.beta)
+    decision_variable = np.exp(self.q)
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
@@ -127,7 +150,7 @@ class AgentQ:
       reward: The reward received by the agent. 0 or 1
     """
     
-    # Reward-and-Value-based updates
+    # Reward-based updates
     # asymmetric learning rates
     alpha = self._alpha if reward > 0.5 else self._alpha_penalty
     
@@ -145,8 +168,8 @@ class AgentQ:
     # differentiable confirmation bias:
     alpha += self._confirmation_bias * (self._q[choice]-self._q_init)*(reward - 0.5)
       
-      # full learning rate equation w/ confirmation bias only: 
-      # (xLR)[k+1]    = 0.25 + (Q-0.5) * (Reward - 0.5) / 2
+      # full learning rate equation w/ confirmation bias = 0.5: 
+      # (xLR)[k+1]    = 0.25 + 0.5 * (Q-0.5) * (Reward - 0.5)
       #               = 0.25 + 0.5*Q*Reward - 0.25*Q - 0.25*Reward + 0.125
       # SINDy target: = 0.375 - 0.25*Q - 0.25*Reward + 0.5*Q*Reward
 
@@ -158,15 +181,13 @@ class AgentQ:
     self._q[non_chosen_action] += forget_update
     self._q[choice] += reward_update
     
-    # Perseveration: Action-based updates
-    self._h = np.zeros(self._n_actions)
-    self._h[choice] += self._perseverance_bias
+    # Choice-Perseverance: Action-based updates
+    self._c = np.zeros(self._n_actions)
+    self._c[choice] += self._perseverance_bias
 
-    
   @property
   def q(self):
-    q = (self._q + self._h).copy()
-    return q
+    return (self._q + self._c)*self._beta
   
   def set_reward_prediction_error(self, update_rule: Callable):
     self._reward_prediction_error = update_rule
@@ -178,14 +199,15 @@ class AgentSindy:
       self,
       sindy_models: Dict[str, ps.SINDy],
       n_actions: int=2,
-      beta: float=1.,
+      beta: Tuple[float]=(1., 1.),
       deterministic: bool=False,
       ):
     
     self._models = sindy_models
     self._q_init = 0.5
     self._deterministic = deterministic
-    self._beta_base = beta
+    self._beta_reward = beta[0]
+    self._beta_choice = beta[1]
     self._n_actions = n_actions
     self._prev_choice = None
     
@@ -196,6 +218,7 @@ class AgentSindy:
   def update(self, choice: int, reward: int):
 
       choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
+      self._prev_choice = 0
       
       for action in range(self._n_actions):
         chosen = 1 - np.abs(choice - action)
@@ -208,28 +231,27 @@ class AgentSindy:
             reward_prediction_error = reward - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
         
-          if 'xH' in self._models:
-            self._h[action] = self._models['xH'].predict(np.array([self._h[action]]), u=np.array([choice_repeat]).reshape(1, -1))
+          if 'xC' in self._models:
+            self._c[action] = self._models['xC'].predict(np.array([self._c[action]]), u=np.array([choice_repeat]).reshape(1, -1))[-1]
 
         else:  # chosen == 0
           # current action was not chosen
           if 'xQf' in self._models:
             self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
-          if 'xHf' in self._models:
-            self._h[action] = self._models['xHf'].predict(np.array([self._h[action]]), u=np.array([0]).reshape(1, -1))
+          if 'xCf' in self._models:
+            self._c[action] = self._models['xCf'].predict(np.array([self._c[action]]), u=np.array([0]).reshape(1, -1))[-1]
         
-      self._prev_choice = 0+choice
+      self._prev_choice += choice
       
   def new_sess(self):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
-    self._h = np.zeros(self._n_actions)
-    self._beta = self._beta_base
+    self._c = np.zeros(self._n_actions)
     self._prev_choice = -1
     
   def get_choice_probs(self) -> np.ndarray:
     """Compute the choice probabilities as softmax over q."""
-    decision_variable = np.exp(self.q * self._beta)
+    decision_variable = np.exp(self.q)
     choice_probs = decision_variable / np.sum(decision_variable)
     return choice_probs
 
@@ -258,7 +280,7 @@ class AgentSindy:
       if without_self and coeff_self == 1 and np.sum(coeffs[coeffs != index_self]) == 0:
         # the values are passed through the sub-model without any processing. 
         # coeff_self = 1 and the rest is 0: 
-        # Example: models['xH'](Input: 1234) -> Output: 1234
+        # Example: models['xC'](Input: 1234) -> Output: 1234
         # Sub-model won't be considered for SINDy-Coefficients.
         continue
       else:
@@ -267,14 +289,10 @@ class AgentSindy:
             n_parameters += 1
      
     return n_parameters
-        
+    
   @property
   def q(self):
-    return (self._q + self._h).copy()
-  
-  @property
-  def beta(self):
-    return self._beta
+    return self._q * self._beta_reward + self._c * self._beta_choice
 
 
 class AgentNetwork:
@@ -322,12 +340,12 @@ class AgentNetwork:
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._q + self._h# + self._u #* self._directed_exploration_bias
+      logit = self._q * self._model._beta_reward.item() + self._c * self._model._beta_choice.item() # + self._u #* self._directed_exploration_bias
       return logit
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
-      decision_variable = self.get_logit() * self._beta
+      decision_variable = self.get_logit()
       choice_probs = np.exp(decision_variable) / np.sum(np.exp(decision_variable))
       return choice_probs
 
@@ -347,16 +365,11 @@ class AgentNetwork:
     
     def set_state(self):
       self._q = self._model.get_state()[-3].cpu().numpy()[0, 0]
-      self._h = self._model.get_state()[-2].cpu().numpy()[0, 0]
-      self._beta = self._model.beta.item()
+      self._c = self._model.get_state()[-2].cpu().numpy()[0, 0]
 
     @property
     def q(self):
       return self.get_logit()
-    
-    @property
-    def beta(self):
-      return self._beta
 
 
 ################
@@ -661,8 +674,9 @@ def create_dataset(
   n_sessions: int,
   sequence_length: int = None,
   stride: int = 1,
+  sample_parameters: bool = False,
   device=torch.device('cpu'),
-  ):
+  ) -> tuple[DatasetRNN, list[BanditSession], list[dict[str, float]]]:
   """Generates a behavioral dataset from a given agent and environment.
 
   Args:
@@ -681,15 +695,28 @@ def create_dataset(
   xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 1))
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
+  parameter_list = []
 
   for session in range(n_sessions):
-    agent.new_sess()
+    agent.new_sess(sample_parameters=sample_parameters)
     experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
     experiment_list.append(experiment)
     # one-hot encoding of choices
     choices = np.eye(agent._n_actions)[choices]
     xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1)), axis=-1)
     ys[:, session] = choices[1:]
+    if isinstance(agent, AgentQ):
+      # add current parameters to list
+      parameter_list.append(
+        {
+          'beta': copy(agent._beta),
+          'alpha': copy(agent._alpha),
+          'alpha_penalty': copy(agent._alpha_penalty),
+          'confirmation_bias': copy(agent._confirmation_bias),
+          'forget_rate': copy(agent._forget_rate),
+          'perseverance_bias': copy(agent._perseverance_bias),
+        }
+      )
 
   dataset = DatasetRNN(
     xs=np.swapaxes(xs, 0, 1), 
@@ -697,7 +724,7 @@ def create_dataset(
     sequence_length=sequence_length,
     stride=stride,
     device=device)
-  return dataset, experiment_list
+  return dataset, experiment_list, parameter_list
 
 
 def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNetwork, AgentSindy]):
@@ -715,23 +742,21 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   rewards = np.expand_dims(experiment.rewards, 1)
   Qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
-  hs = np.zeros((experiment.choices.shape[0], agent._n_actions))
-  bs = np.zeros((experiment.choices.shape[0], 1))
+  cs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
   agent.new_sess()
   
   for trial in range(experiment.choices.shape[0]):
     # track all states
-    Qs[trial] = agent.q * agent.beta
+    Qs[trial] = agent.q
     qs[trial] = agent._q
-    hs[trial] = agent._h
-    bs[trial] = agent.beta
+    cs[trial] = agent._c
     
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), float(rewards[trial]))
   
-  return (Qs, qs, hs, bs), choice_probs, agent
+  return (Qs, qs, cs), choice_probs, agent
 
 
 ###############
@@ -854,12 +879,11 @@ def plot_session(
   if x_axis_info:
     ax.set_xlabel(x_label)
   else:
-    ax.set_xticks(np.linspace(1, len(choices), 6))
-    ax.set_xticklabels(['']*6)
+    ax.set_xticks(np.linspace(1, len(choices), 5))
+    ax.set_xticklabels(['']*5)
     
   if y_axis_info:
-    pass
-    # ax.set_ylabel(timeseries_name)
+    ax.set_ylabel(timeseries_name)
   else:
     ax.set_yticks(np.linspace(0, 1, 5))
     ax.set_yticklabels(['']*5)

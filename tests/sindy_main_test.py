@@ -10,8 +10,8 @@ import sindy_main
 features_list = []
 for i in range(1):
     i = 1
-    _, _ , features, fig, axs = sindy_main.main(
-        # model = 'params/benchmarking/sugawara2021_143_19.pkl',
+    _, _ , features = sindy_main.main(
+        # model = 'params/benchmarking/sugawara2021_143_0.pkl',
         # data = 'data/sugawara2021_143_processed.csv',
         
         # sindy parameters
@@ -23,13 +23,13 @@ for i in range(1):
         n_trials_per_session = 1024,
         n_sessions = 16,
         
+        beta=3.,
         alpha=0.25,
         alpha_penalty=0.5,
         confirmation_bias=0.5,
         forget_rate=0.2,
-        perseveration_bias=0.25,
-        beta=3.,
-        
+        perseverance_bias=0.25,
+        parameter_variance=-1.,
         analysis=True,
     )
 

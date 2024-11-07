@@ -95,13 +95,10 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, verbose=False):
+def parameter_file_naming(params_path, gen_alpha, gen_beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, variance, verbose=False):
     # create name for corresponding rnn
   
-    if use_lstm:
-        params_path += '_lstm'
-    else:
-        params_path += '_rnn'
+    params_path += '_rnn'
     
     if gen_alpha > 0:
         params_path += f'_a' + str(gen_alpha).replace('.', '')
@@ -119,6 +116,9 @@ def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rat
         
     if confirmation_bias > 0:
         params_path += '_cb' + str(confirmation_bias).replace('.', '')
+        
+    if variance != 0:
+        params_path += '_var' + str(variance).replace('.', '').replace('-1','Mean')
         
     # if non_binary_reward:
     #     params_path += '_nonbinary'

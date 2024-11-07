@@ -37,9 +37,9 @@ if __name__=='__main__':
     
     print('Creating the test dataset...', end='\r')
     environment = bandits.EnvironmentBanditsDrift(sigma=0.1)
-    agent_b5 = bandits.AgentQ(alpha=0.25, beta=5, forget_rate=0.2, perseveration_bias=0.25, alpha_penalty=True, confirmation_bias=True)
-    agent_b3 = bandits.AgentQ(alpha=0.25, beta=3, forget_rate=0.2, perseveration_bias=0.25, alpha_penalty=True, confirmation_bias=True)
-    agent_b1 = bandits.AgentQ(alpha=0.25, beta=1, forget_rate=0.2, perseveration_bias=0.25, alpha_penalty=True, confirmation_bias=True)
+    agent_b5 = bandits.AgentQ(alpha=0.25, beta=5, forget_rate=0.2, perseverance_bias=0.25, alpha_penalty=True, confirmation_bias=True)
+    agent_b3 = bandits.AgentQ(alpha=0.25, beta=3, forget_rate=0.2, perseverance_bias=0.25, alpha_penalty=True, confirmation_bias=True)
+    agent_b1 = bandits.AgentQ(alpha=0.25, beta=1, forget_rate=0.2, perseverance_bias=0.25, alpha_penalty=True, confirmation_bias=True)
     datasets = {
         5: bandits.create_dataset(agent=agent_b5, environment=environment, n_trials_per_session=200, n_sessions=1024),
         3: bandits.create_dataset(agent=agent_b3, environment=environment, n_trials_per_session=200, n_sessions=1024),
@@ -63,11 +63,11 @@ if __name__=='__main__':
             n_submodels=n_submodels,
             n_sessions=n_sessions,
             ensemble=1,
-            epochs=0,
+            epochs_train=0,
             alpha=0.25,
             beta=beta,
             forget_rate=0.2,
-            perseveration_bias=0.25,
+            perseverance_bias=0.25,
             alpha_penalty=True,
             confirmation_bias=True,
             sigma=0.1,

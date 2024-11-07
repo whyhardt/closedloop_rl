@@ -24,7 +24,6 @@ def main(
   # rnn parameters
   hidden_size = 8,
   dropout = 0.1,
-  use_lstm = False,
 
   # ensemble parameters
   evolution_interval = -1,
@@ -40,22 +39,27 @@ def main(
   experiment_list_test = None,
   
   # data and training parameters
-  epochs = 128,
+  epochs_train = 128,
+  epochs_finetune = 0,
   n_trials_per_session = 64,
   n_sessions = 4096,
   bagging = False,
-  n_oversampling = -1,
+  n_oversampling_train = -1,
+  n_oversampling_finetune = -1,
   n_steps_per_call = 16,  # -1 for full sequence
-  batch_size = -1,  # -1 for one batch per epoch
-  learning_rate = 1e-2,
+  batch_size_train = -1,  # -1 for one batch per epoch
+  batch_size_finetune = -1,
+  lr_train = 1e-2,
+  lr_finetune = 1e-4,
   convergence_threshold = 1e-6,
   weight_decay = 0.,
+  parameter_variance = 0.,
   
   # ground truth parameters
   alpha = 0.25,
   beta = 3.,
   forget_rate = 0.,
-  perseveration_bias = 0.,
+  perseverance_bias = 0.,
   alpha_penalty = -1.,
   confirmation_bias = 0.,
   reward_prediction_error: Callable = None,
@@ -73,10 +77,8 @@ def main(
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xLR', 'xH', 'xHf', 'xU', 'xUf', 'xB']
-  control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ', 'cU_0', 'cU_1']
-  # for i in range(hidden_size):
-  #   x_train_list.append(f'xLR_{i}')
+  x_train_list = ['xQf', 'xLR', 'xC', 'xCf']
+  control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -90,71 +92,76 @@ def main(
     # setup
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
     # environment = bandits.EnvironmentBanditsSwitch(sigma)
-    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias)  
+    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance)  
+    agent_finetune = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)  
     if reward_prediction_error is not None:
       agent.set_reward_prediction_error(reward_prediction_error)
     print('Setup of the environment and agent complete.')
 
-    if epochs > 0:
+    if epochs_train > 0:
       if dataset_train is None:    
-        print('Creating the training dataset...', end='\r')
-        dataset_train, _ = bandits.create_dataset(
+        print('Creating the training dataset...')
+        dataset_train, experiment_list_train, parameter_list_train = bandits.create_dataset(
             agent=agent,
             environment=environment,
             n_trials_per_session=n_trials_per_session,
             n_sessions=n_sessions,
-            device=device)    
+            sample_parameters=parameter_variance!=0,
+            device=device)
 
       if dataset_val is None:
-        print('Creating the validation dataset...', end='\r')
-        dataset_val, _ = bandits.create_dataset(
-            agent=agent,
+        print('Creating the validation dataset...')
+        dataset_val, _, parameter_list_val = bandits.create_dataset(
+            agent=agent_finetune,
             environment=environment,
             n_trials_per_session=64,
             n_sessions=16,
             device=device)
       
     if dataset_test is None:
-      print('Creating the test dataset...', end='\r')
-      dataset_test, experiment_list_test = bandits.create_dataset(
-          agent=agent,
+      print('Creating the test dataset...')
+      dataset_test, experiment_list_test, parameter_list_test = bandits.create_dataset(
+          agent=agent_finetune,
           environment=environment,
           n_trials_per_session=200,
           n_sessions=1024,
           device=device)
+      
+    print('Creating the finetune dataset...')
+    dataset_fine, experiment_list_fine, parameter_list_fine = bandits.create_dataset(
+          agent=agent_finetune,
+          environment=environment,
+          n_trials_per_session=n_trials_per_session,
+          n_sessions=1,
+          device=device)
     
     print('Setup of datasets complete.')
   else:
-    dataset, experiment_list_test = convert_dataset.to_datasetrnn(data)
+    dataset, experiment_list_test, df, update_dynamics = convert_dataset.convert_dataset(data)
     indexes_dataset = np.arange(len(dataset.xs))
-    np.random.shuffle(indexes_dataset)
+    # np.random.shuffle(indexes_dataset)
     
-    xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.95*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.95*len(dataset.xs))]]
-    xs_val, ys_val = dataset.xs[indexes_dataset[int(0.95*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.95*len(dataset.xs)):]]
+    # idx_train = int(0.95*len(dataset.xs))
+    idx_train = -1
+    experiment_list_test = experiment_list_test[idx_train:]
+    xs_train, ys_train = dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
+    xs_val, ys_val = dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
     dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
-    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
+    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val, sequence_length=64)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
-    # xs_train, ys_train = dataset.xs[indexes_dataset[:int(0.8*len(dataset.xs))]], dataset.ys[indexes_dataset[:int(0.8*len(dataset.xs))]]
-    # xs_val, ys_val = dataset.xs[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]], dataset.ys[indexes_dataset[int(0.8*len(dataset.xs)):int(0.9*len(dataset.xs))]]
-    # xs_test, ys_test = dataset.xs[indexes_dataset[int(0.9*len(dataset.xs)):]], dataset.ys[indexes_dataset[int(0.9*len(dataset.xs)):]]
-    # dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
-    # dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
-    # dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
+    # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
+    if 'mean_beta' in df.columns:
+      beta = df['beta'].values[idx_train]
+      alpha = df['alpha'].values[idx_train]
+      alpha_penalty = df['alpha_penalty'].values[idx_train]
+      confirmation_bias = df['confirmation_bias'].values[idx_train]
+      forget_rate = df['forget_rate'].values[idx_train]
+      perseverance_bias = df['perseverance_bias'].values[idx_train]
     
   if model is None:
-    params_path = rnn_utils.parameter_file_naming(
-        'params/params',
-        use_lstm,
-        alpha,
-        beta,
-        forget_rate,
-        perseveration_bias,
-        alpha_penalty,
-        confirmation_bias,
-        verbose=True,
-    )
+    params_path = rnn_utils.parameter_file_naming('params/params',alpha,beta,forget_rate,perseverance_bias,alpha_penalty,confirmation_bias,parameter_variance,verbose=True)
   else:
     params_path = model
 
@@ -163,25 +170,17 @@ def main(
     ensemble = rnn_training.ensembleTypes.BEST
 
   # define model
-  if use_lstm:
-    model = rnn.LSTM(
-        n_actions=n_actions, 
-        hidden_size=hidden_size, 
-        init_value=0.,
-        device=device,
-        ).to(device)
-  else:
-    model = [rnn.RLRNN(
-        n_actions=n_actions, 
-        hidden_size=hidden_size, 
-        init_value=0.5,
-        device=device,
-        list_sindy_signals=sindy_feature_list,
-        dropout=dropout,
-        ).to(device)
-            for _ in range(init_population)]
+  model = [rnn.RLRNN(
+      n_actions=n_actions, 
+      hidden_size=hidden_size, 
+      init_value=0.5,
+      device=device,
+      list_sindy_signals=sindy_feature_list,
+      dropout=dropout,
+      ).to(device)
+          for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=learning_rate, weight_decay=weight_decay) for m in model]
+  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=lr_train, weight_decay=weight_decay) for m in model]
 
   print('Setup of the RNN model complete.')
 
@@ -190,7 +189,7 @@ def main(
       print('Loaded model parameters.')
 
   loss_test = None
-  if epochs > 0:
+  if epochs_train > 0:
     start_time = time.time()
     
     #Fit the RNN
@@ -200,60 +199,104 @@ def main(
     model, optimizer_rnn, _ = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_train,
-        dataset_test=dataset_val,
+        # dataset_test=dataset_test,
         optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
-        epochs=epochs,
-        batch_size=batch_size,
+        epochs=epochs_train,
+        batch_size=batch_size_train,
         n_submodels=n_submodels,
         ensemble_type=ensemble,
         voting_type=voting_type,
         bagging=bagging,
-        n_oversampling=n_oversampling,
+        n_oversampling=n_oversampling_train,
         evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
     
-    # save trained parameters  
+    # save trained parameters
     state_dict = {
       'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
       'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
-      # 'groundtruth': {
-      #   'alpha': alpha,
-      #   'beta': beta,
-      #   'forget_rate': forget_rate,
-      #   'perseveration_bias': perseveration_bias,
-      #   'regret': regret,
-      #   'confirmation_bias': confirmation_bias,
-      #   'reward_update_rule': agent._reward_update,
-      # },
+      'groundtruth': {
+        'alpha': alpha,
+        'beta': beta,
+        'forget_rate': forget_rate,
+        'perseverance_bias': perseverance_bias,
+        'alpha_penalty': alpha_penalty,
+        'confirmation_bias': confirmation_bias,
+      },
     }
+    print('Training finished.')
+    print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
     torch.save(state_dict, params_path)
-    
     print(f'Saved RNN parameters to file {params_path}.')
-
     print(f'Training took {time.time() - start_time:.2f} seconds.')
   else:
     if isinstance(model, list):
       model = model[0]
       optimizer_rnn = optimizer_rnn[0]
   
-  print(f'Trained initial beta of RNN is: {model.beta.item()}')
-  
   # validate model
-  print('\nTesting the trained RNN on a test dataset...')
-  if isinstance(model, list):
-    for m in model:
-      m.eval()
-  else:
-    model.eval()
+  print('\nTesting the trained RNN on the test dataset...')
+  model.eval()
   with torch.no_grad():
     _, _, loss_test = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_test,
-        dataset_test=None,
-        n_steps_per_call=1,
     )
+  
+  # Finetune the RNN with individual data
+  if epochs_finetune > 0:
+    start_time = time.time()
+    print('Finetuning the RNN...')
+    for subnetwork in x_train_list:
+      model.finetune_training(subnetwork, keep_dropout=True)
+    optimizer_fine = [torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_finetune, weight_decay=weight_decay)]
+    model, optimizer_fine, _ = rnn_training.fit_model(
+        model=[model],
+        dataset_train=dataset_val,
+        # dataset_test=dataset_test,
+        optimizer=optimizer_fine,
+        convergence_threshold=convergence_threshold,
+        epochs=epochs_finetune,
+        batch_size=batch_size_finetune,
+        n_submodels=n_submodels,
+        ensemble_type=ensemble,
+        voting_type=voting_type,
+        bagging=bagging,
+        n_oversampling=n_oversampling_finetune,
+        evolution_interval=evolution_interval,
+        n_steps_per_call=n_steps_per_call,
+    )
+    model.eval()
+    
+    # save trained parameters  
+    state_dict = {
+      'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
+      'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
+      'groundtruth': {
+        'alpha': alpha,
+        'beta': beta,
+        'forget_rate': forget_rate,
+        'perseverance_bias': perseverance_bias,
+        'alpha_penalty': alpha_penalty,
+        'confirmation_bias': confirmation_bias,
+      },
+    }
+    print('Finetuning finished.')
+    print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
+    torch.save(state_dict, params_path.replace('_rnn_', '_rnn_finetuned_'))
+    print(f'Saved RNN parameters to file {params_path}.')
+    print(f'Finetuning took {time.time() - start_time:.2f} seconds.')
+  
+    # validate model
+    print('\nTesting the finetuned RNN on the finetune dataset...')
+    model.eval()
+    with torch.no_grad():
+      _, _, loss_test = rnn_training.fit_model(
+          model=model,
+          dataset_train=dataset_test,
+      )
   
   # -----------------------------------------------------------
   # Analysis
@@ -266,11 +309,11 @@ def main(
     model.to(torch.device('cpu'))
     rnn_agent = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
     
-    labels = ['Ground Truth', 'RNN'] if data is None else ['RNN'] 
     session_id = 0
-
-    choices = experiment_list_test[session_id].choices
-    rewards = experiment_list_test[session_id].rewards
+    experiment = experiment_list_test[session_id]
+    
+    choices = experiment.choices
+    rewards = experiment.rewards
 
     list_probs = []
     list_Qs = []
@@ -279,14 +322,20 @@ def main(
 
     # get q-values from groundtruth
     if data is None:
-      qs_test, probs_test, _ = bandits.get_update_dynamics(experiment_list_test[session_id], agent)
+      qs_test, probs_test, _ = bandits.get_update_dynamics(experiment, agent_finetune)
       list_probs.append(np.expand_dims(probs_test, 0))
       list_Qs.append(np.expand_dims(qs_test[0], 0))
       list_qs.append(np.expand_dims(qs_test[1], 0))
       list_hs.append(np.expand_dims(qs_test[2], 0))
+    elif np.mean(update_dynamics[0]) != 0:
+      qs_test, probs_test = update_dynamics[1:], update_dynamics[0]
+      list_probs.append(np.expand_dims(probs_test[idx_train:][session_id], 0))
+      list_Qs.append(np.expand_dims(qs_test[0][idx_train:][session_id], 0))
+      list_qs.append(np.expand_dims(qs_test[1][idx_train:][session_id], 0))
+      list_hs.append(np.expand_dims(qs_test[2][idx_train:][session_id], 0))
       
     # get q-values from trained rnn
-    qs_rnn, probs_rnn, _ = bandits.get_update_dynamics(experiment_list_test[session_id], rnn_agent)
+    qs_rnn, probs_rnn, _ = bandits.get_update_dynamics(experiment, rnn_agent)
     list_probs.append(np.expand_dims(probs_rnn, 0))
     list_Qs.append(np.expand_dims(qs_rnn[0], 0))
     list_qs.append(np.expand_dims(qs_rnn[1], 0))
@@ -298,6 +347,7 @@ def main(
     qs = np.concatenate(list_qs, axis=0)
     hs = np.concatenate(list_hs, axis=0)
 
+    labels = ['Ground Truth', 'RNN'][:Qs.shape[0]]
     colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
     
     # normalize q-values
@@ -308,7 +358,7 @@ def main(
 
     fig, axs = plt.subplots(5, 1, figsize=(20, 10))
 
-    reward_probs = np.stack([experiment_list_test[session_id].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
+    reward_probs = np.stack([experiment.reward_probabilities[:, i] for i in range(n_actions)], axis=0)
     bandits.plot_session(
         compare=True,
         choices=choices,
@@ -399,7 +449,7 @@ if __name__=='__main__':
   parser.add_argument('--alpha', type=float, default=0.25, help='Alpha parameter for the Q-learning update rule')
   parser.add_argument('--beta', type=float, default=3, help='Beta parameter for the Q-learning update rule')
   parser.add_argument('--forget_rate', type=float, default=0., help='Forget rate')
-  parser.add_argument('--perseveration_bias', type=float, default=0., help='Perseveration bias')
+  parser.add_argument('--perseverance_bias', type=float, default=0., help='perseverance bias')
   parser.add_argument('--alpha_p', type=float, default=-1., help='Learning rate for negative outcomes; if -1: same as alpha')
   parser.add_argument('--confirmation_bias', type=float, default=0., help='Whether to include confirmation bias')
 
@@ -419,14 +469,14 @@ if __name__=='__main__':
     model = args.model,
 
     # training parameters
-    epochs=args.epochs,
+    epochs_train=args.epochs,
     n_trials_per_session = args.n_trials_per_session,
     n_sessions = args.n_sessions,
     n_steps_per_call = args.n_steps_per_call,
     bagging = args.bagging,
-    n_oversampling=args.n_oversampling,
-    batch_size=args.batch_size,
-    learning_rate=args.learning_rate,
+    n_oversampling_train=args.n_oversampling,
+    batch_size_train=args.batch_size,
+    lr_train=args.learning_rate,
 
     # ensemble parameters
     n_submodels=args.n_submodels,
@@ -440,8 +490,8 @@ if __name__=='__main__':
     alpha = args.alpha,
     beta = args.beta,
     forget_rate = args.forget_rate,
-    perseveration_bias = args.perseveration_bias,
-    alpha_penalty = args.regret,
+    perseverance_bias = args.perseverance_bias,
+    alpha_penalty = args.alpha_p,
     confirmation_bias = args.confirmation_bias,
     # reward_update_rule = lambda q, reward: reward-q,
     

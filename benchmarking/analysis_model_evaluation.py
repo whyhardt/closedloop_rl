@@ -6,7 +6,7 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.model_evaluation import akaike_information_criterion, bayesian_information_criterion, log_likelihood
 from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_custom_q_agent
-from utils.convert_dataset import to_datasetrnn
+from utils.convert_dataset import convert_dataset
 from resources.bandits import AgentQ, get_update_dynamics
 
 
@@ -71,7 +71,7 @@ agent_benchmark = setup_custom_q_agent(update_rule, get_choice_probs)
 
 
 # load data
-_, experiment_list = to_datasetrnn(data)
+_, experiment_list = convert_dataset(data)
 
 def get_scores(agent, n_parameters) -> float:
     aic = 0

@@ -13,7 +13,7 @@ from resources.bandits import AgentQ, AgentSindy, AgentNetwork, EnvironmentBandi
 from resources.sindy_utils import create_dataset, check_library_setup, bandit_loss
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model
-from utils.convert_dataset import to_datasetrnn
+from utils.convert_dataset import convert_dataset
 
 warnings.filterwarnings("ignore")
 
@@ -39,8 +39,9 @@ def main(
     alpha_penalty = -1,
     confirmation_bias = 0.,
     forget_rate = 0.,
-    perseveration_bias = 0.,
+    perseverance_bias = 0.,
     beta = 3,
+    parameter_variance = 0.,
     reward_prediction_error: Callable = None,
     
     # environment parameters
@@ -53,15 +54,11 @@ def main(
     ):
 
     # rnn parameters
-    use_lstm = False
     voting_type = EnsembleRNN.MEDIAN
 
     # tracked variables in the RNN
-    # single_entries = {
-    #     'xLR': ['xLR_0', 'xLR_1', 'xLR_2', 'xLR_3', 'xLR_4', 'xLR_5', 'xLR_6', 'xLR_7']
-    # }
-    z_train_list = ['xLR', 'xQf', 'xH', 'xHf']#, 'xU', 'xUf', 'xB']
-    control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']#, 'cU_0', 'cU_1']
+    z_train_list = ['xLR', 'xQf', 'xC', 'xCf']
+    control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
@@ -69,11 +66,8 @@ def main(
     library_setup = {
         'xLR': ['cQ', 'cr', 'cp'],
         'xQf': [],
-        'xH': ['ca_repeat'],
-        'xHf': [],
-        # 'xU': ['cQ', 'cr'],
-        # 'xUf': [],
-        # 'xB': ['cU_0', 'cU_1'],
+        'xC': ['ca_repeat'],
+        'xCf': [],
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -87,10 +81,8 @@ def main(
     datafilter_setup = {
         'xLR': ['ca', 1, True],
         'xQf': ['ca', 0, True],
-        'xH': ['ca', 1, True],
-        'xHf': ['ca', 0, True],
-        # 'xU': ['ca', 1, True],
-        # 'xUf': ['ca', 0, True],
+        'xC': ['ca', 1, True],
+        'xCf': ['ca', 0, True],
     }
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -98,7 +90,7 @@ def main(
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', use_lstm, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias, verbose=True)
+        params_path = parameter_file_naming('params/params', alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
@@ -119,34 +111,30 @@ def main(
         # set up ground truth agent and environment
         environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
         # environment = EnvironmentBanditsSwitch(sigma)
-        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseveration_bias, alpha_penalty, confirmation_bias)
+        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)
         if reward_prediction_error is not None:
             agent.set_reward_prediction_error(reward_prediction_error)
-        _, experiment_list_test = create_dataset_bandits(agent, environment, 100, 1)
-        _, experiment_list_train = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
+        _, experiment_list_test, parameter_list = create_dataset_bandits(agent, environment, 100, 1)
+        _, experiment_list_train, parameter_list = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
     else:
         # get data from experiments
-        _, experiment_list_train = to_datasetrnn(data)
+        _, experiment_list_train, _, _ = convert_dataset(data)
         experiment_list_test = [experiment_list_train[-1]]
         experiment_list_train = experiment_list_train[:-1]            
 
     # create dataset for sindy training, fit sindy, set up sindy agent
-    z_train, control, feature_names = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, clear_offset=True, shuffle=False, trimming=True)
+    z_train, control, feature_names = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, clear_offset=False, shuffle=False, trimming=True)
     sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, verbose, False, threshold, regularization)
-    agent_sindy = AgentSindy(sindy_models, n_actions, agent_rnn._model.beta.item(), True)
+    agent_sindy = AgentSindy(sindy_models, n_actions, (agent_rnn._model._beta_reward.item(), agent_rnn._model._beta_choice.item()), True)
     
-    if verbose:
-        print(f'SINDy Beta: {agent_rnn._model.beta.item():.2f}')
-        print('Calculating RNN and SINDy loss in X...', end='\r')
-        test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
-        test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
-        print(f'RNN Loss in X (predicting behavior; Target: Subject): {test_loss_rnn_x}')
-        print(f'SINDy Loss in X (predicting behavior; Target: Subject): {test_loss_sindy_x}')
-    # test_loss_sindy_z = bandit_loss(agent_sindy, experiment_list_train[:10], coordinates="z")
-    # test_loss_rnn_z = bandit_loss(agent_rnn, experiment_list_test[:10], coordinates="z")
-    # print(f'RNN Loss in Z (comparing choice probabilities; Target: Subject): {test_loss_rnn_z}')
-    # print(f'SINDy Loss in Z (comparing choice probabilities; Target: RNN): {test_loss_sindy_z}')
-    
+    # if verbose:
+    #     print(f'SINDy Beta: {agent_rnn._model._beta_reward.item():.2f} and {agent_rnn._model._beta_choice.item():.2f}')
+    #     print('Calculating RNN and SINDy loss in X (predicting behavior; Target: Subject)...', end='\r')
+    #     test_loss_rnn_x = bandit_loss(agent_rnn, experiment_list_test, coordinates="x")
+    #     test_loss_sindy_x = bandit_loss(agent_sindy, experiment_list_test, coordinates="x")
+    #     print(f'RNN Loss in X: {test_loss_rnn_x}')
+    #     print(f'SINDy Loss in X: {test_loss_sindy_x}')
+
     # --------------------------------------------------------------
     # Analysis
     # --------------------------------------------------------------
@@ -198,50 +186,53 @@ def main(
 
         # qs = normalize(qs)
 
-        fig, axs = plt.subplots(5, 1, figsize=(20, 10))
+        fig, axs = plt.subplots(4, 1, figsize=(20, 10))
         axs_row = 0
         fig_col = None
         
         reward_probs = np.stack([experiment_list_test[0].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
-        plot_session(
-            compare=True,
-            choices=choices,
-            rewards=rewards,
-            timeseries=reward_probs,
-            timeseries_name='p(R)',
-            # labels=[f'Arm {a}' for a in range(n_actions)],
-            color=['tab:purple', 'tab:cyan'],
-            binary=not non_binary_reward,
-            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-            x_axis_info=False,
-            )
-        axs_row += 1
+        # plot_session(
+        #     compare=True,
+        #     choices=choices,
+        #     rewards=rewards,
+        #     timeseries=reward_probs,
+        #     timeseries_name='$P(r)$',
+        #     labels=[f'Arm {a}' for a in range(n_actions)],
+        #     color=['tab:purple', 'tab:cyan'],
+        #     binary=not non_binary_reward,
+        #     fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
+        #     x_axis_info=False,
+        #     y_axis_info=True,
+        #     )
+        # axs_row += 1
         
         plot_session(
             compare=True,
             choices=choices,
             rewards=rewards,
             timeseries=probs[:, :, 0],
-            timeseries_name='p(A)',
+            timeseries_name='$P(action)$',
             color=colors,
-            # labels=labels,
+            labels=labels,
             binary=not non_binary_reward,
             fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
             x_axis_info=False,
+            y_axis_info=True,
             )
         axs_row += 1
         
         plot_session(
-        compare=True,
-        choices=choices,
-        rewards=rewards,
-        timeseries=Qs[:, :, 0],
-        timeseries_name='Q',
-        color=colors,
-        binary=True,
-        fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-        x_axis_info=False,
-        )
+            compare=True,
+            choices=choices,
+            rewards=rewards,
+            timeseries=Qs[:, :, 0],
+            timeseries_name='$q$',
+            color=colors,
+            binary=True,
+            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
+            y_axis_info=True,
+            x_axis_info=False,
+            )
         axs_row += 1
         
         plot_session(
@@ -249,11 +240,12 @@ def main(
             choices=choices,
             rewards=rewards,
             timeseries=qs[:, :, 0],
-            timeseries_name='q',
+            timeseries_name='$q_{reward}$',
             color=colors,
             binary=True,
             fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
             x_axis_info=False,
+            y_axis_info=True,
             )
         axs_row += 1
 
@@ -262,16 +254,22 @@ def main(
             choices=choices,
             rewards=rewards,
             timeseries=hs[:, :, 0],
-            timeseries_name='a',
+            timeseries_name='$q_{choice}$',
             color=colors,
             binary=True,
             fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
             x_axis_info=True,
+            y_axis_info=True,
             )
         axs_row += 1
+        
+    plt.show()
 
     # save a dictionary of trained features per model
-    features = {'beta': (('beta'), (agent_sindy.beta))}
+    features = {
+        'beta_reward': (('beta_reward'), (agent_sindy._beta_reward)),
+        'beta_choice': (('beta_choice'), (agent_sindy._beta_choice)),
+        }
     for m in sindy_models:
         features[m] = []
         features_i = sindy_models[m].get_feature_names()
@@ -287,7 +285,7 @@ def main(
         features[m] = tuple(features[m])
     
     agent_sindy.new_sess()
-    return agent_sindy, sindy_models, features, fig, axs
+    return agent_sindy, sindy_models, features
 
 
 if __name__=='__main__':
@@ -310,7 +308,7 @@ if __name__=='__main__':
         alpha = 0.25,
         beta = 3,
         forget_rate = 0.,
-        perseveration_bias = 0.25,
+        perseverance_bias = 0.25,
         alpha_penalty = 0.5,
         confirmation_bias = 0.5,
         # reward_update_rule = lambda q, reward: reward-q,

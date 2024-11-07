@@ -6,7 +6,6 @@ from torch import device, load
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn import RLRNN
 from resources.bandits import AgentSindy, AgentNetwork, AgentQ
-from utils.convert_dataset import to_datasetrnn
 from sindy_main import main as sindy_main
 
 

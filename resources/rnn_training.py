@@ -20,20 +20,6 @@ class ensembleTypes(NamedTuple):
     VOTE = 0
     AVERAGE = 1
 
-class categorical_log_likelihood(nn.modules.loss._Loss):
-    def __init__(self, size_average=None, reduce=None, reduction: str = 'mean') -> None:
-        super().__init__(size_average, reduce, reduction)
-    
-    def forward(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor = None):
-        # mask has True for values to pass and False for values to omit
-        if mask is None:
-            mask = torch.ones_like(logits, device=logits.device)
-        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-        log_liks = target * log_probs
-        masked_log_liks = torch.multiply(log_liks, mask)
-        loss = -torch.nansum(masked_log_liks)/torch.prod(torch.tensor(masked_log_liks.shape[:-1]))
-        return loss
-
 
 def batch_train(
     model: BaseRNN,
@@ -63,18 +49,17 @@ def batch_train(
         state = model.get_state(detach=True)
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
-        # TODO: add mask for real data
-        # mask = xs[:, t:t+n_steps, 0] > -1  # check if checking -1 for first action only is enough
-        loss_t = loss_fn(y_pred.reshape(-1, model._n_actions), ys[:, t:t+n_steps].reshape(-1, model._n_actions))
+        mask = xs[:, t:t+n_steps, :model._n_actions] > -1
+        loss = loss_fn((y_pred*mask).reshape(-1, model._n_actions), (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)) 
         
-        loss_batch += loss_t
+        loss_batch += loss
         iterations += 1
         
         if torch.is_grad_enabled():
             
             # backpropagation
             optimizer.zero_grad()
-            loss_t.backward()
+            loss.backward()
             # loss_batch.backward()
             optimizer.step()
     
@@ -84,7 +69,7 @@ def batch_train(
 def fit_model(
     model: Union[BaseRNN, EnsembleRNN],
     dataset_train: DatasetRNN,
-    dataset_test: DatasetRNN,
+    dataset_test: DatasetRNN = None,
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
@@ -123,9 +108,6 @@ def fit_model(
         optimizers = optimizer
     else:
         raise ValueError('Optimizer must be either of NoneType, a single optimizer or a list of optimizers with the same length as the number of submodels.')
-    
-    # set up learning rate scheduler for each optimizer
-    # scheduler = [ReduceLROnPlateau(optim) for optim in optimizers]
     
     # initialize dataloader
     if batch_size == -1:
@@ -178,7 +160,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size
+    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if n_oversampling == -1 else n_oversampling // batch_size
     
     # start training
     while continue_training:
@@ -216,8 +198,6 @@ def fit_model(
                         ys=ys,
                         optimizer=optimizers[i_model],
                         n_steps_per_call=n_steps_per_call,
-                        # keep_predictions=True,
-                        # loss_fn = categorical_log_likelihood()
                     )
                     loss_train += loss_i
                 loss_train /= batch_iteration_constant
@@ -251,30 +231,22 @@ def fit_model(
                     xs, ys = next(iter(dataloader_test))
                     xs = xs.to(models[0].device)
                     ys = ys.to(models[0].device)
-                    # train model
+                    # evaluate model
                     _, _, loss_test = batch_train(
                         model=models[0],
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[0],
-                        # loss_fn = categorical_log_likelihood()
                     )
                 models[0].train()
 
-            # adapt learning rate based on validation loss
-            # last_lr = 0
-            # for s in scheduler:
-            #     s.step(loss_test)
-            #     last_lr += s.get_last_lr()[-1]
-            # last_lr /= len(scheduler)
-            
             # check for convergence
             dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
             convergence_value += recency_factor * (np.abs(dloss) - convergence_value)
-            converged = convergence_value < convergence_threshold# or last_lr < convergence_threshold
+            converged = convergence_value < convergence_threshold
             continue_training = not converged and n_calls_to_train_model < epochs
             last_loss = 0
-            last_loss += loss_test
+            last_loss += loss_test if dataset_test is not None else loss_train
             
             msg = None
             if verbose:
@@ -282,7 +254,6 @@ def fit_model(
                 if dataset_test is not None:
                     msg += f'; L(Validation): {loss_test:.7f}'
                 msg += f'; Time: {time.time()-t_start:.2f}s; Convergence value: {convergence_value:.2e}'
-                # msg += f'; Learning rate: {last_lr}'
                 if converged:
                     msg += '\nModel converged!'
                 elif n_calls_to_train_model >= epochs:
@@ -349,47 +320,6 @@ def evolution_step(models: List[nn.Module], optimizers: List[torch.optim.Optimiz
 
     return children, children_optims
 
-
-def penalty_null_hypothesis(model, batch_size: int = 1):
-    """Compute a penalty for each subnetwork of the model based on the output of the corresponding subnetwork.
-    This penalty serves as a regularization term to enforce the prior that this layer is not needed in the first place --> aka null-hypothesis.
-    In this manner implemented hypothesis could be tested without model comparison but by the null-hypothesis."""
-    
-    reg_rnn = torch.zeros((), device=model.device)
-    i = 0
-    # create a random variable which is applicable for all subnetworks
-    epsilon = torch.randn((batch_size, 32), device=model.device)
-    for name, module in model.named_modules():
-        if name.startswith('x') and not '.' in name:
-            reg_rnn += torch.sum(torch.pow(module(epsilon[:, :module[0].in_features]), 2))/batch_size
-            i += 1
-    return reg_rnn/i
-
-
-def penalty_correlated_update(model, batch_size: int = 1):
-    """Compute a penalty for each subnetwork based on the influence of one input onto another output e.g. dxi/dxj = 0 for i != j.
-
-    Args:
-        model (BaseRNN): Model to test
-    """
-    
-    reg_rnn = torch.zeros((1, 1), device=model.device)
-    i = 0
-    # create a random variable which is applicable for all subnetworks
-    epsilon = torch.randn((batch_size, 32), device=model.device)
-    for name, module in model.named_modules():
-        if name.startswith('x') and not '.' in name:
-            for j in range(module[-1].out_features):
-                epsilon_j = epsilon.clone()
-                epsilon_j[:, j] = 0
-                for jj in range(module[-1].out_features):
-                    if jj != j:
-                        reg_rnn += torch.sum(torch.pow(module(epsilon[:, :module[0].in_features])[:, jj] - module(epsilon_j[:, :module[0].in_features])[:, jj], 2))/batch_size
-                        i += 1
-    
-    return reg_rnn/i
-
-def penalty_beta_range(model):
     """Compute the penalty for the network resulting in Q-Values higher than 1 and lower than 0."""
     
     return model.beta

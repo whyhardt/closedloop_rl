@@ -1,7 +1,12 @@
-import numpy as np
+import torch
 
-losses = [0.5980473043930591, 0.5964810548715256, 0.5974744480458936, 0.5979135407874333, 0.5974515982009657, 0.5944620640433613, 0.5973375023309909, 0.5964690932077379]
-losses = np.array(losses)
+state_dict = torch.load('params/benchmarking/sugawara2021_143_1.pkl')
 
-print(np.mean(losses))
-print(np.std(losses))
+new_state_dict = {k.replace('xH', 'xC'): v for k, v in state_dict.items()}
+
+print(new_state_dict)
+
+new_state_dict = {'model': new_state_dict,
+                  'optimizer': None}
+
+torch.save(new_state_dict, 'params/benchmarking/sugawara2021_143_1.pkl')
