@@ -251,18 +251,18 @@ class RLRNN(BaseRNN):
         
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
-        next_value = torch.zeros_like(value) + value
+        next_value = torch.zeros_like(value)# + value
             
         # reward sub-network for chosen action
         inputs = torch.concat([value, reward], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
-        learning_rate = torch.nn.functional.sigmoid(learning_rate)
+        learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
-        update_chosen = learning_rate * rpe
+        update_chosen = value + learning_rate * rpe
 
         # reward sub-network for non-chosen action
         update_not_chosen, _ = self.call_subnetwork('xQf', value)
-        update_not_chosen = self._shrink(update_not_chosen)
+        update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
         
         next_value += update_chosen * action + update_not_chosen * (1-action)
 

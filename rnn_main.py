@@ -325,7 +325,7 @@ def main(
       list_Qs.append(np.expand_dims(qs_test[0], 0))
       list_qs.append(np.expand_dims(qs_test[1], 0))
       list_hs.append(np.expand_dims(qs_test[2], 0))
-    elif np.mean(update_dynamics[0]) != 0:
+    elif np.mean(update_dynamics[0]) != -1:
       qs_test, probs_test = update_dynamics[1:], update_dynamics[0]
       list_probs.append(np.expand_dims(probs_test[idx_train:][session_id], 0))
       list_Qs.append(np.expand_dims(qs_test[0][idx_train:][session_id], 0))

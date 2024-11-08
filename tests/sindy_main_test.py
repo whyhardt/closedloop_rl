@@ -11,7 +11,7 @@ features_list = []
 for i in range(1):
     i = 1
     _, _ , features = sindy_main.main(
-        # model = 'params/benchmarking/sugawara2021_143_0.pkl',
+        # model = 'params/benchmarking/sugawara2021_143_3.pkl',
         # data = 'data/sugawara2021_143_processed.csv',
         
         # sindy parameters

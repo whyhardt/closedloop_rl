@@ -13,7 +13,7 @@ def setup_rnn(
     path_model=None, 
     n_actions=2, 
     hidden_size=8, 
-    list_sindy_signals=['xLR', 'xQf', 'xH', 'xHf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
+    list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
 ) -> RLRNN:
     
@@ -28,7 +28,7 @@ def setup_agent_rnn(
     path_model=None, 
     n_actions=2, 
     hidden_size=8, 
-    list_sindy_signals=['xLR', 'xQf', 'xH', 'xHf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
+    list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
     ) -> AgentNetwork:
     
@@ -69,12 +69,12 @@ def setup_custom_q_agent(
             super().__init__(n_actions, 0, 0)
             
         def update(self, a, r):
-            q, h = update_rule(self._q, self._h, a, r)
+            q, c = update_rule(self._q, self._c, a, r)
             self._q = q
-            self._h = h
+            self._c = c
             
         def get_choice_probs(self):
-            return get_choice_probs(self._q, self._h)
+            return get_choice_probs(self._q, self._c)
         
     return AgentCustom()
     
@@ -85,6 +85,6 @@ def setup_custom_q_agent(
 if __name__ == '__main__':
     
     setup_agent_sindy(
-        model = 'params/benchmarking/sugawara2021_143_19.pkl',
+        model = 'params/benchmarking/sugawara2021_143_4.pkl',
         data = 'data/sugawara2021_143_processed.csv',
     )

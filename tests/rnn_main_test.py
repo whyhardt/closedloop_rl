@@ -5,16 +5,20 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
     
 losses = []
-for i in range(1, 2):
+for i in range(5,6):
     loss = rnn_main.main(
-        checkpoint=True,
-        epochs_train=0,
+        checkpoint=False,
+        epochs_train=128,
         # epochs_finetune=1024,
         
         # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
         # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
         # model=f'params/benchmarking/sugawara2021_143_{i}.pkl',
         # data = 'data/sugawara2021_143_processed.csv',
+
+        dropout=0.1,
+        bagging=True,
+        # weight_decay=1e-4,
 
         lr_train=1e-2,
         n_oversampling_train=-1,
@@ -23,10 +27,6 @@ for i in range(1, 2):
         lr_finetune=1e-4,
         n_oversampling_finetune=-1,
         batch_size_finetune=-1,
-        
-        dropout=0.1,
-        bagging=False,
-        # weight_decay=1e-4,
         
         n_sessions=4*1024,
         n_trials_per_session=64,
