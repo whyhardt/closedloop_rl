@@ -763,7 +763,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
 
 
 def plot_session(
-  choices: np.ndarray,
+  chosen: np.ndarray,
   rewards: np.ndarray,
   timeseries: Tuple[np.ndarray],
   timeseries_name: str,
@@ -793,10 +793,10 @@ def plot_session(
   if color == None:
     color = [None]*len(timeseries)
   
-  choose_high = choices == 1
-  choose_low = choices == 0
+  # choose_high = choices == 1
+  # choose_low = choices == 0
   rewarded = rewards > 0.5
-  y_high = np.max(timeseries) + 0.1
+  # y_high = np.max(timeseries) + 0.1
   y_low = np.min(timeseries) - 0.1
   
   # Make the plot
@@ -815,7 +815,7 @@ def plot_session(
       raise ValueError('timeseries must be of shape (timesteps, n_actions).')
                        
   if not compare:
-    choices = np.expand_dims(choices, 0)
+    # choices = np.expand_dims(choices, 0)
     timeseries = np.expand_dims(timeseries, 0)
   
   for i in range(timeseries.shape[0]):
@@ -837,47 +837,47 @@ def plot_session(
     else:  # Skip legend.
       ax.plot(timeseries[i], color=color[i])
 
-  if choices.max() <= 1:
-    # Rewarded high
-    ax.scatter(
-        np.argwhere(choose_high & rewarded),
-        y_high * np.ones(np.sum(choose_high & rewarded)),
-        color='green',
-        marker=3)
-    ax.scatter(
-        np.argwhere(choose_high & rewarded),
-        y_high * np.ones(np.sum(choose_high & rewarded)),
-        color='green',
-        marker='|')
-    # Omission high
-    ax.scatter(
-        np.argwhere(choose_high & 1 - rewarded),
-        y_high * np.ones(np.sum(choose_high & 1 - rewarded)),
-        color='red',
-        marker='|')
+  # if choices.max() <= 1:
+  #   # Rewarded high
+  #   ax.scatter(
+  #       np.argwhere(choose_high & rewarded),
+  #       y_high * np.ones(np.sum(choose_high & rewarded)),
+  #       color='green',
+  #       marker=3)
+  #   ax.scatter(
+  #       np.argwhere(choose_high & rewarded),
+  #       y_high * np.ones(np.sum(choose_high & rewarded)),
+  #       color='green',
+  #       marker='|')
+  #   # Omission high
+  #   ax.scatter(
+  #       np.argwhere(choose_high & 1 - rewarded),
+  #       y_high * np.ones(np.sum(choose_high & 1 - rewarded)),
+  #       color='red',
+  #       marker='|')
 
-    # Rewarded low
-    ax.scatter(
-        np.argwhere(choose_low & rewarded),
-        y_low * np.ones(np.sum(choose_low & rewarded)),
-        color='green',
-        marker='|')
-    ax.scatter(
-        np.argwhere(choose_low & rewarded),
-        y_low * np.ones(np.sum(choose_low & rewarded)),
-        color='green',
-        marker=2)
-    # Omission Low
-    ax.scatter(
-        np.argwhere(choose_low & 1 - rewarded),
-        y_low * np.ones(np.sum(choose_low & 1 - rewarded)),
-        color='red',
-        marker='|')
+  #   # Rewarded low
+  ax.scatter(
+      np.argwhere(chosen & rewarded),
+      y_low * np.ones(np.sum(chosen & rewarded)),
+      color='green',
+      marker='|')
+  ax.scatter(
+      np.argwhere(chosen & rewarded),
+      y_low * np.ones(np.sum(chosen & rewarded)),
+      color='green',
+      marker=2)
+  # Omission Low
+  ax.scatter(
+      np.argwhere(chosen & 1 - rewarded),
+      y_low * np.ones(np.sum(chosen & 1 - rewarded)),
+      color='red',
+      marker='|')
 
   if x_axis_info:
     ax.set_xlabel(x_label)
   else:
-    ax.set_xticks(np.linspace(1, len(choices), 5))
+    ax.set_xticks(np.linspace(1, len(timeseries), 5))
     ax.set_xticklabels(['']*5)
     
   if y_axis_info:

@@ -13,6 +13,8 @@ for i in range(1):
     _, _ , features = sindy_main.main(
         # model = 'params/benchmarking/sugawara2021_143_3.pkl',
         # data = 'data/sugawara2021_143_processed.csv',
+        model = 'params/benchmarking/bahrami2020_965_0.pkl',
+        data = 'data/bahrami2020_965_processed.csv',
         
         # sindy parameters
         polynomial_degree=2,
@@ -23,13 +25,13 @@ for i in range(1):
         n_trials_per_session = 1024,
         n_sessions = 16,
         
-        beta=3.,
-        alpha=0.25,
-        alpha_penalty=0.5,
-        confirmation_bias=0.5,
-        forget_rate=0.2,
-        perseverance_bias=0.25,
-        parameter_variance=0.,
+        # beta=3.,
+        # alpha=0.25,
+        # alpha_penalty=0.5,
+        # confirmation_bias=0.5,
+        # forget_rate=0.2,
+        # perseverance_bias=0.25,
+        # parameter_variance=0.,
         n_actions=4,
         
         analysis=True,

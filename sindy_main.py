@@ -206,7 +206,7 @@ def main(
         
         plot_session(
             compare=True,
-            choices=choices,
+            chosen=choices,
             rewards=rewards,
             timeseries=probs[:, :, 0],
             timeseries_name='$P(action)$',
@@ -221,7 +221,7 @@ def main(
         
         plot_session(
             compare=True,
-            choices=choices,
+            chosen=choices,
             rewards=rewards,
             timeseries=Qs[:, :, 0],
             timeseries_name='$q$',
@@ -235,7 +235,7 @@ def main(
         
         plot_session(
             compare=True,
-            choices=choices,
+            chosen=choices,
             rewards=rewards,
             timeseries=qs[:, :, 0],
             timeseries_name='$q_{reward}$',
@@ -249,7 +249,7 @@ def main(
 
         plot_session(
             compare=True,
-            choices=choices,
+            chosen=choices,
             rewards=rewards,
             timeseries=hs[:, :, 0],
             timeseries_name='$q_{choice}$',

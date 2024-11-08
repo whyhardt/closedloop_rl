@@ -13,27 +13,44 @@ from resources.bandits import BanditSession
 def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSession]]:
     df = pd.read_csv(file, index_col=None)
     
+    # replace all nan values with -1
+    df = df.replace(np.nan, -1)
+    
     # get all different sessions
     sessions = df['session'].unique()
     # get maximum number of trials per session
     max_trials = df.groupby('session').size().max()
 
-    xs = np.zeros((len(sessions), max_trials, 3)) - 1
-    ys = np.zeros((len(sessions), max_trials, 2)) - 1
+    # let actions begin from 0
+    choices = df['choice'].values
+    choice_min = np.nanmin(choices[choices != -1])
+    choices[choices != -1] = choices[choices != -1] - choice_min
+    df['choice'] = choices
     
-    choice_probs = np.zeros((len(sessions), max_trials, 2)) - 1
-    action_values = np.zeros((len(sessions), max_trials, 2)) - 1
-    reward_values = np.zeros((len(sessions), max_trials, 2)) - 1
-    choice_values = np.zeros((len(sessions), max_trials, 2)) - 1
+    # number of possible actions
+    n_actions = int(df['choice'].max() + 1)
+    
+    # normalize rewards
+    r_min = df['reward'].min()
+    r_max = df['reward'].max()
+    df['reward'] = (df['reward'] - r_min) / (r_max - r_min)
+    
+    xs = np.zeros((len(sessions), max_trials, n_actions + 1)) - 1
+    ys = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    
+    choice_probs = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    action_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    reward_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    choice_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
     
     experiment_list = []
     for i, s in enumerate(sessions):
-        choice = np.eye(2)[df[df['session'] == s]['choice'].values.astype(int)]
+        choice = np.eye(n_actions)[df[df['session'] == s]['choice'].values.astype(int)]
         reward = df[df['session'] == s]['reward'].values
         xs[i, :len(choice), :-1] = choice
         xs[i, :len(choice), -1] = reward
         ys[i, :len(choice)-1] = choice[1:]
-                
+
         experiment = BanditSession(
             choices=df[df['session'] == s]['choice'].values,
             rewards=reward,

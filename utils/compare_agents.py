@@ -73,7 +73,7 @@ fig, axs = plt.subplots(7, 1, figsize=(20, 10))
 reward_probs = np.stack([trajectory.reward_probabilities[:, i] for i in range(agent1._n_actions)], axis=0)
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=reward_probs,
     timeseries_name='Reward Probs',
@@ -85,7 +85,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=probs[:, :, 0],
     timeseries_name='Choice Probs',
@@ -97,7 +97,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=Qs[:, :, 0],
     timeseries_name='Q Arm 0',
@@ -108,7 +108,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=qs[:, :, 0],
     timeseries_name='q Arm 0',
@@ -119,7 +119,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=hs[:, :, 0],
     timeseries_name='h Arm 0',
@@ -130,7 +130,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=us[:, :, 0],
     timeseries_name='u Arm 0',
@@ -141,7 +141,7 @@ plot_session(
 
 plot_session(
     compare=True,
-    choices=choices,
+    chosen=choices,
     rewards=rewards,
     timeseries=bs[:, :, 0],
     timeseries_name='beta',

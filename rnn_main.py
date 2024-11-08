@@ -141,7 +141,8 @@ def main(
     
     # idx_train = int(0.95*len(dataset.xs))
     idx_train = -1
-    experiment_list_test = experiment_list_test[idx_train:]
+    # experiment_list_test = experiment_list_test[idx_train:]
+    experiment_list_test = [experiment_list_test[20]]
     xs_train, ys_train = dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
     xs_val, ys_val = dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
@@ -345,8 +346,8 @@ def main(
     qs = np.concatenate(list_qs, axis=0)
     hs = np.concatenate(list_hs, axis=0)
 
-    labels = ['Ground Truth', 'RNN'][:Qs.shape[0]]
-    colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
+    labels = ['Ground Truth', 'RNN'] if Qs.shape[0] == 2 else ['RNN']
+    colors = ['tab:blue', 'tab:orange'] if Qs.shape[0] == 2 else ['tab:orange']
     
     # normalize q-values
     def normalize(qs):
@@ -359,7 +360,7 @@ def main(
     reward_probs = np.stack([experiment.reward_probabilities[:, i] for i in range(n_actions)], axis=0)
     bandits.plot_session(
         compare=True,
-        choices=choices,
+        chosen=(choices==0).astype(int),
         rewards=rewards,
         timeseries=reward_probs,
         timeseries_name='p(R)',
@@ -371,7 +372,7 @@ def main(
 
     bandits.plot_session(
         compare=True,
-        choices=choices,
+        chosen=(choices==0).astype(int),
         rewards=rewards,
         timeseries=probs[:, :, 0],
         timeseries_name='p(A)',
@@ -383,7 +384,7 @@ def main(
 
     bandits.plot_session(
       compare=True,
-      choices=choices,
+      chosen=(choices==0).astype(int),
       rewards=rewards,
       timeseries=Qs[:, :, 0],
       timeseries_name='Q',
@@ -394,7 +395,7 @@ def main(
 
     bandits.plot_session(
         compare=True,
-        choices=choices,
+        chosen=(choices==0).astype(int),
         rewards=rewards,
         timeseries=qs[:, :, 0],
         timeseries_name='q',
@@ -405,7 +406,7 @@ def main(
 
     bandits.plot_session(
         compare=True,
-        choices=choices,
+        chosen=(choices==0).astype(int),
         rewards=rewards,
         timeseries=hs[:, :, 0],
         timeseries_name='a',
