@@ -46,9 +46,7 @@ def main(
     
     # environment parameters
     n_actions = 2,
-    sigma = .2,
-    non_binary_reward = False,
-    correlated_reward = False,
+    sigma = .1,
     
     analysis=False,
     ):
@@ -109,7 +107,7 @@ def main(
 
     if data is None:
         # set up ground truth agent and environment
-        environment = EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+        environment = EnvironmentBanditsDrift(sigma, n_actions)
         # environment = EnvironmentBanditsSwitch(sigma)
         agent = AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)
         if reward_prediction_error is not None:
@@ -214,7 +212,7 @@ def main(
             timeseries_name='$P(action)$',
             color=colors,
             labels=labels,
-            binary=not non_binary_reward,
+            binary=True,
             fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
             x_axis_info=False,
             y_axis_info=True,

@@ -29,7 +29,9 @@ for i in range(1):
         confirmation_bias=0.5,
         forget_rate=0.2,
         perseverance_bias=0.25,
-        parameter_variance=-1.,
+        parameter_variance=0.,
+        n_actions=4,
+        
         analysis=True,
     )
 

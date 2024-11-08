@@ -221,20 +221,18 @@ class AgentSindy:
       self._prev_choice = 0
       
       for action in range(self._n_actions):
-        chosen = 1 - np.abs(choice - action)
+        chosen = np.abs(choice - action) == 0
         
         # reward network
-        if chosen == 1:
+        if chosen:
           # current action was chosen
           if 'xLR' in self._models:
             learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward, 1-reward]).reshape(1, -1))[-1]
             reward_prediction_error = reward - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
-        
           if 'xC' in self._models:
             self._c[action] = self._models['xC'].predict(np.array([self._c[action]]), u=np.array([choice_repeat]).reshape(1, -1))[-1]
-
-        else:  # chosen == 0
+        else:
           # current action was not chosen
           if 'xQf' in self._models:
             self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
