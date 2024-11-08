@@ -143,7 +143,9 @@ class BaseRNN(nn.Module):
             # Concat(Activations) or Sum(Activations)
             # pass to hidden layer
             # get hidden state (linear layer + activation + dropout)
-            hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
+            hidden_state = getattr(self, key)[0](inputs).swapaxes(1, 2)
+            hidden_state = getattr(self, key)[1](hidden_state).swapaxes(1, 2)
+            hidden_state = getattr(self, key)[2:layer_hidden_state](hidden_state)
             # get output variable (rest of subnetwork)
             output = getattr(self, key)[layer_hidden_state:](hidden_state)
             return output, hidden_state
@@ -229,7 +231,7 @@ class RLRNN(BaseRNN):
         
         self._state = self.set_initial_state()
         
-    def value_network(self, state, value, action, reward):
+    def value_network(self, state: torch.Tensor, value: torch.Tensor, action: torch.Tensor, reward: torch.Tensor):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
         
         Args:
@@ -242,51 +244,53 @@ class RLRNN(BaseRNN):
             torch.Tensor: updated Q-Values
         """
         
+        # add dimension to value, action and reward
+        value = value.unsqueeze(-1)
+        action = action.unsqueeze(-1)
+        reward = reward.unsqueeze(-1).repeat((1, self._n_actions, 1))
+        
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
         next_value = torch.zeros_like(value) + value
-        eye = torch.eye(self._n_actions, device=self.device)
+            
+        # reward sub-network for chosen action
+        inputs = torch.concat([value, reward], dim=-1)
+        learning_rate, _ = self.call_subnetwork('xLR', inputs)
+        learning_rate = torch.nn.functional.sigmoid(learning_rate)
+        rpe = reward - value
+        update_chosen = learning_rate * rpe
+
+        # reward sub-network for non-chosen action
+        update_not_chosen, _ = self.call_subnetwork('xQf', value)
+        update_not_chosen = self._shrink(update_not_chosen)
         
-        for i in range(self._n_actions):
-            v = value[:, i].view(-1, 1)
-            
-            # reward sub-network for chosen action
-            inputs = torch.concat([v, reward], dim=-1)
-            learning_rate, learning_state = self.call_subnetwork('xLR', inputs)
-            learning_rate = torch.nn.functional.sigmoid(learning_rate)
-            rpe = reward - v
-            update_chosen = learning_rate * rpe
+        next_value += update_chosen * action + update_not_chosen * (1-action)
 
-            # reward sub-network for non-chosen action
-            update_not_chosen, state_not_chosen = self.call_subnetwork('xQf', v)
-            update_not_chosen = self._shrink(update_not_chosen)
-            
-            next_value += eye[i] * (update_chosen * action[:, i].view(-1, 1) + update_not_chosen * (1-action[:, i].view(-1, 1)))
-
-        return next_value, learning_rate, torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
+        return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
     def choice_network(self, state, value, action, repeated):
         
+        # add dimension to value, action and repeated
+        value = value.unsqueeze(-1)
+        action = action.unsqueeze(-1)
+        repeated = repeated.unsqueeze(-1).repeat((1, self._n_actions, 1))
+        
         next_state = torch.zeros((state.shape[0], state.shape[-1]), device=self.device)
         next_value = torch.zeros_like(value)# + value
-        eye = torch.eye(self._n_actions, device=self.device)
         
-        for i in range(self._n_actions):
-            v = value[:, i].view(-1, 1)
-
-            # choice sub-network for chosen action
-            inputs = torch.concat([v, repeated], dim=-1)
-            update_chosen, state_update_chosen = self.call_subnetwork('xC', inputs)
-            update_chosen = self._tanh(self._shrink(update_chosen))
-            
-            # choice sub-network for non-chosen action
-            update_not_chosen, state_update_not_chosen = self.call_subnetwork('xCf', v)
-            update_not_chosen = self._tanh(self._shrink(update_not_chosen))
-            
-            next_state += state_update_chosen + state_update_not_chosen
-            next_value += eye[i] * (update_chosen * action[:, i].view(-1, 1) + update_not_chosen * (1-action[:, i].view(-1, 1)))
+        # choice sub-network for chosen action
+        inputs = torch.concat([value, repeated], dim=-1)
+        update_chosen, _ = self.call_subnetwork('xC', inputs)
+        update_chosen = self._tanh(self._shrink(update_chosen))
         
-        return next_value, next_state.unsqueeze(1)
+        # choice sub-network for non-chosen action
+        update_not_chosen, _ = self.call_subnetwork('xCf', value)
+        update_not_chosen = self._tanh(self._shrink(update_not_chosen))
+        
+        # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
+        next_value += update_chosen * action + update_not_chosen * (1-action)
+        
+        return next_value.squeeze(-1), next_state.unsqueeze(1)
     
     # @torch.jit.script_method
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None, batch_first=False):
@@ -322,7 +326,7 @@ class RLRNN(BaseRNN):
             for i in range(inputs.shape[1]):
                 action_oh[:, i, :] = torch.eye(self._n_actions, device=self.device)[action[:, i, 0].int()]
             action = action_oh
-            
+           
         if prev_state is not None:
             self.set_state(prev_state[0], prev_state[1], prev_state[2], prev_state[3], prev_state[4], prev_state[5])
         else:
