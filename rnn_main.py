@@ -67,8 +67,6 @@ def main(
   # environment parameters
   n_actions = 2,
   sigma = 0.1,
-  correlated_reward = False,
-  non_binary_reward = False,
 
   analysis: bool = False,
   ):
@@ -90,7 +88,7 @@ def main(
   
   if data is None:
     # setup
-    environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions, non_binary_reward=non_binary_reward, correlated_reward=correlated_reward)
+    environment = bandits.EnvironmentBanditsDrift(sigma, n_actions)
     # environment = bandits.EnvironmentBanditsSwitch(sigma)
     agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance)  
     agent_finetune = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)  
@@ -366,8 +364,8 @@ def main(
         timeseries=reward_probs,
         timeseries_name='p(R)',
         labels=[f'Arm {a}' for a in range(n_actions)],
-        color=['tab:purple', 'tab:cyan'],
-        binary=not non_binary_reward,
+        color=['tab:purple', 'tab:cyan', 'tab:olive', 'tab:brown'],
+        binary=True,
         fig_ax=(fig, axs[0]),
         )
 
@@ -379,7 +377,7 @@ def main(
         timeseries_name='p(A)',
         color=colors,
         labels=labels,
-        binary=not non_binary_reward,
+        binary=True,
         fig_ax=(fig, axs[1]),
         )
 

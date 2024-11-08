@@ -222,7 +222,7 @@ class RLRNN(BaseRNN):
         self.xCf = self.setup_subnetwork(1, hidden_size, dropout)
         
         # reward-blind subnetwork
-        self.xQf = self.setup_subnetwork(n_actions-1, hidden_size, dropout)
+        self.xQf = self.setup_subnetwork(1, hidden_size, dropout)
         
         # learning-rate subnetwork
         self.xLR = self.setup_subnetwork(2, hidden_size, dropout)

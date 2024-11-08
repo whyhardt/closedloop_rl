@@ -7,8 +7,8 @@ import rnn_main
 losses = []
 for i in range(1, 2):
     loss = rnn_main.main(
-        checkpoint=False,
-        epochs_train=512,
+        checkpoint=True,
+        epochs_train=0,
         # epochs_finetune=1024,
         
         # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
@@ -38,6 +38,7 @@ for i in range(1, 2):
         confirmation_bias=0.5,
         perseverance_bias=0.25,
         parameter_variance=0.,
+        n_actions=4,
         
         analysis=True,
     )
