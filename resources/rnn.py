@@ -274,12 +274,12 @@ class RLRNN(BaseRNN):
         for i in range(self._n_actions):
             v = value[:, i].view(-1, 1)
 
-            # action sub-network for chosen action
+            # choice sub-network for chosen action
             inputs = torch.concat([v, repeated], dim=-1)
             update_chosen, state_update_chosen = self.call_subnetwork('xC', inputs)
             update_chosen = self._tanh(self._shrink(update_chosen))
             
-            # action sub-network for non-chosen action
+            # choice sub-network for non-chosen action
             update_not_chosen, state_update_not_chosen = self.call_subnetwork('xCf', v)
             update_not_chosen = self._tanh(self._shrink(update_not_chosen))
             
