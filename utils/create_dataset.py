@@ -2,23 +2,24 @@ import sys, os
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn_utils import parameter_file_naming
 from resources.bandits import create_dataset, AgentQ, EnvironmentBanditsDrift, get_update_dynamics
 
 
-n_sessions = 1024
+n_sessions = 128
 n_trials_per_session = 256
 
 agent = AgentQ(
     beta=3.,
     alpha=0.25,
-    alpha_penalty=0.5,
-    confirmation_bias=0.5,
+    alpha_penalty=0.25,
+    confirmation_bias=0,
     forget_rate=0.2, 
     perseverance_bias=0.25, 
-    parameter_variance=-1,
+    parameter_variance=0,
     )
 
 environment = EnvironmentBanditsDrift(sigma=0.1)
@@ -29,10 +30,14 @@ dataset, experiment_list, parameter_list = create_dataset(
             n_trials_per_session=n_trials_per_session,
             n_sessions=n_sessions,
             sample_parameters=True,
+            verbose=False,
             )
 
 session, choice, reward, choice_prob_0, choice_prob_1, action_value_0, action_value_1, reward_value_0, reward_value_1, choice_value_0, choice_value_1, beta, alpha, alpha_penalty, confirmation_bias, forget_rate, perseverance_bias, mean_beta, mean_alpha, mean_alpha_penalty, mean_confirmation_bias, mean_forget_rate, mean_perseverance_bias = [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
-for i, experiment in enumerate(experiment_list):
+# for i, experiment in enumerate(experiment_list):
+for i in range(len(experiment_list)):
+    experiment = experiment_list[i]
+    
     # get update dynamics
     qs, choice_probs, _ = get_update_dynamics(experiment, agent)
     
@@ -73,3 +78,4 @@ df = pd.DataFrame(data=data, columns=columns)
 
 dataset_name = parameter_file_naming('data/data', np.round(agent._mean_alpha, 2), np.round(agent._mean_beta, 2), np.round(agent._mean_forget_rate, 2), np.round(agent._mean_perseverance_bias, 2), np.round(agent._mean_alpha_penalty, 2), np.round(agent._mean_confirmation_bias, 2), np.round(agent._parameter_variance, 2)).replace('.pkl','.csv')
 df.to_csv(dataset_name, index=False)
+print(f'Data saved to {dataset_name}')

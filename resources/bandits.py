@@ -124,8 +124,8 @@ class AgentQ:
         # sanity checks
         # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
         #     with max_confirmation = (q-q0)(r-q0) = +/- 0.25
-        max_learning_rate = self._alpha + self._confirmation_bias*0.25 < 1 and self._alpha_penalty + self._confirmation_bias*0.25 < 1
-        min_learning_rate = self._alpha + self._confirmation_bias*-0.25 > 0 and self._alpha_penalty + self._confirmation_bias*-0.25 > 0 
+        max_learning_rate = self._alpha + self._confirmation_bias*0.25 <= 1 and self._alpha_penalty + self._confirmation_bias*0.25 <= 1
+        min_learning_rate = self._alpha + self._confirmation_bias*-0.25 >= 0 and self._alpha_penalty + self._confirmation_bias*-0.25 >= 0 
         sanity = max_learning_rate and min_learning_rate
       
   def get_choice_probs(self) -> np.ndarray:
@@ -674,6 +674,7 @@ def create_dataset(
   stride: int = 1,
   sample_parameters: bool = False,
   device=torch.device('cpu'),
+  verbose=False,
   ) -> tuple[DatasetRNN, list[BanditSession], list[dict[str, float]]]:
   """Generates a behavioral dataset from a given agent and environment.
 
@@ -690,12 +691,15 @@ def create_dataset(
     A torch.utils.data.Dataset object suitable for training the RNN object.
     An experliment_list with the results of (simulated) experiments
   """
+  
   xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 1))
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
   parameter_list = []
 
   for session in range(n_sessions):
+    if verbose:
+      print(f'Running session {session+1}/{n_sessions}...')
     agent.new_sess(sample_parameters=sample_parameters)
     experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
     experiment_list.append(experiment)
