@@ -42,19 +42,20 @@ def rl_model(choice: jnp.array, reward: jnp.array):
 
     for t in range(choice.shape[1]-1):
         ch = choice[:, t]
+        ch_int = choice[:, t].astype(int)
         rw = reward[:, t]
         next_ch = choice[:, t+1]
         # mask = next_ch >= 0
         
         # Compute prediction errors for each outcome
-        pe = rw - q_values[jnp.arange(n_sessions), ch]
+        pe = rw - q_values[jnp.arange(n_sessions), ch_int]
         lr = jnp.where(rw == 1, alpha_pos, alpha_neg)
 
         # Update Q-values
-        q_values.at[jnp.arange(n_sessions), ch].add(lr * pe)
+        q_values.at[jnp.arange(n_sessions), ch_int].add(lr * pe)
 
         # Calculate action probabilities with perseverance effect
-        perseverance_effect = (ch == prev_choice) if t > 0 else jnp.zeros(n_sessions) # 1 if repeated choice, 0 otherwise
+        perseverance_effect = ch == prev_choice #if t > 0 else jnp.zeros(n_sessions) # 1 if repeated choice, 0 otherwise
         logits = beta * (q_values[:, 1] - q_values[:, 0] + pers * perseverance_effect)
         action_prob = jax.nn.sigmoid(logits)
 
@@ -74,20 +75,20 @@ sessions = data['session'].unique()
 # get maximum number of trials per session
 max_trials = data.groupby('session').size().max()
 # sort values into session-grouped arrays
-choices = jnp.zeros((len(sessions), max_trials), dtype=int) - 1
-rewards = jnp.zeros((len(sessions), max_trials)) - 1
+choices = np.zeros((len(sessions), max_trials)) - 1
+rewards = np.zeros((len(sessions), max_trials)) - 1
 for i, s in enumerate(sessions):
     choice = data[data['session'] == s]['choice'].values.astype(int)
     reward = data[data['session'] == s]['reward'].values
-    choices.at[i, :len(choice)].set(choice)
-    rewards.at[i, :len(choice)].set(reward)
+    choices[i, :len(choice)] = (choice)
+    rewards[i, :len(choice)] = (reward)
 
 # Run the model
 kernel = infer.NUTS(rl_model)
 mcmc = infer.MCMC(kernel, num_warmup=500, num_samples=1000)
-mcmc.run(jax.random.PRNGKey(0), choice=choices, reward=rewards)
+mcmc.run(jax.random.PRNGKey(0), choice=jnp.array(choices), reward=jnp.array(rewards))
 samples = mcmc.get_samples()
-print(samples)
+# print(samples)
 
 # Convert to ArviZ InferenceData object
 inference_data = az.from_numpyro(mcmc)
