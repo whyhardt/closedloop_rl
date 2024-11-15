@@ -31,31 +31,32 @@ def rl_model(choice: torch.Tensor, reward: torch.Tensor):
     #     beta = pyro.sample("beta", dist.Normal(beta_mean, beta_std))
     
     # Basic bayesian inference (not hierarchical)
-    alpha_pos = pyro.sample("alpha_pos", dist.Uniform(0.2, 0.3))
-    alpha_neg = pyro.sample("alpha_neg", dist.Uniform(0.2, 0.3))
-    pers = pyro.sample("pers", dist.Uniform(0.2, 0.3))
-    beta = pyro.sample("beta", dist.Uniform(2.8, 3.2))
+    alpha_pos = pyro.sample("alpha_pos", dist.Uniform(0., 1.))
+    # alpha_neg = pyro.sample("alpha_neg", dist.Uniform(0.2, 0.3))
+    # pers = pyro.sample("pers", dist.Uniform(0.2, 0.3))
+    beta = pyro.sample("beta", dist.Uniform(0., 10.))
 
     # Define initial Q-values and initialize the previous choice variable
-    q_values = torch.zeros((n_sessions, 2)) + 0.5
+    q_values = torch.tensor((0.5, 0.5))
     prev_choice = torch.zeros(n_sessions)  # stores the previous choice (0 or 1) for each participant
 
     for t in range(choice.shape[1]-1):
-        ch = choice[:, t].to(int)
+        ch = choice[:, t]
         rw = reward[:, t]
-        next_ch = choice[:, t+1]
+        next_ch = choice[:, t+1, 1]
         # mask = next_ch >= 0
         
         # Compute prediction errors for each outcome
-        pe = rw - q_values[torch.arange(n_sessions), ch]
-        lr = torch.where(rw == 1, alpha_pos, alpha_neg)
+        pe = (rw - q_values) * ch
+        # lr = torch.where(rw == 1, alpha_pos, alpha_neg)
 
         # Update Q-values
-        q_values[torch.arange(n_sessions), ch] = q_values[torch.arange(n_sessions), ch] + lr * pe
+        # q_values[torch.arange(n_sessions), ch] = q_values[torch.arange(n_sessions), ch] + alpha_pos * pe
+        q_values = q_values + alpha_pos * pe
 
         # Calculate action probabilities with perseverance effect
-        perseverance_effect = (ch == prev_choice) if t > 0 else torch.zeros(n_sessions) # 1 if repeated choice, 0 otherwise
-        logits = beta * (q_values[:, 1] - q_values[:, 0] + pers * perseverance_effect)
+        # perseverance_effect = (ch == prev_choice) if t > 0 else torch.zeros(n_sessions) # 1 if repeated choice, 0 otherwise
+        logits = beta * (q_values[:, 1] - q_values[:, 0]) #+ pers * perseverance_effect)
         action_prob = torch.nn.functional.sigmoid(logits)
 
         # Likelihood of observed choices
@@ -64,23 +65,23 @@ def rl_model(choice: torch.Tensor, reward: torch.Tensor):
         pyro.sample(f"obs_{t}", dist.Bernoulli(probs=action_prob), obs=next_ch)
         
         # Update prev_choice to current choice for the next time step
-        prev_choice = ch
+        # prev_choice = ch
 
 
 # Prepare the data
-data = pd.read_csv("data/data_rnn_a025_b30_f02_p025_ap025.csv")
+data = pd.read_csv("data/data_rnn_a025_b30_ap025.csv")
 # get all different sessions
 sessions = data['session'].unique()
 # get maximum number of trials per session
 max_trials = data.groupby('session').size().max()
 # sort values into session-grouped arrays
-choices = torch.zeros((len(sessions), max_trials)) - 1
-rewards = torch.zeros((len(sessions), max_trials)) - 1
+choices = torch.zeros((len(sessions), max_trials, 2)) - 1
+rewards = torch.zeros((len(sessions), max_trials, 1)) - 1
 for i, s in enumerate(sessions):
-    choice = torch.tensor(data[data['session'] == s]['choice'].values)
+    choice = torch.tensor(data[data['session'] == s]['choice'].values, dtype=int)
     reward = torch.tensor(data[data['session'] == s]['reward'].values)
-    choices[i, :len(choice)] = choice
-    rewards[i, :len(choice)] = reward
+    choices[i, :len(choice)] = torch.eye(2)[choice]
+    rewards[i, :len(choice), 0] = reward
 
 # Run the model
 kernel = infer.NUTS(rl_model)
@@ -93,4 +94,6 @@ print(samples)
 inference_data = az.from_pyro(mcmc)
 
 # Plot posterior distributions
-az.plot_posterior(inference_data)
+az.plot_trace(inference_data)
+import matplotlib.pyplot as plt
+plt.show()

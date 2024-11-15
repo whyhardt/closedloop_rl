@@ -15,11 +15,11 @@ n_trials_per_session = 256
 agent = AgentQ(
     beta=3.,
     alpha=0.25,
-    alpha_penalty=0.25,
-    confirmation_bias=0,
-    forget_rate=0.2, 
-    perseverance_bias=0.25, 
-    parameter_variance=0,
+    alpha_penalty=-1,
+    confirmation_bias=0.,
+    forget_rate=0., 
+    perseverance_bias=0., 
+    parameter_variance=0.,
     )
 
 environment = EnvironmentBanditsDrift(sigma=0.1)
