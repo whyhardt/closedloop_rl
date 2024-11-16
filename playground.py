@@ -1,12 +1,5 @@
-import torch
+import arviz as az
 
-state_dict = torch.load('params/benchmarking/sugawara2021_143_1.pkl')
+idata = az.from_netcdf('traces.nc')
 
-new_state_dict = {k.replace('xH', 'xC'): v for k, v in state_dict.items()}
-
-print(new_state_dict)
-
-new_state_dict = {'model': new_state_dict,
-                  'optimizer': None}
-
-torch.save(new_state_dict, 'params/benchmarking/sugawara2021_143_1.pkl')
+print(az.summary(idata))
