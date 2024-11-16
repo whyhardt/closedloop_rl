@@ -8,90 +8,68 @@ import pandas as pd
 import arviz as az
     
 
-def rl_model(choice: jnp.array, reward: jnp.array, steps: jnp.array):
-    n_sessions = choice.shape[0]
+def rl_model(choice: jnp.array, reward: jnp.array):
     
     # # Priors for group-level parameters
-    # alpha_pos_mean = pyro.sample("alpha_pos_mean", dist.Normal(0, 1))
-    # alpha_neg_mean = pyro.sample("alpha_neg_mean", dist.Normal(0, 1))
-    # pers_mean = pyro.sample("pers_mean", dist.Normal(0, 1))
-    # beta_mean = pyro.sample("beta_mean", dist.HalfNormal(1))
+    # alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Normal(0, 1))
+    # alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Normal(0, 1))
+    # pers_mean = numpyro.sample("pers_mean", dist.Normal(0, 1))
+    # beta_mean = numpyro.sample("beta_mean", dist.HalfNormal(1))
     
     # # Priors for individual-level variation (hierarchical)
-    # alpha_pos_std = pyro.sample("alpha_pos_std", dist.HalfNormal(1))
-    # alpha_neg_std = pyro.sample("alpha_neg_std", dist.HalfNormal(1))
-    # pers_std = pyro.sample("pers_std", dist.HalfNormal(1))
-    # beta_std = pyro.sample("beta_std", dist.HalfNormal(1))
+    # alpha_pos_std = numpyro.sample("alpha_pos_std", dist.HalfNormal(1))
+    # alpha_neg_std = numpyro.sample("alpha_neg_std", dist.HalfNormal(1))
+    # pers_std = numpyro.sample("pers_std", dist.HalfNormal(1))
+    # beta_std = numpyro.sample("beta_std", dist.HalfNormal(1))
     
     # # Individual-level parameters
-    # with pyro.plate("participants", 1):  # n_sessions
-    #     alpha_pos = pyro.sample("alpha_pos", dist.Normal(alpha_pos_mean, alpha_pos_std))
-    #     alpha_neg = pyro.sample("alpha_neg", dist.Normal(alpha_neg_mean, alpha_neg_std))
-    #     pers = pyro.sample("pers", dist.Normal(pers_mean, pers_std))
-    #     beta = pyro.sample("beta", dist.Normal(beta_mean, beta_std))
+    # with numpyro.plate("participants", choice.shape[1]):
+    #     alpha_pos = numpyro.sample("alpha_pos", dist.Normal(alpha_pos_mean, alpha_pos_std))
+    #     alpha_neg = numpyro.sample("alpha_neg", dist.Normal(alpha_neg_mean, alpha_neg_std))
+    #     pers = numpyro.sample("pers", dist.Normal(pers_mean, pers_std))
+    #     beta = numpyro.sample("beta", dist.Normal(beta_mean, beta_std))
     
     # Basic bayesian inference (not hierarchical)
     alpha_pos = numpyro.sample("alpha_pos", dist.Uniform(0., 1.))
-    # alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.))
-    # pers = numpyro.sample("pers", dist.Uniform(0., 1.))
+    alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.))
+    pers = numpyro.sample("pers", dist.Uniform(0., 1.))
     beta = numpyro.sample("beta", dist.Uniform(0., 10.))
 
-    # Define initial Q-values and initialize the previous choice variable
-    q_values = jnp.array(((0.5, 0.5))).repeat((choice.shape[1]), axis=0)
+    def get_action_prob(q_values, pers_value):
+        return jax.nn.sigmoid(beta * (q_values[:, 1] - q_values[:, 0] + pers_value))
     
-    # prev_choice = jnp.zeros(n_sessions)  # stores the previous choice (0 or 1) for each participant
-
-    def update(q_values, x):
-        ch, rw, next_ch, t = x[:, :2], x[:, 2], x[:, 3:5], x[:, 5]
+    def get_pers_value(choice):
+        return pers * (choice[:, 1] == 1)
+    
+    def update(carry, x):
+        q_values = carry[:, :2]
+        ch, rw = x[:, :2], x[:, 2]
         rw = rw.reshape(-1, 1)
-        t = t[0]
-        
-        print(ch.shape)
-        print(rw.shape)
-        print(next_ch.shape)
-        print(t.shape)
         
         # Compute prediction errors for each outcome
+        lr = jnp.where(rw > 0.5, alpha_pos, alpha_neg)
         pe = (rw - q_values) * ch
         
         # Update Q-values
-        q_values = q_values + alpha_pos * pe
+        q_values = q_values + lr * pe
         
-        logits = beta * (q_values[:, 1] - q_values[:, 0])
-        action_prob = jax.nn.sigmoid(logits)
+        # compute action probabilities
+        action_prob = get_action_prob(q_values, get_pers_value(ch)).reshape(-1, 1)
         
-        numpyro.sample(f"obs_{t}", dist.Bernoulli(probs=action_prob), obs=next_ch)
-        
-        return q_values, q_values
+        y = jnp.concatenate((q_values, action_prob), axis=-1)
+        return y, y
     
-    xs = jnp.concatenate((choice[:-1], reward[:-1], choice[1:], steps[:-1]), axis=-1)
-    jax.lax.scan(update, q_values, xs)
+    # Define initial Q-values and initialize the previous choice variable
+    q_values = jnp.array((0.5, 0.5)).reshape(1, -1).repeat(choice.shape[1], axis=0)
+    carry = jnp.concatenate((q_values, get_action_prob(q_values, get_pers_value(choice[0, :])).reshape(-1, 1)), axis=-1)
+    xs = jnp.concatenate((choice[:-1], reward[:-1], choice[1:]), axis=-1)
+    _, ys = jax.lax.scan(update, carry, xs)
     
-    # for t in range(choice.shape[1]-1):
-    #     ch = choice[:, t]
-    #     rw = reward[:, t]
-    #     next_ch = choice[:, t+1, 1]
-    #     # mask = next_ch >= 0
-        
-    #     # Compute prediction errors for each outcome
-    #     pe = (rw - q_values) * ch
-    #     # lr = jnp.where(rw == 1, alpha_pos, alpha_neg)
-
-    #     # Update Q-values
-    #     q_values = q_values + alpha_pos * pe
-
-    #     # Calculate action probabilities with perseverance effect
-    #     # perseverance_effect = ch == prev_choice if t > 0 else jnp.zeros(n_sessions) # 1 if repeated choice, 0 otherwise
-    #     logits = beta * (q_values[:, 1] - q_values[:, 0])# + pers * perseverance_effect)
-    #     action_prob = jax.nn.sigmoid(logits)
-
-    #     # Likelihood of observed choices
-    #     # with pyro.handlers.mask(mask=mask):
-    #     #     pyro.sample(f"obs_{t}", dist.Bernoulli(probs=action_prob), obs=mask * next_ch)
-    #     numpyro.sample(f"obs_{t}", dist.Bernoulli(probs=action_prob), obs=next_ch)
-        
-    #     # Update prev_choice to current choice for the next time step
-    #     # prev_choice = ch
+    # Use numpyro.plate for sampling
+    next_choices = choice[1:, :, -1]
+    action_probs = ys[:, :, -1]
+    with numpyro.plate("time_steps", xs.shape[0] * xs.shape[1]):
+        numpyro.sample("obs", dist.Bernoulli(probs=action_probs.flatten()), obs=next_choices.flatten())
 
 
 # Prepare the data
@@ -108,12 +86,11 @@ for i, s in enumerate(sessions):
     reward = data[data['session'] == s]['reward'].values
     choices[i, :len(choice)] = np.eye(2)[choice]
     rewards[i, :len(choice), 0] = reward
-steps = np.arange(len(choice)).reshape(-1, 1, 1).repeat(i+1, axis=1)
 
 # Run the model
 kernel = infer.NUTS(rl_model)
 mcmc = infer.MCMC(kernel, num_warmup=500, num_samples=1000, num_chains=1)
-mcmc.run(jax.random.PRNGKey(0), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), steps=jnp.array(steps))
+mcmc.run(jax.random.PRNGKey(0), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)))
 samples = mcmc.get_samples()
 # print(samples)
 
