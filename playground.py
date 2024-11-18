@@ -1,7 +1,5 @@
-import numpy as np
+import arviz as az
 
-losses = [0.5980473043930591, 0.5964810548715256, 0.5974744480458936, 0.5979135407874333, 0.5974515982009657, 0.5944620640433613, 0.5973375023309909, 0.5964690932077379]
-losses = np.array(losses)
+idata = az.from_netcdf('traces.nc')
 
-print(np.mean(losses))
-print(np.std(losses))
+print(az.summary(idata))

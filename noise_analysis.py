@@ -33,7 +33,7 @@ def main(
     # ground truth parameters
     alpha = 0.25
     forget_rate = 0.1
-    perseveration_bias = 0.25
+    perseverance_bias = 0.25
     regret = True
 
     # dataset parameters
@@ -51,7 +51,7 @@ def main(
     feature_xQr_p = ['C_xQr_p', 'xQr_p', 'cdQr_p[k-1]', 'cdQr_p[k-2]']
     coeffs_xQr_p = [0, 1-alpha*2, 0, 0]
     feature_xH = ['C_xH', 'xH']
-    coeffs_xH = [perseveration_bias, 1]
+    coeffs_xH = [perseverance_bias, 1]
     features_data = ['beta', 'n_submodels', 'loss'] + ['beta_approx'] + feature_xQf + feature_xQr_r + feature_xQr_p + feature_xH
     coeffs_ground_truth = [np.array([0, 0, 0, 0] + coeffs_xQf + coeffs_xQr_r + coeffs_xQr_p + coeffs_xH)]
 
@@ -61,7 +61,7 @@ def main(
     for b in betas:
         # setup of datasets
         environment = bandits.EnvironmentBanditsDrift(sigma=sigma, n_actions=n_actions)
-        agent = bandits.AgentQ(alpha, b, n_actions, forget_rate, perseveration_bias, False, regret)  
+        agent = bandits.AgentQ(alpha, b, n_actions, forget_rate, perseverance_bias, False, regret)  
         print('Setup of the environment and agent complete.')
 
         print('Creating the training dataset...', end='\r')
@@ -92,7 +92,7 @@ def main(
             for i in range(iterations):
                 loss_test = rnn_main(
                     n_submodels=n,
-                    epochs=epochs,
+                    epochs_train=epochs,
                     bagging=True,
                     ensemble=ensembleTypes.AVERAGE,
                     evolution_interval=None,
@@ -108,7 +108,7 @@ def main(
                     alpha=alpha,
                     beta=b,
                     forget_rate=forget_rate,
-                    perseveration_bias=perseveration_bias,
+                    perseverance_bias=perseverance_bias,
                     alpha_penalty=regret,
                     )
 
@@ -116,7 +116,7 @@ def main(
                     alpha = alpha,
                     beta = b,
                     forget_rate = forget_rate,
-                    perseveration_bias = perseveration_bias,
+                    perseverance_bias = perseverance_bias,
                     alpha_penalty = regret,
                 )
 

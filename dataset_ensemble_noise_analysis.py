@@ -24,12 +24,12 @@ if __name__ == '__main__':
         model = model,
 
         # training parameters
-        epochs = 1024,
+        epochs_train = 1024,
         n_trials_per_session = 64,
         n_sessions = n_sessions,
         n_steps_per_call = 8,
         bagging = True,
-        learning_rate = 1e-2,
+        lr_train = 1e-2,
 
         # ensemble parameters
         n_submodels = n_submodels,
@@ -43,7 +43,7 @@ if __name__ == '__main__':
         alpha = 0.25,
         beta = beta,
         forget_rate = 0.2,
-        perseveration_bias = 0.25,
+        perseverance_bias = 0.25,
         alpha_penalty = True,
         confirmation_bias = True,
         # reward_update_rule = lambda q, reward: reward-q,

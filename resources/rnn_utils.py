@@ -9,7 +9,8 @@ class DatasetRNN(Dataset):
     def __init__(
         self, 
         xs: torch.Tensor, 
-        ys: torch.Tensor, 
+        ys: torch.Tensor,
+        normalize_features: tuple[int] = None, 
         sequence_length: int = None,
         stride: int = 1,
         device=None,
@@ -32,12 +33,18 @@ class DatasetRNN(Dataset):
             xs = torch.tensor(xs, dtype=torch.float32)
         if not isinstance(ys, torch.Tensor):
             ys = torch.tensor(ys, dtype=torch.float32)
-            
+        
         # check dimensions of xs and ys
         if len(xs.shape) == 2:
             xs = xs.unsqueeze(0)
         if len(ys.shape) == 2:
             ys = ys.unsqueeze(0)
+            
+        if normalize_features is not None:
+            if isinstance(normalize_features, int):
+                normalize_features = tuple(normalize_features)
+            for feature in normalize_features:
+                xs[:, :, feature] = self.normalize(xs[:, :, feature])
         
         # normalize data
         # x_std = xs.std(dim=(0, 1))
@@ -53,6 +60,11 @@ class DatasetRNN(Dataset):
         self.device = device
         self.xs = xs
         self.ys = ys
+        
+    def normalize(self, data):
+        x_min = torch.min(data)
+        x_max = torch.max(data)
+        return (data - x_min) / (x_max - x_min)
         
     def set_sequences(self, xs, ys):
         # sets sequences of length sequence_length with specified stride from the dataset
@@ -95,13 +107,10 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, verbose=False):
+def parameter_file_naming(params_path, gen_alpha, gen_beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, variance, verbose=False):
     # create name for corresponding rnn
   
-    if use_lstm:
-        params_path += '_lstm'
-    else:
-        params_path += '_rnn'
+    params_path += '_rnn'
     
     if gen_alpha > 0:
         params_path += f'_a' + str(gen_alpha).replace('.', '')
@@ -119,6 +128,9 @@ def parameter_file_naming(params_path, use_lstm, gen_alpha, gen_beta, forget_rat
         
     if confirmation_bias > 0:
         params_path += '_cb' + str(confirmation_bias).replace('.', '')
+        
+    if variance != 0:
+        params_path += '_var' + str(variance).replace('.', '').replace('-1','Mean')
         
     # if non_binary_reward:
     #     params_path += '_nonbinary'
