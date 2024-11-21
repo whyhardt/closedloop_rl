@@ -18,8 +18,9 @@ from utils import convert_dataset
 
 def main(
   checkpoint = False,
-  model = None,
-  data = None,
+  model: str = None,
+  data: str = None,
+  file_out_finetuning: str = None,
 
   # rnn parameters
   hidden_size = 8,
@@ -86,7 +87,8 @@ def main(
   elif init_population < n_submodels:
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
   
-  if data is None:
+  update_dynamics = -1
+  if data is None and dataset_train is None:
     # setup
     environment = bandits.EnvironmentBanditsDrift(sigma, n_actions)
     # environment = bandits.EnvironmentBanditsSwitch(sigma)
@@ -134,7 +136,7 @@ def main(
           device=device)
     
     print('Setup of datasets complete.')
-  else:
+  elif data is not None and dataset_train is None:
     dataset, experiment_list_test, df, update_dynamics = convert_dataset.convert_dataset(data)
     indexes_dataset = np.arange(len(dataset.xs))
     # np.random.shuffle(indexes_dataset)
@@ -158,7 +160,9 @@ def main(
       confirmation_bias = df['confirmation_bias'].values[idx_train]
       forget_rate = df['forget_rate'].values[idx_train]
       perseverance_bias = df['perseverance_bias'].values[idx_train]
-    
+  else:
+    dataset_val = dataset_train
+  
   if model is None:
     params_path = rnn_utils.parameter_file_naming('params/params',alpha,beta,forget_rate,perseverance_bias,alpha_penalty,confirmation_bias,parameter_variance,verbose=True)
   else:
@@ -236,16 +240,17 @@ def main(
       optimizer_rnn = optimizer_rnn[0]
   
   # validate model
-  print('\nTesting the trained RNN on the test dataset...')
-  model.eval()
-  with torch.no_grad():
-    _, _, loss_test = rnn_training.fit_model(
-        model=model,
-        dataset_train=dataset_test,
-    )
+  if dataset_test is not None:
+    print('\nTesting the trained RNN on the test dataset...')
+    model.eval()
+    with torch.no_grad():
+      _, _, loss_test = rnn_training.fit_model(
+          model=model,
+          dataset_train=dataset_test,
+      )
   
   # Finetune the RNN with individual data
-  if epochs_finetune > 0:
+  if dataset_val is not None and epochs_finetune > 0:
     start_time = time.time()
     print('Finetuning the RNN...')
     for subnetwork in x_train_list:
@@ -254,7 +259,6 @@ def main(
     model, optimizer_fine, _ = rnn_training.fit_model(
         model=[model],
         dataset_train=dataset_val,
-        # dataset_test=dataset_test,
         optimizer=optimizer_fine,
         convergence_threshold=convergence_threshold,
         epochs=epochs_finetune,
@@ -273,35 +277,31 @@ def main(
     state_dict = {
       'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
       'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
-      'groundtruth': {
-        'alpha': alpha,
-        'beta': beta,
-        'forget_rate': forget_rate,
-        'perseverance_bias': perseverance_bias,
-        'alpha_penalty': alpha_penalty,
-        'confirmation_bias': confirmation_bias,
-      },
     }
     print('Finetuning finished.')
     print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
-    torch.save(state_dict, params_path.replace('_rnn_', '_rnn_finetuned_'))
-    print(f'Saved RNN parameters to file {params_path}.')
+    if file_out_finetuning is None:
+      file_out_finetuning = params_path.replace('_rnn_', '_rnn_finetuned_')
+    torch.save(state_dict, file_out_finetuning)
+    print(f'Saved RNN parameters to file {file_out_finetuning}.')
     print(f'Finetuning took {time.time() - start_time:.2f} seconds.')
-  
+    
     # validate model
-    print('\nTesting the finetuned RNN on the finetune dataset...')
-    model.eval()
-    with torch.no_grad():
-      _, _, loss_test = rnn_training.fit_model(
-          model=model,
-          dataset_train=dataset_test,
-      )
+    if dataset_test is not None:
+      print('\nTesting the finetuned RNN on the finetune dataset...')
+      model.eval()
+      with torch.no_grad():
+        _, _, loss_test = rnn_training.fit_model(
+            model=model,
+            dataset_train=dataset_test,
+        )
   
   # -----------------------------------------------------------
   # Analysis
   # -----------------------------------------------------------
   
   if analysis:
+    print(f'Betas of model: {(model._beta_reward.item(), model._beta_choice.item())}')
     # Synthesize a dataset using the fitted network
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
     model.set_device(torch.device('cpu'))
@@ -417,7 +417,7 @@ def main(
 
     plt.show()
         
-  return loss_test
+  return model, loss_test
 
 
 if __name__=='__main__':
