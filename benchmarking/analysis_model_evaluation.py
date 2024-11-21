@@ -6,29 +6,25 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.model_evaluation import akaike_information_criterion, bayesian_information_criterion, log_likelihood
 from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_custom_q_agent
-from utils.convert_dataset import to_datasetrnn
+from utils.convert_dataset import convert_dataset
 from resources.bandits import AgentQ, get_update_dynamics
 
 
 data = 'data/sugawara2021_143_processed.csv'
 
-model_rnn = 'params/benchmarking/sugawara2021_143_1.pkl'
+model_rnn = 'params/benchmarking/sugawara2021_143_3.pkl'
 model_benchmark = None
-
 
 # setup rnn agent for comparison
 agent_rnn = setup_agent_rnn(model_rnn)
 n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad)
 
-
 # setup sindy agent and get number of sindy coefficients which are not 0
 agent_sindy = setup_agent_sindy(model_rnn, data)
 n_parameters = agent_sindy._count_sindy_parameters(without_self=True)
 
-
 # setup random, dummy AgentQ model (as quasi-baseline)
 agent_rl = AgentQ()
-
 
 # setup optimized AgentQ from paper (parameters from paper/supplementary/table-S3)
 # agent_rl_bm = AgentQ(alpha=0.36, beta=0.32)
@@ -69,9 +65,8 @@ def get_choice_probs(Q, C):
 
 agent_benchmark = setup_custom_q_agent(update_rule, get_choice_probs)
 
-
 # load data
-_, experiment_list = to_datasetrnn(data)
+_, experiment_list, _, _ = convert_dataset(data)
 
 def get_scores(agent, n_parameters) -> float:
     aic = 0

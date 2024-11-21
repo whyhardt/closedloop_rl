@@ -138,13 +138,13 @@ def create_dataset(
         if isinstance(agent._model, EnsembleRNN):
           history = history[-1]
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
-        # check if dv/dt > tol; otherwise set v(t=1) = v(t=0)
+        # high-pass: check if dv/dt > threshold; otherwise set v(t=1) = v(t=0)
         dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
         for i_action in range(values.shape[-1]):
           values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-2, values[:, 1, i_action], values[:, 0, i_action])
         values = np.round(values, 2)
         if values.shape[-1] == 1:
-            values = np.repeat(values, 2, -1)
+            values = np.repeat(values, agent._n_actions, -1)
         if key in keys_x:
           # add values of interest of one session as trajectory
           for i_action in range(agent._n_actions):
