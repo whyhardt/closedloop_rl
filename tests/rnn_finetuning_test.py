@@ -7,4 +7,4 @@ from benchmarking.finetuning_rnn import main
 model = 'params/benchmarking/rnn_sugawara2021_143_1.pkl'
 data = 'data/sugawara2021_143_processed.csv'
 
-main(model, data, -1, max_iterations=8)
+main(model, data, -1)

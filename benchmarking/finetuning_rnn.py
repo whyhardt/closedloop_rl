@@ -34,7 +34,7 @@ def main(model, data, index: int = None, max_iterations: int = None):
             checkpoint=True,
             dataset_train=data_session,
             epochs_train=0,
-            epochs_finetune=512,
+            epochs_finetune=256,
             dropout=0.1,
             lr_finetune=1e-4,
             )
