@@ -6,7 +6,7 @@ def log_likelihood(data, probs):
     # probs: array of predicted probabilities for outcome 1
     
     # Compute log-likelihood for each data point
-    log_likelihood = data * np.log(probs) + (1 - data) * np.log(1 - probs)
+    log_likelihood = np.log(probs[:, data]) #+ np.log(1 - probs[:, 1 - data])
     
     # Sum over all data points and negate the result
     return np.sum(log_likelihood)

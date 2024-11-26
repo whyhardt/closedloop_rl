@@ -145,10 +145,10 @@ def main(
     idx_train = -1
     # experiment_list_test = experiment_list_test[idx_train:]
     experiment_list_test = [experiment_list_test[20]]
-    xs_train, ys_train = dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
+    xs_train, ys_train = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
     xs_val, ys_val = dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
-    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
+    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train, sequence_length=n_steps_per_call)
     dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val, sequence_length=64)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
@@ -427,17 +427,19 @@ if __name__=='__main__':
   # Training parameters
   parser.add_argument('--checkpoint', action='store_true', help='Whether to load a checkpoint')
   parser.add_argument('--model', type=str, default=None, help='Model name to load from and/or save to parameters of RNN')
-  parser.add_argument('--epochs', type=int, default=128, help='Number of epochs for training')
+  parser.add_argument('--data', type=str, default=None, help='Path to dataset')
+  parser.add_argument('--n_actions', type=int, default=2, help='Number of possible actions')
+  parser.add_argument('--epochs_train', type=int, default=128, help='Number of epochs for training')
   parser.add_argument('--n_trials_per_session', type=int, default=64, help='Number of trials per session')
   parser.add_argument('--n_sessions', type=int, default=4096, help='Number of sessions')
   parser.add_argument('--n_steps_per_call', type=int, default=8, help='Number of steps per call')
   parser.add_argument('--bagging', action='store_true', help='Whether to use bagging')
-  parser.add_argument('--n_oversampling', type=int, default=-1, help='Number of oversampling iterations')
-  parser.add_argument('--batch_size', type=int, default=-1, help='Batch size')
-  parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate of the RNN')
+  parser.add_argument('--n_oversampling_train', type=int, default=-1, help='Number of oversampling iterations')
+  parser.add_argument('--batch_size_train', type=int, default=-1, help='Batch size')
+  parser.add_argument('--lr_train', type=float, default=0.01, help='Learning rate of the RNN')
 
   # Ensemble parameters
-  parser.add_argument('--n_submodels', type=int, default=8, help='Number of submodels in the ensemble')
+  parser.add_argument('--n_submodels', type=int, default=1, help='Number of submodels in the ensemble')
   parser.add_argument('--ensemble', type=int, default=1, help='Defines the type of ensembling. Options -- -1: take the best model; 0: let the submodels vote (median); 1: average the parameters after each epoch (recommended)')
 
   # RNN parameters
@@ -466,16 +468,18 @@ if __name__=='__main__':
     checkpoint = args.checkpoint,
     # model = 'params/params_rnn_a025_b3_cb.pkl',
     model = args.model,
+    data = args.data,
+    n_actions=args.n_actions,
 
     # training parameters
-    epochs_train=args.epochs,
+    epochs_train=args.epochs_train,
     n_trials_per_session = args.n_trials_per_session,
     n_sessions = args.n_sessions,
     n_steps_per_call = args.n_steps_per_call,
     bagging = args.bagging,
-    n_oversampling_train=args.n_oversampling,
-    batch_size_train=args.batch_size,
-    lr_train=args.learning_rate,
+    n_oversampling_train=args.n_oversampling_train,
+    batch_size_train=args.batch_size_train,
+    lr_train=args.lr_train,
 
     # ensemble parameters
     n_submodels=args.n_submodels,
@@ -496,7 +500,6 @@ if __name__=='__main__':
     
     # environment parameters
     sigma = args.sigma,
-    non_binary_reward = args.non_binary_reward,
     
     analysis = args.analysis,
   )

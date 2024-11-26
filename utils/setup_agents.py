@@ -59,7 +59,7 @@ def setup_agent_sindy(
 
 def setup_custom_q_agent(
     update_rule: callable = None,
-    get_choice_probs: callable = None,
+    get_qs: callable = None,
     **kwargs
 ) -> AgentQ:
     
@@ -73,8 +73,12 @@ def setup_custom_q_agent(
             self._q = q
             self._c = c
             
-        def get_choice_probs(self):
-            return get_choice_probs(self._q, self._c)
+        # def get_choice_probs(self):
+        #     return get_choice_probs(self._q, self._c)
+        
+        @property
+        def q(self):
+            return get_qs(self._q, self._c)
         
     return AgentCustom()
     

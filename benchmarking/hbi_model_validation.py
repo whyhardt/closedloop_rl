@@ -9,7 +9,7 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
-original_data = 'data/data_rnn_a05_b30_p025_ap05_varDict.csv'
+original_data = 'data/sugawara2021_143_processed.csv'
 inference_data = 'benchmarking/params/data_rnn_a05_b30_p025_ap05_varDict_1000s_3c.nc'
 
 idata = az.from_netcdf(inference_data)

@@ -12,8 +12,10 @@ from resources.bandits import AgentQ, get_update_dynamics
 
 data = 'data/sugawara2021_143_processed.csv'
 
-model_rnn = 'params/benchmarking/sugawara2021_143_3.pkl'
-model_benchmark = None
+model_rnn = 'params/benchmarking/sugawara2021_143_1_finetuned_MODEL.pkl'
+model_benchmark = 'benchmarking/params/traces_MODEL.pkl'
+
+models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr']
 
 # setup rnn agent for comparison
 agent_rnn = setup_agent_rnn(model_rnn)

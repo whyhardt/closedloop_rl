@@ -7,6 +7,7 @@ import jax
 import pandas as pd
 import arviz as az
 import argparse
+import pickle
     
 
 def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: bool):
@@ -27,16 +28,20 @@ def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: boo
         beta_r_std = numpyro.sample("beta_r_std", dist.HalfNormal(3)) if 'Br' in model else 0
         
         # Individual-level parameters
+        alpha_neg = None
         with numpyro.plate("participants", choice.shape[1]):
             alpha_pos = numpyro.sample("alpha_pos", dist.TruncatedNormal(alpha_pos_mean, alpha_pos_std, low=0.01, high=0.99))[:, None] if 'Ap' in model else 1
-            alpha_neg = numpyro.sample("alpha_neg", dist.TruncatedNormal(alpha_neg_mean, alpha_neg_std, low=0.01, high=0.99))[:, None] if 'An' in model else -1
+            if 'An' in model:
+                alpha_neg = numpyro.sample("alpha_neg", dist.TruncatedNormal(alpha_neg_mean, alpha_neg_std, low=0.01, high=0.99))[:, None]
             alpha_c = numpyro.sample("alpha_c", dist.TruncatedNormal(alpha_c_mean, alpha_c_std, low=0.01, high=0.99))[:, None] if 'Ac' in model else 1
             beta_c = numpyro.sample("beta_c", dist.TruncatedNormal(beta_c_mean, beta_c_std, low=0.01, high=0.99)) if 'Bc' in model else 0
             beta_r = numpyro.sample("beta_r", dist.TruncatedNormal(beta_r_mean, beta_r_std, low=0.01, high=9.99)) if 'Br' in model else 1
+        if 'An' not in model:
+            alpha_neg = alpha_pos
     else:
         # Basic bayesian inference (not hierarchical)
         alpha_pos = numpyro.sample("alpha_pos", dist.Uniform(0., 1.)) if 'Ap' in model else 1
-        alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.)) if 'An' in model else -1
+        alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.)) if 'An' in model else alpha_pos
         alpha_c = numpyro.sample("alpha_c", dist.Uniform(0., 1.)) if 'Ac' in model else 1
         beta_c = numpyro.sample("beta_c", dist.Uniform(0., 10.)) if 'Bc' in model else 0
         beta_r = numpyro.sample("beta_r", dist.Uniform(0., 10.)) if 'Br' in model else 1
@@ -114,13 +119,10 @@ def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: i
     mcmc = infer.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
     mcmc.run(jax.random.PRNGKey(0), model=model, choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
 
-    # Convert to ArviZ InferenceData object
-    inference_data = az.from_numpyro(mcmc)
-
-    # save inference data
-    az.to_netcdf(inference_data, 'benchmarking/params/traces.nc')
+    with open(f'benchmarking/params/traces_{model}.nc', 'wb') as file:
+        pickle.dump(mcmc, file)
     
-    return inference_data
+    return mcmc
 
 if __name__=='__main__':
     

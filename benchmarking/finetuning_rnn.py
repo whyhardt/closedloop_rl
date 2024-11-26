@@ -25,18 +25,18 @@ def main(model, data, index: int = None, max_iterations: int = None):
         if max_iterations is not None and i > max_iterations:
             break
         if index is None or index == -1:
-            data_session = DatasetRNN(data_session[0][None, :, :], data_session[1][None, :, :], device=device)
+            data_session = DatasetRNN(data_session[0][None, :, :], data_session[1][None, :, :], sequence_length=16, device=device)
         else:
             data_session = data
         rnn_main(
             model=model, 
-            file_out_finetuning=model.replace('rnn_', f'rnn_finetuned{i if index is None or index == -1 else index}_'),
+            file_out_finetuning=model.replace('.pkl', f'_finetuned{i if index is None or index == -1 else index}.pkl'),
             checkpoint=True,
             dataset_train=data_session,
             epochs_train=0,
-            epochs_finetune=256,
+            epochs_finetune=1024,
             dropout=0.1,
-            lr_finetune=1e-4,
+            lr_finetune=1e-6,
             )
 
 if __name__=='__main__':
