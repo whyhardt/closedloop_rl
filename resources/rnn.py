@@ -161,9 +161,9 @@ class BaseRNN(nn.Module):
             nn.Linear(hidden_size, 1),
             )
         
-        for l in seq:
-            if isinstance(l, nn.Linear):
-                torch.nn.init.xavier_uniform_(l.weight)
+        # for l in seq:
+        #     if isinstance(l, nn.Linear):
+        #         torch.nn.init.xavier_uniform_(l.weight)
         
         return seq
     
@@ -256,13 +256,13 @@ class RLRNN(BaseRNN):
         # reward sub-network for chosen action
         inputs = torch.concat([value, reward], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
-        learning_rate = self._sigmoid(learning_rate)
+        learning_rate = torch.nn.functional.sigmoid(learning_rate)
         rpe = reward - value
         update_chosen = value + learning_rate * rpe
 
         # reward sub-network for non-chosen action
         update_not_chosen, _ = self.call_subnetwork('xQf', value)
-        update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
+        update_not_chosen = torch.nn.functional.sigmoid(self._shrink(update_not_chosen))
         
         next_value += update_chosen * action + update_not_chosen * (1-action)
 
@@ -273,26 +273,35 @@ class RLRNN(BaseRNN):
         # add dimension to value, action and repeated
         value = value.unsqueeze(-1)
         action = action.unsqueeze(-1)
-        repeated = repeated.unsqueeze(-1).repeat((1, self._n_actions, 1))
+        repeated = repeated.unsqueeze(-1).repeat((1, value.shape[-1], 1))
         
-        next_state = torch.zeros((state.shape[0], state.shape[-1]), device=self.device)
+        next_state = torch.zeros((state.shape[0], state.shape[-1]), device=value.device)
         next_value = torch.zeros_like(value)# + value
         
         # choice sub-network for chosen action
         inputs = torch.concat([value, repeated], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
-        update_chosen = self._tanh(self._shrink(update_chosen))
+        update_chosen = torch.nn.functional.tanh(torch.nn.functional.tanhshrink(update_chosen))
         
         # choice sub-network for non-chosen action
         update_not_chosen, _ = self.call_subnetwork('xCf', value)
-        update_not_chosen = self._tanh(self._shrink(update_not_chosen))
+        update_not_chosen = torch.nn.functional.tanh(torch.nn.functional.tanhshrink(update_not_chosen))
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)
         
-        return next_value.squeeze(-1), next_state.unsqueeze(1)
+        return next_value.squeeze(-1), next_state.unsqueeze(1)        
     
-    # @torch.jit.script_method
+    @torch.jit.script
+    def update(reward_values: torch.Tensor, choice_values: torch.Tensor, reward_states: torch.Tensor, choice_states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, actions_repeated: torch.Tensor):            
+        for t in torch.arange(len(actions)-1):
+            a, ar, r, v, c, vs, cs = actions[t], actions_repeated[t], rewards[t], reward_values[t], choice_values[t], reward_states[t], choice_states[t]
+            v, lr, vs = self.value_network(vs, v, a, r)
+            c, cs = self.choice_network(cs, c, a, ar)
+            reward_values[t+1], choice_values[t+1], reward_states[t+1], choice_states[t+1] = v, c, vs, cs
+
+        return reward_values, choice_values, reward_states, choice_states
+    
     def forward(self, inputs: torch.Tensor, prev_state: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None, batch_first=False):
         """this method computes the next hidden state and the updated Q-Values based on the input and the previous hidden state
         
@@ -317,7 +326,7 @@ class RLRNN(BaseRNN):
         
         action = inputs[:, :, :-1].float()
         reward = inputs[:, :, -1].unsqueeze(-1).float()
-        timesteps = torch.arange(inputs.shape[0])
+        # timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
         
         # check if action is one-hot encoded
@@ -336,34 +345,52 @@ class RLRNN(BaseRNN):
         state = [s.squeeze(1) for s in self.get_state()]  # remove model dim for forward pass -> only one model
         reward_state, choice_state, uncertainty_state, reward_value, choice_value, uncertainty_value = state
         
-        for t, a, r in zip(timesteps, action, reward):         
-            # compute additional variables
-            # compute whether action was repeated---across all batch samples
-            repeated = 1*(torch.sum(torch.abs(a-self._prev_action), dim=-1) == 0).view(-1, 1)
-            
-            # compute the updates
-            old_rv, old_cv, old_uv = reward_value.clone(), choice_value.clone(), uncertainty_value.clone() 
-            reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r)
-            choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated)
-            
-            # logits[t, :, :] += (reward_value + action_value) * self.beta
-            logits[t, :, :] += reward_value * self._beta_reward + choice_value * self._beta_choice
-            
-            self._prev_action = a.clone()
-            
-            # append timestep samples for SINDy
-            self.append_timestep_sample('ca', a)
-            self.append_timestep_sample('cr', r)
-            self.append_timestep_sample('cp', 1-r)
-            self.append_timestep_sample('ca_repeat', repeated)
-            self.append_timestep_sample('cQ', old_rv)
-            self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
-            self.append_timestep_sample('xQf', old_rv, reward_value)
-            self.append_timestep_sample('xC', old_cv, choice_value)
-            self.append_timestep_sample('xCf', old_cv, choice_value)
-
+        self._prev_action = torch.zeros_like(action)
+        self._prev_action[1:] = self._prev_action[1:] + action[:-1]
+        action_repeated = (torch.sum(torch.abs(action-self._prev_action), dim=-1) == 0).int().view(*action.shape[:-1], 1)
+        
+        # prepare all value and state arrays
+        reward_states, choice_states = torch.zeros((len(action), *reward_state.shape), device=self.device), torch.zeros((len(action), *choice_state.shape), device=self.device)
+        reward_states[0] = reward_states[0] + reward_state
+        choice_states[0] = choice_states[0] + choice_state
+        reward_values, choice_values = torch.zeros_like(action), torch.zeros_like(action)
+        reward_values[0] = reward_values[0] + reward_value
+        choice_values[0] = choice_values[0] + choice_value
+        # compute the updates for all time steps and then the logits at each time step
+        reward_values, choice_values, reward_states, choice_states = self.update(self, reward_values, choice_values, reward_states, choice_states, action, reward, action_repeated)
+        logits = self._beta_reward * reward_values + self._beta_choice * choice_values
+        
         # add model dim again and set state
-        self.set_state(reward_state.unsqueeze(1), choice_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), choice_value.unsqueeze(1), uncertainty_value.unsqueeze(1))
+        self.set_state(reward_states[-1].unsqueeze(1), choice_states[-1].unsqueeze(1), uncertainty_state.unsqueeze(1), reward_values[-1].unsqueeze(1), choice_values[-1].unsqueeze(1), uncertainty_value.unsqueeze(1))
+        
+        # for t, a, r in zip(timesteps, action, reward):         
+        #     # compute additional variables
+        #     # compute whether action was repeated---across all batch samples
+        #     repeated = 1*(torch.sum(torch.abs(a-self._prev_action), dim=-1) == 0).view(-1, 1)
+            
+        #     # compute the updates
+        #     old_rv, old_cv, old_uv = reward_value.clone(), choice_value.clone(), uncertainty_value.clone() 
+        #     reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r)
+        #     choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated)
+            
+        #     # logits[t, :, :] += (reward_value + action_value) * self.beta
+        #     logits[t, :, :] += reward_value * self._beta_reward + choice_value * self._beta_choice
+            
+        #     self._prev_action = a.clone()
+            
+        #     # append timestep samples for SINDy
+        #     self.append_timestep_sample('ca', a)
+        #     self.append_timestep_sample('cr', r)
+        #     self.append_timestep_sample('cp', 1-r)
+        #     self.append_timestep_sample('ca_repeat', repeated)
+        #     self.append_timestep_sample('cQ', old_rv)
+        #     self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
+        #     self.append_timestep_sample('xQf', old_rv, reward_value)
+        #     self.append_timestep_sample('xC', old_cv, choice_value)
+        #     self.append_timestep_sample('xCf', old_cv, choice_value)
+
+        # # add model dim again and set state
+        # self.set_state(reward_state.unsqueeze(1), choice_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), choice_value.unsqueeze(1), uncertainty_value.unsqueeze(1))
         
         if batch_first:
             logits = logits.permute(1, 0, 2)

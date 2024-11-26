@@ -7,13 +7,13 @@ import rnn_main
 losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
-    checkpoint=True,
-    epochs_train=0,
+    checkpoint=False,
+    epochs_train=1,
     # epochs_finetune=1024,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
-    model=f'params/benchmarking/rnn_sugawara2021_143_7.pkl',
+    model=f'params/benchmarking/rnn_sugawara2021_143_test.pkl',
     data = 'data/sugawara2021_143_processed.csv',
     # model = f'params/benchmarking/bahrami2020_965_{i}.pkl',
     # data = 'data/bahrami2020_965_processed.csv',
@@ -26,8 +26,8 @@ _, loss = rnn_main.main(
     bagging=True,
     # weight_decay=1e-4,
 
-    lr_train=1e-4,
-    n_oversampling_train=256,
+    lr_train=1e-3,
+    n_oversampling_train=-1,
     batch_size_train=-1,
     
     lr_finetune=1e-4,
