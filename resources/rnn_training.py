@@ -50,7 +50,8 @@ def batch_train(
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
         mask = xs[:, t:t+n_steps, :model._n_actions] > -1
-        loss = loss_fn((y_pred*mask).reshape(-1, model._n_actions), (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)) 
+        # loss = loss_fn((y_pred*mask).reshape(-1, model._n_actions), (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)) 
+        loss = loss_fn((y_pred*mask)[:, -1], (ys[:, t:t+n_steps]*mask)[:, -1]) 
         
         loss_batch += loss
         iterations += 1
@@ -160,7 +161,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if n_oversampling == -1 else n_oversampling // batch_size
+    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if n_oversampling == batch_size else n_oversampling // batch_size
     
     # start training
     while continue_training:

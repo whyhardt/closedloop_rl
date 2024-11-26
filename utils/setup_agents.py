@@ -12,27 +12,26 @@ from sindy_main import main as sindy_main
 def setup_rnn(
     path_model=None, 
     n_actions=2, 
-    hidden_size=8, 
     list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
 ) -> RLRNN:
     
+    state_dict = load(path_model)['model']
+    hidden_size = state_dict[list(state_dict.keys())[2]].shape[0]
     rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
     if path_model is not None:
-        rnn.load_state_dict(load(path_model)['model'])
-    
+        rnn.load_state_dict(state_dict)
     return rnn
 
 
 def setup_agent_rnn(
     path_model=None, 
     n_actions=2, 
-    hidden_size=8, 
     list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
     ) -> AgentNetwork:
     
-    rnn = setup_rnn(path_model=path_model, n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
+    rnn = setup_rnn(path_model=path_model, n_actions=n_actions, list_sindy_signals=list_sindy_signals, device=device)
     agent = AgentNetwork(model=rnn, n_actions=n_actions, deterministic=True)
     
     return agent

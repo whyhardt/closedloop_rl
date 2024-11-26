@@ -134,7 +134,7 @@ class BaseRNN(nn.Module):
                 n_subnetworks += 1
         return n_subnetworks
     
-    def call_subnetwork(self, key, inputs, layer_hidden_state=3):
+    def call_subnetwork(self, key, inputs, layer_hidden_state=-2):
         if hasattr(self, key):
             # process input through different activations
             # Relu(input+bias) --> difficult with sindy
@@ -152,18 +152,20 @@ class BaseRNN(nn.Module):
         else:
             raise ValueError(f'Invalid key {key}.')
     
-    def setup_subnetwork(self, input_size, hidden_size, dropout):
+    def setup_subnetwork(self, input_size, memory_size, hidden_size, dropout):
         seq = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            nn.Linear(input_size+memory_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, memory_size),
+            nn.BatchNorm1d(memory_size),
             nn.Tanh(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_size, 1),
+            nn.Linear(memory_size, 1),
             )
         
-        for l in seq:
-            if isinstance(l, nn.Linear):
-                torch.nn.init.xavier_uniform_(l.weight)
+        # for l in seq:
+        #     if isinstance(l, nn.Linear):
+        #         torch.nn.init.xavier_uniform_(l.weight)
         
         return seq
     
