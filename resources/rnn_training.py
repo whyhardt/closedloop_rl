@@ -161,7 +161,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if not bagging and n_oversampling == batch_size else n_oversampling // batch_size
+    # batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if not bagging and n_oversampling == batch_size else n_oversampling // batch_size
     
     # start training
     while continue_training:
@@ -186,22 +186,24 @@ def fit_model(
                         stride=-1,
                     )
             else:
-                for i in range(batch_iteration_constant):
-                    i_model = i if len(models) > 1 else 0
-                    # get next batch
-                    xs, ys = next(iter(dataloader_train))
-                    xs = xs.to(models[i_model].device)
-                    ys = ys.to(models[i_model].device)
-                    # train model
-                    models[i_model], optimizers[i_model], loss_i = batch_train(
-                        model=models[i_model],
-                        xs=xs,
-                        ys=ys,
-                        optimizer=optimizers[i_model],
-                        n_steps_per_call=n_steps_per_call,
-                    )
-                    loss_train += loss_i
-                loss_train /= batch_iteration_constant
+                i = 0
+                for i_model, _ in enumerate(models):
+                    for _ in range(0, len(dataset_train), batch_size):
+                        # get next batch
+                        xs, ys = next(iter(dataloader_train))
+                        xs = xs.to(models[i_model].device)
+                        ys = ys.to(models[i_model].device)
+                        # train model
+                        models[i_model], optimizers[i_model], loss_i = batch_train(
+                            model=models[i_model],
+                            xs=xs,
+                            ys=ys,
+                            optimizer=optimizers[i_model],
+                            n_steps_per_call=n_steps_per_call,
+                        )
+                        loss_train += loss_i
+                        i += 1
+                loss_train /= i
             
             if len(models) > 1 and ensemble_type == ensembleTypes.VOTE:
                 model_backup = EnsembleRNN(models, voting_type=voting_type)

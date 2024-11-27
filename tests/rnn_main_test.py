@@ -11,7 +11,8 @@ _, loss = rnn_main.main(
     epochs_train=1024,
     # epochs_finetune=1024,
     
-    model=f'params/benchmarking/rnn_sugawara_noBN.pkl',
+    model=f'params/benchmarking/rnn_super_sugawara.pkl',
+    # data = 'data/2arm/sugawara2021_143_processed.csv',
     data = 'data/2arm/sugawara2021_143_processed.csv',
     
     hidden_size=32,
