@@ -134,18 +134,12 @@ class BaseRNN(nn.Module):
                 n_subnetworks += 1
         return n_subnetworks
     
-    def call_subnetwork(self, key, inputs, layer_hidden_state=3):
+    def call_subnetwork(self, key, inputs, layer_hidden_state=-2):
         if hasattr(self, key):
-            # process input through different activations
-            # Relu(input+bias) --> difficult with sindy
-            # Sigmoid(input+bias) --> same
-            # linear(input+bias) --> in SINDy: w*in + w*bias
-            # Concat(Activations) or Sum(Activations)
-            # pass to hidden layer
-            # get hidden state (linear layer + activation + dropout)
-            hidden_state = getattr(self, key)[0](inputs).swapaxes(1, 2)
-            hidden_state = getattr(self, key)[1](hidden_state).swapaxes(1, 2)
-            hidden_state = getattr(self, key)[2:layer_hidden_state](hidden_state)
+            # hidden_state = getattr(self, key)[0](inputs).swapaxes(1, 2)
+            # hidden_state = getattr(self, key)[1](hidden_state).swapaxes(1, 2)
+            # hidden_state = getattr(self, key)[2:layer_hidden_state](hidden_state)
+            hidden_state = getattr(self, key)[:layer_hidden_state](inputs)
             # get output variable (rest of subnetwork)
             output = getattr(self, key)[layer_hidden_state:](hidden_state)
             return output, hidden_state
@@ -155,7 +149,7 @@ class BaseRNN(nn.Module):
     def setup_subnetwork(self, input_size, hidden_size, dropout):
         seq = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            # nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size, 1),

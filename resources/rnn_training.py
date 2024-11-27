@@ -113,10 +113,10 @@ def fit_model(
     if batch_size == -1:
         batch_size = len(dataset_train)//n_submodels
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    if n_oversampling == -1:
+        n_oversampling = batch_size
     if bagging:
         # use random sampling with replacement
-        if n_oversampling == -1:
-            n_oversampling = batch_size
         sampler = RandomSampler(dataset_train, replacement=True, num_samples=n_oversampling)
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
     else:
@@ -160,7 +160,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if n_oversampling == -1 else n_oversampling // batch_size
+    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if not bagging and n_oversampling == batch_size else n_oversampling // batch_size
     
     # start training
     while continue_training:
