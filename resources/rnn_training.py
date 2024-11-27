@@ -39,7 +39,7 @@ def batch_train(
     
     # predict y and compute loss
     model.set_initial_state(batch_size=len(xs))
-    state = model.get_state(detach=True)
+    # state = model.get_state(detach=True)
     
     # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
     loss_batch = 0
@@ -51,7 +51,7 @@ def batch_train(
         
         mask = xs[:, t:t+n_steps, :model._n_actions] > -1
         # loss = loss_fn((y_pred*mask).reshape(-1, model._n_actions), (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)) 
-        loss = loss_fn((y_pred*mask)[:, -1], (ys[:, t:t+n_steps]*mask)[:, -1]) 
+        loss = loss_fn((y_pred*mask)[:, -1], (torch.argmax(ys[:, t:t+n_steps], dim=-1)*mask.min(dim=-1)[0])[:, -1])
         
         loss_batch += loss
         iterations += 1
@@ -114,10 +114,10 @@ def fit_model(
     if batch_size == -1:
         batch_size = len(dataset_train)//n_submodels
     # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    if n_oversampling == -1:
+        n_oversampling = batch_size
     if bagging:
         # use random sampling with replacement
-        if n_oversampling == -1:
-            n_oversampling = batch_size
         sampler = RandomSampler(dataset_train, replacement=True, num_samples=n_oversampling)
         dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler)
     else:
@@ -161,7 +161,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if n_oversampling == batch_size else n_oversampling // batch_size
+    batch_iteration_constant = len(models) if len(models) > 1 else len(dataset_train) // batch_size if not bagging and n_oversampling == batch_size else n_oversampling // batch_size
     
     # start training
     while continue_training:
@@ -238,6 +238,7 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizers[0],
+                        n_steps_per_call=1,
                     )
                 models[0].train()
 

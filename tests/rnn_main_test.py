@@ -3,23 +3,18 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
-    
+
 losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
     checkpoint=True,
-    epochs_train=256,
+    epochs_train=1024,
     # epochs_finetune=1024,
     
-    # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
-    # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
-    model=f'params/benchmarking/rnn_sugawara2021_143_test.pkl',
-    data = 'data/sugawara2021_143_processed.csv',
-    # model = f'params/benchmarking/bahrami2020_965_{i}.pkl',
-    # data = 'data/bahrami2020_965_processed.csv',
+    model=f'params/benchmarking/rnn_sugawara_noBN.pkl',
+    data = 'data/2arm/sugawara2021_143_processed.csv',
     
-    # n_submodels=8,
-    hidden_size=128,
+    hidden_size=32,
     n_actions=2,
     
     dropout=0.25,

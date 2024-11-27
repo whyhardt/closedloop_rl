@@ -1,25 +1,24 @@
-import pandas as pd 
-import numpy as np
+from torch.nn import BatchNorm1d
+import torch
 
-benchmarking_models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr','ApAnBcBr', 'ApAnAcBcBr']
-benchmark_cols = ('LL', 'BIC', 'AIC')
+t = torch.randn((1024, 4, 2))
 
-benchmarks = np.zeros((len(benchmarking_models)+1, 3))
+bn = BatchNorm1d(4)
+bn.train()
 
-for i, bm in enumerate(benchmarking_models):
-    data_mcmc = 'benchmarking/results/results_sugawara2021_143_mcmc_'+bm+'.csv'
-    df_mcmc = pd.read_csv(data_mcmc)
-    benchmarks[i, 0] = df_mcmc['LL'].sum()
-    benchmarks[i, 1] = df_mcmc['BIC'].sum()
-    benchmarks[i, 2] = df_mcmc['AIC'].sum()
-    # print(f'LL_MCMC_{bm} = {ll_mcmc}')
-    
-data_rnn = 'benchmarking/results/results_sugawara2021_143_rnn.csv'
-df_rnn = pd.read_csv(data_rnn)
-benchmarks[-1, 0] = df_rnn['LL'].sum()
-benchmarks[-1, 1] = df_rnn['BIC'].sum()
-benchmarks[-1, 2] = df_rnn['AIC'].sum()
-# print(f'LL_RNN = {ll_rnn}')
+epochs = 1024
+batch_size = 1024
+for i in range(epochs):
+    t_batch = t[torch.randint(0, len(t), (batch_size,))]
+    bn(t_batch)
 
-df_bm = pd.DataFrame(benchmarks, columns=benchmark_cols, index=benchmarking_models+['RNN'])
-print(df_bm)
+print('BN in training mode:')
+print(bn(t[:1]))
+
+bn.eval()
+print('BN in eval mode:')
+print(bn(t[:1]))
+
+print('Running stats:')
+print(f'Mean = {bn.running_mean}')
+print(f'Std = {bn.running_var}')
