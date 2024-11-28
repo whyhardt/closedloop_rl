@@ -7,24 +7,24 @@ import rnn_main
 losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
-    checkpoint=True,
+    checkpoint=False,
     epochs_train=1024,
     # epochs_finetune=1024,
     
-    model=f'params/benchmarking/rnn_super_sugawara.pkl',
-    # data = 'data/2arm/sugawara2021_143_processed.csv',
-    data = 'data/2arm/sugawara2021_143_processed.csv',
+    model=f'params/benchmarking/gru_eckstein.pkl',
+    data = 'data/2arm/eckstein2022_291_processed.csv',
+    # data = 'data/2arm/super_dataset.csv',
     
-    hidden_size=32,
+    hidden_size=16,
     n_actions=2,
     
     dropout=0.25,
     bagging=True,
-    # weight_decay=1e-4,
+    weight_decay=1e-4,
 
     lr_train=1e-4,
     n_oversampling_train=-1,
-    batch_size_train=-1,
+    batch_size_train=1024,
     
     lr_finetune=1e-4,
     n_oversampling_finetune=-1,

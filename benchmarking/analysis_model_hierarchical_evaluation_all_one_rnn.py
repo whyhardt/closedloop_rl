@@ -75,7 +75,7 @@ def main(data, model, output_file, job_id):
     
     def get_scores(experiment, agent, n_parameters) -> float:
         probs = get_update_dynamics(experiment, agent)[1]
-        ll_tmp = log_likelihood(experiment.choices, probs)
+        ll_tmp = log_likelihood(experiment.choices.astype(int), probs)
         bic = bayesian_information_criterion(experiment.choices, probs[:, 0], n_parameters, ll_tmp)
         aic = akaike_information_criterion(experiment.choices, probs[:, 0], n_parameters, ll_tmp)
         ll = ll_tmp
@@ -89,7 +89,7 @@ def main(data, model, output_file, job_id):
             ll.append(0+ll_rnn_i)
             bic.append(0+bic_rnn_i)
             aic.append(0+aic_rnn_i)
-        return pd.DataFrame({'Job_ID': job_id, 'LL': ll, 'BIC': bic, 'AIC': aic})        
+        return pd.DataFrame({'Job_ID': job_id, 'LL': ll/i, 'BIC': bic/i, 'AIC': aic/i})        
     
     # if agent_mcmc is not None:
     #     df = get_scores_array(experiment, agent_mcmc, n_parameters_mcmc)

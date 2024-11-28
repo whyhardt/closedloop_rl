@@ -7,7 +7,7 @@ import pickle
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from benchmarking.analysis_model_evaluation_all import main
+from benchmarking.analysis_model_hierarchical_evaluation_all import main
 from benchmarking.hierarchical_bayes_numpyro import rl_model
 
 # benchmarking_models = ('ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr')

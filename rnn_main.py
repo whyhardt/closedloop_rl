@@ -138,7 +138,7 @@ def main(
     print('Setup of datasets complete.')
   elif data is not None and dataset_train is None:
     dataset, experiment_list_test, df, update_dynamics = convert_dataset.convert_dataset(data)
-    indexes_dataset = np.arange(len(dataset.xs))
+    # indexes_dataset = np.arange(len(dataset.xs))
     # np.random.shuffle(indexes_dataset)
     
     # idx_train = int(0.95*len(dataset.xs))
@@ -148,7 +148,7 @@ def main(
     xs_train, ys_train = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
     xs_val, ys_val = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
-    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)
+    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train, sequence_length=32)
     dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
@@ -173,7 +173,7 @@ def main(
     ensemble = rnn_training.ensembleTypes.BEST
 
   # define model
-  model = [rnn.RLRNN(
+  model = rnn.RLRNN(
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
@@ -181,9 +181,9 @@ def main(
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
       ).to(device)
-          for _ in range(init_population)]
+          # for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=lr_train, weight_decay=weight_decay) for m in model]
+  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=lr_train, weight_decay=weight_decay)# for m in model]
 
   print('Setup of the RNN model complete.')
 
@@ -197,8 +197,9 @@ def main(
     
     #Fit the RNN
     print('Training the RNN...')
-    for m in model:
-      m.train()
+    # for m in model:
+      # m.train()
+    model.train()
     model, optimizer_rnn, _ = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_train,
@@ -256,9 +257,9 @@ def main(
     print('Finetuning the RNN...')
     for subnetwork in x_train_list:
       model.finetune_training(subnetwork, keep_dropout=True)
-    optimizer_fine = [torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_finetune, weight_decay=weight_decay)]
+    optimizer_fine = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_finetune, weight_decay=weight_decay)
     model, optimizer_fine, _ = rnn_training.fit_model(
-        model=[model],
+        model=model,
         dataset_train=dataset_val,
         optimizer=optimizer_fine,
         convergence_threshold=convergence_threshold,

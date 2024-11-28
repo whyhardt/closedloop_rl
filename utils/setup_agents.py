@@ -17,7 +17,7 @@ def setup_rnn(
 ) -> RLRNN:
     
     state_dict = load(path_model)['model']
-    hidden_size = state_dict[list(state_dict.keys())[2]].shape[0]
+    hidden_size = 16#state_dict[list(state_dict.keys())[2]].shape[0]
     rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
     if path_model is not None:
         rnn.load_state_dict(state_dict)

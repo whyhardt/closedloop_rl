@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from benchmarking.analysis_model_evaluation_single import main
+from benchmarking.analysis_model_hierarchical_evaluation_single import main
 
 
 data = 'data/sugawara2021_143_processed.csv'

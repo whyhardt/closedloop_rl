@@ -95,9 +95,11 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     state_dict_model = state_dict['model']
     state_dict_optimizer = state_dict['optimizer']
     if isinstance(state_dict_model, dict):
-      for m, o in zip(model, optimizer):
-        m.load_state_dict(state_dict_model)
-        o.load_state_dict(state_dict_optimizer)
+    #   for m, o in zip(model, optimizer):
+    #     m.load_state_dict(state_dict_model)
+    #     o.load_state_dict(state_dict_optimizer)
+        model.load_state_dict(state_dict_model)
+        optimizer.load_state_dict(state_dict_optimizer)
     elif isinstance(state_dict_model, list):
         print('Loading ensemble model...')
         for i, state_dict_model_i, state_dict_optim_i in zip(len(state_dict_model), state_dict_model, state_dict_optimizer):

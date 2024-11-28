@@ -90,7 +90,7 @@ def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: boo
 
 
 
-def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool):
+def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool, output_file: str):
     # Check model str
     valid_config = ['Ap', 'An', 'Ac', 'Bc', 'Br']
     model_checked = '' + model
@@ -119,7 +119,7 @@ def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: i
     mcmc = infer.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
     mcmc.run(jax.random.PRNGKey(0), model=model, choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
 
-    with open(f'benchmarking/params/traces_{model}.nc', 'wb') as file:
+    with open(output_file, 'wb') as file:
         pickle.dump(mcmc, file)
     
     return mcmc

@@ -354,7 +354,6 @@ class AgentNetwork:
     def new_sess(self):
       """Reset the network for the beginning of a new session."""
       self._model.set_initial_state(batch_size=1)
-      self._xs = torch.zeros((1, 2))-1
       self.set_state()
 
     def get_logit(self):
@@ -377,9 +376,9 @@ class AgentNetwork:
         return np.random.choice(self._n_actions, p=choice_probs)
 
     def update(self, choice: float, reward: float):
-      self._xs = torch.tensor([[choice, reward]], device=self._model.device)
+      inputs = torch.concat([torch.eye(self._n_actions, device=self._model.device)[choice], torch.tensor(reward, device=self._model.device).view(1)]).view(1, 1, -1)
       with torch.no_grad():
-        self._model(self._xs, self._model.get_state())
+        self._model(inputs, self._model.get_state())
       self.set_state()
     
     def set_state(self):
