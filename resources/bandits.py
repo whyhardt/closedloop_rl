@@ -60,6 +60,7 @@ class AgentQ:
       beta: float = 3.,
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
+      alpha_perseverance: float = 1.,
       alpha_penalty: float = -1,
       confirmation_bias: float = 0.,
       parameter_variance: Union[Dict[str, float], float] = 0.,
@@ -83,6 +84,7 @@ class AgentQ:
     self._mean_confirmation_bias = confirmation_bias
     self._mean_forget_rate = forget_rate
     self._mean_perseverance_bias = perseverance_bias
+    self._mean_alpha_perseverance = alpha_perseverance
     
     self._list_params = ['beta', 'alpha', 'alpha_penalty', 'confirmation_bias', 'forget_rate', 'perseverance_bias']
     self._beta = beta
@@ -91,6 +93,7 @@ class AgentQ:
     self._confirmation_bias = confirmation_bias
     self._forget_rate = forget_rate
     self._perseverance_bias = perseverance_bias
+    self._alpha_perseverance = alpha_perseverance
     
     self._n_actions = n_actions
     self._parameter_variance = self.check_parameter_variance(parameter_variance)
@@ -127,7 +130,7 @@ class AgentQ:
   
   def new_sess(self, sample_parameters=False):
     """Reset the agent for the beginning of a new session."""
-    self._q = self._q_init + np.zeros(self._n_actions)
+    self._q = np.full(self._n_actions, self._q_init)
     self._c = np.zeros(self._n_actions)
     
     # sample new parameters
@@ -141,7 +144,8 @@ class AgentQ:
         self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias/2 if self._parameter_variance['confirmation_bias'] == -1 else self._parameter_variance['confirmation_bias']), 0, 1)
         self._forget_rate = np.clip(np.random.normal(self._mean_forget_rate, self._mean_forget_rate/2 if self._parameter_variance['forget_rate'] == -1 else self._parameter_variance['forget_rate']), 0, 1)
         self._perseverance_bias = np.clip(np.random.normal(self._mean_perseverance_bias, self._mean_perseverance_bias/2 if self._parameter_variance['perseverance_bias'] == -1 else self._parameter_variance['perseverance_bias']), 0, 1)
-      
+        self._alpha_perseverance = np.clip(np.random.normal(self._mean_alpha_perseverance, self._mean_alpha_perseverance/2 if self._parameter_variance['alpha_perseverance'] == -1 else self._parameter_variance['alpha_perseverance']), 0, 1)
+
         # sanity checks
         # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
         #     with max_confirmation = (q-q0)(r-q0) = +/- 0.25
@@ -205,6 +209,8 @@ class AgentQ:
     # Choice-Perseverance: Action-based updates
     self._c = np.zeros(self._n_actions)
     self._c[choice] += self._perseverance_bias
+    # cpe = np.eye(self._n_actions)[choice] - self._c
+    # self._c += self._alpha_perseverance * cpe
 
   @property
   def q(self):

@@ -3,7 +3,7 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
-    
+
 losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
@@ -13,8 +13,8 @@ _, loss = rnn_main.main(
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
-    model=f'params/benchmarking/rnn_sugawara2021_143_test.pkl',
-    data = 'data/sugawara2021_143_processed.csv',
+    model=f'params/benchmarking/rnn_sugawara.pkl',
+    data = 'data/2arm/sugawara2021_143_processed.csv',
     # model = f'params/benchmarking/bahrami2020_965_{i}.pkl',
     # data = 'data/bahrami2020_965_processed.csv',
     

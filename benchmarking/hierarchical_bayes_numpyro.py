@@ -75,8 +75,13 @@ def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: boo
     c_values = jnp.zeros((choice.shape[1], 2))
     carry = jnp.concatenate((r_values, c_values, get_action_prob(r_values, c_values)[:, None]), axis=-1)
     xs = jnp.concatenate((choice[:-1], reward[:-1]), axis=-1)
-    _, ys = jax.lax.scan(update, carry, xs)
+    # _, ys = jax.lax.scan(update, carry, xs)
     
+    ys = jnp.zeros((choice.shape[0]-1, *carry.shape))
+    for i in range(len(choice)-1):
+        carry = update(carry, xs[i])[0]
+        ys.at[i].add(carry)
+        
     # Use numpyro.plate for sampling
     next_choices = choice[1:, :, -1]
     action_probs = ys[:, :, -1]
@@ -90,7 +95,7 @@ def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: boo
 
 
 
-def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool):
+def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool, output_file: str):
     # Check model str
     valid_config = ['Ap', 'An', 'Ac', 'Bc', 'Br']
     model_checked = '' + model
@@ -119,7 +124,7 @@ def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: i
     mcmc = infer.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
     mcmc.run(jax.random.PRNGKey(0), model=model, choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
 
-    with open(f'benchmarking/params/traces_{model}.nc', 'wb') as file:
+    with open(output_file.split('.')[0] + '_' + model + '.nc', 'wb') as file:
         pickle.dump(mcmc, file)
     
     return mcmc
@@ -134,8 +139,10 @@ if __name__=='__main__':
     parser.add_argument('--num_warmup', type=int, default=500, help='Number of warmup samples (additional)')
     parser.add_argument('--num_chains', type=int, default=1, help='Number of chains')
     parser.add_argument('--hierarchical', action='store_true', help='Whether to do hierarchical inference')
+    parser.add_argument('--output_file', type=str, default='benchmarking/params/traces.nc', help='Number of chains')
     
     args = parser.parse_args()
-    
-    main(args.file, args.model, args.num_samples, args.num_warmup, args.num_chains, args.hierarchical)
+
+    # with jax.default_device(jax.devices("cpu")[0]):
+    main(args.file, args.model, args.num_samples, args.num_warmup, args.num_chains, args.hierarchical, args.output_file)
     

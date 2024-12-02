@@ -2,20 +2,28 @@ import os
 import sys
 
 import numpy as np
+import pickle
+from tqdm import tqdm
+from copy import copy, deepcopy
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from resources.model_evaluation import akaike_information_criterion, bayesian_information_criterion, log_likelihood
-from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_custom_q_agent
+from resources.model_evaluation import get_scores_array
+from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_benchmark_q_agent
 from utils.convert_dataset import convert_dataset
 from resources.bandits import AgentQ, get_update_dynamics
+from benchmarking.hierarchical_bayes_numpyro import rl_model
 
 
-data = 'data/sugawara2021_143_processed.csv'
+# data = 'data/sugawara2021_143_processed.csv'
+# model_rnn = 'params/benchmarking/rnn_sugawara.pkl'
+# model_benchmark = 'benchmarking/params/sugawara2021_143/non_hierarchical/traces.nc'
 
-model_rnn = 'params/benchmarking/sugawara2021_143_1_finetuned_MODEL.pkl'
-model_benchmark = 'benchmarking/params/traces_MODEL.pkl'
+data = 'data/2arm/eckstein2022_291_processed.csv'
+model_rnn = 'params/benchmarking/rnn_eckstein.pkl'
+model_benchmark = 'benchmarking/params/eckstein2022_291/non_hierarchical/traces.nc'
 
 models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr']
+# models = ['ApAnBcBr']
 
 # setup rnn agent for comparison
 agent_rnn = setup_agent_rnn(model_rnn)
@@ -26,85 +34,61 @@ agent_sindy = setup_agent_sindy(model_rnn, data)
 n_parameters = agent_sindy._count_sindy_parameters(without_self=True)
 
 # setup random, dummy AgentQ model (as quasi-baseline)
-agent_rl = AgentQ()
+agent_rl = AgentQ(alpha=0.5, beta=5, perseverance_bias=1.0)
 
-# setup optimized AgentQ from paper (parameters from paper/supplementary/table-S3)
-# agent_rl_bm = AgentQ(alpha=0.36, beta=0.32)
-parameters = {
-    'alpha': 0.36,
-    'beta': 0.32,
-    'alphaC': 0.,
-    'betaC': 0.,
-}
+agent_mcmc = {}
+for model in models:
+    with open(model_benchmark.split('.')[0] + '_' + model + '.nc', 'rb') as file:
+        mcmc = pickle.load(file)
+    mcmc.print_summary()
+    parameters = {
+        'alpha_pos': 1,
+        'alpha_neg': -1,
+        'alpha_c': 1,
+        'beta_c': 0,
+        'beta_r': 1,
+    }
+    n_parameters_mcmc = 0
+    # mcmc.print_summary()
+    for p in mcmc.get_samples():
+        parameters[p] = np.mean(mcmc.get_samples()[p], axis=0)
+        n_parameters_mcmc += 1
 
-def update_rule(Q, C, a, r):
-    Q[a] = Q[a] + parameters['alpha'] * (r - Q[a])
-    return Q, C
+    if np.mean(parameters['alpha_neg']) == -1:
+        parameters['alpha_neg'] = parameters['alpha_pos']
 
-def get_choice_probs(Q, C):
-    p1 = 1 / (1 + np.exp(-parameters['beta'] * (Q[0] - Q[1])))
-    return np.array((p1, 1-p1))
-
-agent_rl_bm = setup_custom_q_agent(update_rule, get_choice_probs)
-
-
-# setup custom AgentQ with perseverance (parameters from paper/supplementary/table-S3)
-parameters = {
-    'alpha': 0.45,
-    'beta': 0.19,
-    'alphaC': 0.41,
-    'betaC': 1.10,
-}
-
-def update_rule(Q, C, a, r):
-    Q[a] = Q[a] + parameters['alpha'] * (r - Q[a])
-    C[0] = C[0] + parameters['alphaC'] * ((1 if a == 0 else -1) - C[0])
-    return Q, C
-
-def get_choice_probs(Q, C):
-    p1 = 1 / (1 + np.exp(-(parameters['beta'] * (Q[0] - Q[1]) + parameters['betaC'] * C[0])))
-    return np.array((p1, 1-p1))
-
-agent_benchmark = setup_custom_q_agent(update_rule, get_choice_probs)
+    agent_mcmc[model] = (setup_benchmark_q_agent(parameters), n_parameters_mcmc)
 
 # load data
-_, experiment_list, _, _ = convert_dataset(data)
+experiment = convert_dataset(data)[1]
+experiment_id = np.arange(0, len(experiment))
 
-def get_scores(agent, n_parameters) -> float:
-    aic = 0
-    bic = 0
-    nll = 0
-    for experiment in experiment_list:
-        probs = get_update_dynamics(experiment, agent)[1]
-        ll = log_likelihood(experiment.choices, probs[:, 0])
-        bic += bayesian_information_criterion(experiment.choices, probs[:, 0], n_parameters, ll)
-        aic += akaike_information_criterion(experiment.choices, probs[:, 0], n_parameters, ll)
-        nll -= ll
-    return nll, aic, bic
+data = np.zeros((len(models)+3, 3))
+n_experiments = len(experiment)
 
-nll_rl, aic_rl, bic_rl = get_scores(agent_rl, 2)
-nll_rl_bm, aic_rl_bm, bic_rl_bm = get_scores(agent_rl_bm, 2)
-nll_benchmark, aic_benchmark, bic_benchmark = get_scores(agent_benchmark, 4)
-nll_rnn, aic_rnn, bic_rnn = get_scores(agent_rnn, n_parameters_rnn)
-nll_sindy, aic_sindy, bic_sindy = get_scores(agent_sindy, agent_sindy._count_sindy_parameters(True))
+print('Get LL by RL-Baseline...')
+df = get_scores_array(experiment_id, experiment, [agent_rl]*len(experiment), [2]*len(experiment))
+data[0, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
+
+print('Get LL by RNN...')
+df = get_scores_array(experiment_id, experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment))
+data[-2, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
+
+print('Get LL by SINDy...')
+df = get_scores_array(experiment_id, experiment, [agent_sindy]*len(experiment), [agent_sindy._count_sindy_parameters(True)]*len(experiment))
+data[-1, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
+
+for i in range(1, len(models)+1):
+    key = list(agent_mcmc.keys())[i-1]
+    print(f'Get LL by Benchmark ({key})...')
+    df = get_scores_array(experiment_id, experiment, [agent_mcmc[key][0]]*len(experiment), [agent_mcmc[key][1]]*len(experiment))
+    data[i, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
 
 import pandas as pd
 
 df = pd.DataFrame(
-    (
-        (nll_rl, aic_rl, bic_rl), 
-        (nll_rl_bm, aic_rl_bm, bic_rl_bm), 
-        (nll_benchmark, aic_benchmark, bic_benchmark), 
-        (nll_rnn, aic_rnn, bic_rnn), 
-        (nll_sindy, aic_sindy, bic_sindy),
-        ),
-    index = (
-        'RL-Baseline', 
-        'RL-Benchmark', 
-        'RL-P-Benchmark', 
-        'RNN', 
-        'SINDy',
-        ),
+    data=data,
+    index=['RL']+models+['RNN', 'SINDy'],
     columns = ('NLL', 'AIC', 'BIC'),
     )
 

@@ -2,6 +2,7 @@ import sys
 import os
 
 from torch import device, load
+import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn import RLRNN
@@ -49,7 +50,7 @@ def setup_agent_sindy(
         model = model,
         data = data,
         threshold = threshold,
-        verbose = False,
+        verbose = True,
         hidden_size = hidden_size,
         analysis=False,
     )
@@ -57,30 +58,36 @@ def setup_agent_sindy(
     return agent 
 
 
-def setup_custom_q_agent(
-    update_rule: callable = None,
-    get_qs: callable = None,
+def setup_benchmark_q_agent(
+    parameters,
     **kwargs
 ) -> AgentQ:
     
-    class AgentCustom(AgentQ):
+    class AgentBenchmark(AgentQ):
         
-        def __init__(self, n_actions = 2):
+        def __init__(self, parameters, n_actions = 2):
             super().__init__(n_actions, 0, 0)
             
-        def update(self, a, r):
-            q, c = update_rule(self._q, self._c, a, r)
-            self._q = q
-            self._c = c
+            self._parameters = parameters
             
-        # def get_choice_probs(self):
-        #     return get_choice_probs(self._q, self._c)
-        
+        def update(self, a, r):
+            # q, c = update_rule(self._q, self._c, a, r)
+            ch = np.eye(2)[a]
+
+            # Compute prediction errors for each outcome
+            rpe = (r - self._q) * ch
+            cpe = ch - self._c
+            
+            # Update values
+            lr = np.where(r > 0.5, self._parameters['alpha_pos'], self._parameters['alpha_neg'])
+            self._q += lr * rpe
+            self._c += self._parameters['alpha_c'] * cpe
+            
         @property
         def q(self):
-            return get_qs(self._q, self._c)
+            return self._parameters['beta_r'] * self._q + self._parameters['beta_c'] * self._c
         
-    return AgentCustom()
+    return AgentBenchmark(parameters)
     
     
     

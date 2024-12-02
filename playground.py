@@ -1,25 +1,20 @@
-import pandas as pd 
-import numpy as np
+import sys, os
+import numpyro
+import pickle
+import argparse
 
-benchmarking_models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr','ApAnBcBr', 'ApAnAcBcBr']
-benchmark_cols = ('LL', 'BIC', 'AIC')
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from benchmarking.hierarchical_bayes_numpyro import rl_model
 
-benchmarks = np.zeros((len(benchmarking_models)+1, 3))
 
-for i, bm in enumerate(benchmarking_models):
-    data_mcmc = 'benchmarking/results/results_sugawara2021_143_mcmc_'+bm+'.csv'
-    df_mcmc = pd.read_csv(data_mcmc)
-    benchmarks[i, 0] = df_mcmc['LL'].sum()
-    benchmarks[i, 1] = df_mcmc['BIC'].sum()
-    benchmarks[i, 2] = df_mcmc['AIC'].sum()
-    # print(f'LL_MCMC_{bm} = {ll_mcmc}')
+def main(model):
+    # get summary
+    with open(model, 'rb') as file:
+        mcmc = pickle.load(file)
+    mcmc.print_summary()
     
-data_rnn = 'benchmarking/results/results_sugawara2021_143_rnn.csv'
-df_rnn = pd.read_csv(data_rnn)
-benchmarks[-1, 0] = df_rnn['LL'].sum()
-benchmarks[-1, 1] = df_rnn['BIC'].sum()
-benchmarks[-1, 2] = df_rnn['AIC'].sum()
-# print(f'LL_RNN = {ll_rnn}')
-
-df_bm = pd.DataFrame(benchmarks, columns=benchmark_cols, index=benchmarking_models+['RNN'])
-print(df_bm)
+if __name__=='__main__':
+    parser = argparse.ArgumentParser(description='Get summary from numpyro model.')
+    parser.add_argument('--model', type=str, help='numpyro rl model')
+    args = parser.parse_args()
+    main(args.model)

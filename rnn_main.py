@@ -148,8 +148,8 @@ def main(
     xs_train, ys_train = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
     xs_val, ys_val = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
-    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train, sequence_length=n_steps_per_call)
-    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val, sequence_length=64)
+    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train, sequence_length=32)
+    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
     
     # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
