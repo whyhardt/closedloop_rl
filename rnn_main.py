@@ -137,20 +137,22 @@ def main(
     
     print('Setup of datasets complete.')
   elif data is not None and dataset_train is None:
-    dataset, experiment_list_test, df, update_dynamics = convert_dataset.convert_dataset(data)
+    dataset, experiment_list, df, update_dynamics = convert_dataset.convert_dataset(data)
     indexes_dataset = np.arange(len(dataset.xs))
     # np.random.shuffle(indexes_dataset)
     
     # idx_train = int(0.95*len(dataset.xs))
     idx_train = -1
     # experiment_list_test = experiment_list_test[idx_train:]
-    experiment_list_test = [experiment_list_test[20]]
+    experiment_list_test = [experiment_list[20]]
     xs_train, ys_train = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
     xs_val, ys_val = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
     xs_test, ys_test = xs_val, ys_val
     dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train, sequence_length=32)
     dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
     dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
+    
+    n_participants = len(experiment_list)
     
     # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
     if 'mean_beta' in df.columns:
@@ -180,6 +182,7 @@ def main(
       device=device,
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
+      n_participants=n_participants,
       ).to(device)
           for _ in range(init_population)]
 

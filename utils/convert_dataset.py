@@ -35,7 +35,7 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
     r_max = df['reward'].max()
     df['reward'] = (df['reward'] - r_min) / (r_max - r_min)
     
-    xs = np.zeros((len(sessions), max_trials, n_actions + 1)) - 1
+    xs = np.zeros((len(sessions), max_trials, n_actions + 2)) - 1
     ys = np.zeros((len(sessions), max_trials, n_actions)) - 1
     
     choice_probs = np.zeros((len(sessions), max_trials, n_actions)) - 1
@@ -47,8 +47,10 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
     for i, s in enumerate(sessions):
         choice = np.eye(n_actions)[df[df['session'] == s]['choice'].values.astype(int)]
         reward = df[df['session'] == s]['reward'].values
-        xs[i, :len(choice), :-1] = choice
-        xs[i, :len(choice), -1] = reward
+        session = df[df['session'] == s]['session'].values
+        xs[i, :len(choice), :-2] = choice
+        xs[i, :len(choice), -2] = reward
+        xs[i, :len(choice), -1] = session
         ys[i, :len(choice)-1] = choice[1:]
 
         experiment = BanditSession(

@@ -185,8 +185,9 @@ class BaseRNN(nn.Module):
 class RLRNN(BaseRNN):
     def __init__(
         self,
-        n_actions, 
-        hidden_size,
+        n_actions:int, 
+        hidden_size:int,
+        n_participants:int,
         init_value=0.5,
         list_sindy_signals=['xQf', 'xQr', 'xQc', 'xC', 'ca', 'cr'],
         dropout=0.,
@@ -203,29 +204,34 @@ class RLRNN(BaseRNN):
         self._sigmoid = nn.Sigmoid()
         self._tanh = nn.Tanh()
         self._shrink = nn.Tanhshrink()
+        self._n_participants = n_participants
         
         # trainable parameters
         self._beta_reward = nn.Parameter(torch.tensor(1.))
         self._beta_choice = nn.Parameter(torch.tensor(1.))
         # self._directed_exploration_bias_raw = nn.Parameter(torch.tensor(1.))
         
+        # participant-embedding layer
+        emb_size = 8
+        self.participant_embedding = nn.Embedding(n_participants, emb_size)
+        
         # action-based subnetwork
-        self.xC = self.setup_subnetwork(2, hidden_size, dropout)
+        self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
         
         # action-based subnetwork for non-repeated action
-        self.xCf = self.setup_subnetwork(1, hidden_size, dropout)
+        self.xCf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # reward-blind subnetwork
-        self.xQf = self.setup_subnetwork(1, hidden_size, dropout)
+        self.xQf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # learning-rate subnetwork
-        self.xLR = self.setup_subnetwork(2, hidden_size, dropout)
+        self.xLR = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
         self._state = self.set_initial_state()
         
-    def value_network(self, state: torch.Tensor, value: torch.Tensor, action: torch.Tensor, reward: torch.Tensor):
+    def value_network(self, state: torch.Tensor, value: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, participant_embedding: torch.Tensor):
         """this method computes the reward-blind and reward-based updates for the Q-Values without considering the habit (e.g. last chosen action)
         
         Args:
@@ -246,23 +252,24 @@ class RLRNN(BaseRNN):
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
         next_value = torch.zeros_like(value)# + value
-            
+        
         # reward sub-network for chosen action
-        inputs = torch.concat([value, reward], dim=-1)
+        inputs = torch.concat([value, reward, participant_embedding], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
         update_chosen = value + learning_rate * rpe
 
         # reward sub-network for non-chosen action
-        update_not_chosen, _ = self.call_subnetwork('xQf', value)
+        inputs = torch.concat([value, participant_embedding], dim=-1)
+        update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
         update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
         
         next_value += update_chosen * action + update_not_chosen * (1-action)
 
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
-    def choice_network(self, state, value, action, repeated):
+    def choice_network(self, state: torch.Tensor, value: torch.Tensor, action: torch.Tensor, repeated: torch.Tensor, participant_embedding: torch.Tensor):
         
         # add dimension to value, action and repeated
         value = value.unsqueeze(-1)
@@ -273,12 +280,13 @@ class RLRNN(BaseRNN):
         next_value = torch.zeros_like(value)# + value
         
         # choice sub-network for chosen action
-        inputs = torch.concat([value, repeated], dim=-1)
+        inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
         update_chosen = self._tanh(self._shrink(update_chosen))
         
         # choice sub-network for non-chosen action
-        update_not_chosen, _ = self.call_subnetwork('xCf', value)
+        inputs = torch.concat([value, participant_embedding], dim=-1)
+        update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
         update_not_chosen = self._tanh(self._shrink(update_not_chosen))
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
@@ -309,8 +317,10 @@ class RLRNN(BaseRNN):
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
         
-        action = inputs[:, :, :-1].float()
-        reward = inputs[:, :, -1].unsqueeze(-1).float()
+        
+        action = inputs[:, :, :-2].float()
+        reward = inputs[:, :, -2].unsqueeze(-1).float()
+        participant_id = inputs[:, :, -1].unsqueeze(-1).int()
         timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
         
@@ -330,6 +340,9 @@ class RLRNN(BaseRNN):
         state = [s.squeeze(1) for s in self.get_state()]  # remove model dim for forward pass -> only one model
         reward_state, choice_state, uncertainty_state, reward_value, choice_value, uncertainty_value = state
         
+        # get participant embedding
+        participant_embedding = self.participant_embedding(participant_id).squeeze(2)
+        
         for t, a, r in zip(timesteps, action, reward):         
             # compute additional variables
             # compute whether action was repeated---across all batch samples
@@ -337,8 +350,8 @@ class RLRNN(BaseRNN):
             
             # compute the updates
             old_rv, old_cv, old_uv = reward_value.clone(), choice_value.clone(), uncertainty_value.clone() 
-            reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r)
-            choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated)
+            reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r, participant_embedding)
+            choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated, participant_embedding)
             
             # logits[t, :, :] += (reward_value + action_value) * self.beta
             logits[t, :, :] += reward_value * self._beta_reward + choice_value * self._beta_choice
