@@ -346,7 +346,7 @@ class AgentNetwork:
         if device != model.device:
           model = model.to(device)
         if isinstance(model, RLRNN):
-          self._model = RLRNN(model._n_actions, model._hidden_size, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
+          self._model = RLRNN(model._n_actions, model._hidden_size, model._n_participants, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
           self._model.load_state_dict(model.state_dict())
         else:
           self._model = model

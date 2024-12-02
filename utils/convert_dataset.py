@@ -47,10 +47,9 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
     for i, s in enumerate(sessions):
         choice = np.eye(n_actions)[df[df['session'] == s]['choice'].values.astype(int)]
         reward = df[df['session'] == s]['reward'].values
-        session = df[df['session'] == s]['session'].values
         xs[i, :len(choice), :-2] = choice
         xs[i, :len(choice), -2] = reward
-        xs[i, :len(choice), -1] = session
+        xs[i, :, -1] += i+1
         ys[i, :len(choice)-1] = choice[1:]
 
         experiment = BanditSession(
