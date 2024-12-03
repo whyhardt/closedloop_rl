@@ -207,13 +207,15 @@ class RLRNN(BaseRNN):
         self._n_participants = n_participants
         
         # trainable parameters
-        self._beta_reward = nn.Parameter(torch.tensor(1.))
-        self._beta_choice = nn.Parameter(torch.tensor(1.))
+        # self._beta_reward = nn.Parameter(torch.tensor(1.))
+        # self._beta_choice = nn.Parameter(torch.tensor(1.))
         # self._directed_exploration_bias_raw = nn.Parameter(torch.tensor(1.))
         
         # participant-embedding layer
         emb_size = 8
         self.participant_embedding = nn.Embedding(n_participants, emb_size)
+        self._beta_reward = nn.Linear(emb_size, 1)
+        self._beta_choice = nn.Linear(emb_size, 1)
         
         # action-based subnetwork
         self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
@@ -311,16 +313,8 @@ class RLRNN(BaseRNN):
             Tuple[torch.Tensor]: updated habit state, value state, habit, value
         """
         
-        if len(inputs.shape) == 2:
-            # unsqueeze time dimension
-            if batch_first:
-                inputs = inputs.unsqueeze(1)
-            else:
-                inputs = inputs.unsqueeze(0)
-        
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
-        
         
         action = inputs[:, :, :-2].float()
         reward = inputs[:, :, -2].unsqueeze(-1).float()
@@ -328,13 +322,6 @@ class RLRNN(BaseRNN):
         participant_id = inputs[:, :, -1].unsqueeze(-1).int()
         timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
-        
-        # check if action is one-hot encoded
-        action_oh = torch.zeros((inputs.shape[0], inputs.shape[1], self._n_actions), dtype=torch.float, device=self.device)
-        if action.shape[-1] == 1:
-            for i in range(inputs.shape[1]):
-                action_oh[:, i, :] = torch.eye(self._n_actions, device=self.device)[action[:, i, 0].int()]
-            action = action_oh
            
         if prev_state is not None:
             self.set_state(prev_state[0], prev_state[1], prev_state[2], prev_state[3], prev_state[4], prev_state[5])
@@ -347,6 +334,8 @@ class RLRNN(BaseRNN):
         
         # get participant embedding
         participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
+        beta_reward = self._beta_reward(participant_embedding[0, :, 0])
+        beta_choice = self._beta_choice(participant_embedding[0, :, 0])
         
         for t, a, r, p in zip(timesteps, action, reward, participant_embedding):         
             # compute additional variables
@@ -359,7 +348,7 @@ class RLRNN(BaseRNN):
             choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated, p)
             
             # logits[t, :, :] += (reward_value + action_value) * self.beta
-            logits[t, :, :] += reward_value * self._beta_reward + choice_value * self._beta_choice
+            logits[t, :, :] += reward_value * beta_reward + choice_value * beta_choice
             
             self._prev_action = a.clone()
             
@@ -381,14 +370,9 @@ class RLRNN(BaseRNN):
             logits = logits.permute(1, 0, 2)
             
         return logits, self.get_state()
-    
-    @property
-    def beta(self):
-        return torch.nn.functional.gelu(self._beta_reward)
 
     def set_initial_state(self, batch_size: int=1, return_dict=False):
         self._prev_action = torch.zeros(batch_size, self._n_actions, device=self.device)
-        self._beta = self._beta_reward + torch.zeros([batch_size, 1], dtype=torch.float, device=self.device)
         return super().set_initial_state(batch_size, return_dict)
 
     

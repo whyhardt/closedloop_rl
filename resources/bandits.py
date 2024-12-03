@@ -128,7 +128,7 @@ class AgentQ:
           parameter_variance[key] = 0.
     return parameter_variance
   
-  def new_sess(self, sample_parameters=False):
+  def new_sess(self, sample_parameters=False, **kwargs):
     """Reset the agent for the beginning of a new session."""
     self._q = np.full(self._n_actions, self._q_init)
     self._c = np.zeros(self._n_actions)
@@ -165,9 +165,7 @@ class AgentQ:
     choice = np.random.choice(self._n_actions, p=choice_probs)
     return choice
 
-  def update(self,
-             choice: int,
-             reward: float):
+  def update(self, choice: int, reward: float, *args):
     """Update the agent after one step of the task.
 
     Args:
@@ -242,7 +240,7 @@ class AgentSindy:
     
     self.new_sess()
 
-  def update(self, choice: int, reward: int):
+  def update(self, choice: int, reward: int, **kwargs):
 
       choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
       self._prev_choice = 0
@@ -268,7 +266,7 @@ class AgentSindy:
         
       self._prev_choice += choice
       
-  def new_sess(self):
+  def new_sess(self, **kwargs):
     """Reset the agent for the beginning of a new session."""
     self._q = self._q_init + np.zeros(self._n_actions)
     self._c = np.zeros(self._n_actions)
@@ -357,15 +355,19 @@ class AgentNetwork:
         
         self.new_sess()
 
-    def new_sess(self):
+    def new_sess(self, session: int = 0):
       """Reset the network for the beginning of a new session."""
+      if not isinstance(session, torch.Tensor):
+        session = torch.tensor(session, dtype=int)[None]
       self._model.set_initial_state(batch_size=1)
-      self._xs = torch.zeros((1, 2))-1
+      self._xs = torch.zeros((1, self._n_actions+2))
+      self._xs[0, -1] = session
+      self._participant_embedding = self._model.participant_embedding(session)
       self.set_state()
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._q * self._model._beta_reward.item() + self._c * self._model._beta_choice.item() # + self._u #* self._directed_exploration_bias
+      logit = self._q * self._model._beta_reward(self._participant_embedding).item() + self._c * self._model._beta_choice(self._participant_embedding).item() # + self._u #* self._directed_exploration_bias
       return logit
     
     def get_choice_probs(self) -> np.ndarray:
@@ -382,8 +384,9 @@ class AgentNetwork:
       else:
         return np.random.choice(self._n_actions, p=choice_probs)
 
-    def update(self, choice: float, reward: float):
-      self._xs = torch.tensor([[choice, reward]], device=self._model.device)
+    def update(self, choice: float, reward: float, session: float):
+      choice = torch.eye(self._n_actions)[int(choice)]
+      self._xs = torch.concat([choice, torch.tensor(reward)[None], torch.tensor(session)[None]])[None, None, :].to(device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
       self.set_state()
@@ -635,6 +638,7 @@ class BanditSession(NamedTuple):
   """Holds data for a single session of a bandit task."""
   choices: np.ndarray
   rewards: np.ndarray
+  session: np.ndarray
   reward_probabilities: np.ndarray
   q: np.ndarray
   n_trials: int
@@ -687,6 +691,7 @@ def run_experiment(
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),
                              rewards=rewards[:-1],
+                             session=np.zeros_like(rewards[:-1]).astype(int),
                              reward_probabilities=reward_probs[:-1],
                              q=qs[:-1])
   return experiment, choices.astype(int), rewards
@@ -719,7 +724,7 @@ def create_dataset(
     An experliment_list with the results of (simulated) experiments
   """
   
-  xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 1))
+  xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 2))
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
   parameter_list = []
@@ -729,10 +734,11 @@ def create_dataset(
       print(f'Running session {session+1}/{n_sessions}...')
     agent.new_sess(sample_parameters=sample_parameters)
     experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
+    experiment.session += session
     experiment_list.append(experiment)
     # one-hot encoding of choices
     choices = np.eye(agent._n_actions)[choices]
-    xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1)), axis=-1)
+    xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1), np.full_like(rewards[:-1].reshape(-1, 1))), axis=-1)
     ys[:, session] = choices[1:]
     if isinstance(agent, AgentQ):
       # add current parameters to list
@@ -774,7 +780,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   cs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   choice_probs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   
-  agent.new_sess()
+  agent.new_sess(session=experiment.session[0])
   
   for trial in range(experiment.choices.shape[0]):
     # track all states
@@ -783,7 +789,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
     cs[trial] = agent._c
     
     choice_probs[trial] = agent.get_choice_probs()
-    agent.update(int(choices[trial]), float(rewards[trial]))
+    agent.update(int(choices[trial]), float(rewards[trial]), int(experiment.session[0]))
   
   return (Qs, qs, cs), choice_probs, agent
 

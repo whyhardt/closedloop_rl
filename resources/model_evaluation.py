@@ -2,9 +2,15 @@ import sys, os
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pickle
+from typing import Union
+import numpyro
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.bandits import get_update_dynamics
+from benchmarking.hierarchical_bayes_numpyro import rl_model
 
 
 def log_likelihood(data, probs):
@@ -43,8 +49,9 @@ def get_scores(experiment, agent, n_parameters) -> float:
         nll = -ll
         return nll, aic, bic
     
-def get_scores_array(ids, experiment, agent, n_parameters, verbose=False) -> pd.DataFrame:
+def get_scores_array(experiment, agent, n_parameters, verbose=False) -> pd.DataFrame:
         nll, bic, aic = [], [], []
+        ids = range(len(experiment))
         for i in tqdm(ids):
             nll_i, aic_i, bic_i = get_scores(experiment[i], agent[i], n_parameters[i])
             nll.append(0+nll_i)
@@ -54,3 +61,45 @@ def get_scores_array(ids, experiment, agent, n_parameters, verbose=False) -> pd.
             print('Summarized statistics:')
             print(f'NLL = {np.sum(np.array(nll))} --- BIC = {np.sum(np.array(bic))} --- AIC = {np.sum(np.array(aic))}')
         return pd.DataFrame({'Job_ID': ids, 'NLL': nll, 'BIC': bic, 'AIC': aic})
+    
+def plot_traces(file_numpyro: Union[str, numpyro.infer.MCMC], figsize=(12, 8)):
+    """
+    Plot trace plots for posterior samples.
+
+    Parameters:
+    - samples: dict, where keys are parameter names and values are arrays of samples.
+    - param_names: list of str, parameter names to include in the plot.
+    - figsize: tuple, size of the figure.
+    """
+    
+    if isinstance(file_numpyro, str):
+        with open(file_numpyro, 'rb') as file:
+            mcmc = pickle.load(file)
+    elif isinstance(file_numpyro, numpyro.infer.MCMC):
+        mcmc = file_numpyro
+    else:
+        raise AttributeError('argument 0 (file_numpyro) is not of class str or numpyro.infer.MCMC.')
+    
+    samples = mcmc.get_samples()
+    param_names = list(mcmc.get_samples().keys())
+    
+    n_params = len(param_names)
+    fig, axes = plt.subplots(n_params, 2, figsize=figsize, gridspec_kw={'width_ratios': [2, 2]})
+
+    for i, param in enumerate(param_names):
+        param_samples = samples[param]
+        
+        # Trace plot
+        axes[i, 1].plot(param_samples, alpha=0.7, linewidth=0.7)
+        axes[i, 1].set_title(f"Trace Plot: {param}")
+        axes[i, 1].set_ylabel(param)
+        axes[i, 1].set_xlabel("Iteration")
+
+        # KDE plot
+        sns.kdeplot(param_samples, ax=axes[i, 0], fill=True, color="skyblue")
+        axes[i, 0].set_title(f"Posterior: {param}")
+        axes[i, 0].set_xlabel(param)
+        axes[i, 0].set_ylabel("Density")
+
+    plt.tight_layout()
+    plt.show()

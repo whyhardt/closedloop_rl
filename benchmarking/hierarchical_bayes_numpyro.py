@@ -9,49 +9,53 @@ import arviz as az
 import argparse
 import pickle
     
-
-def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: bool):
-    
-    if hierarchical:
+# @jax.jit(static_argnames=['model','hierarchical'])
+def rl_model(model, choice, reward, hierarchical):
+    if hierarchical == 1:
         # Priors for group-level parameters
-        alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Uniform(low=0.01, high=0.99)) if 'Ap' in model else 1
-        alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Uniform(low=0.01, high=0.99)) if 'An' in model else -1
-        alpha_c_mean = numpyro.sample("alpha_c_mean", dist.Uniform(low=0.01, high=0.99)) if 'Ac' in model else 1
-        beta_c_mean = numpyro.sample("beta_c_mean", dist.Uniform(low=0.01, high=0.99)) if 'Bc' in model else 0
-        beta_r_mean = numpyro.sample("beta_r_mean", dist.Uniform(low=0.01, high=9.99)) if 'Br' in model else 1
+        alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Uniform(low=0.01, high=0.99)) if model[0]==1 else 1
+        alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Uniform(low=0.01, high=0.99)) if model[1]==1 else -1
+        alpha_c_mean = numpyro.sample("alpha_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[2]==1 else 1
+        beta_c_mean = numpyro.sample("beta_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[3]==1 else 0
+        beta_r_mean = numpyro.sample("beta_r_mean", dist.Uniform(low=0.01, high=9.99)) if model[4]==1 in model else 1
         
         # Priors for individual-level variation (hierarchical)
-        alpha_pos_std = numpyro.sample("alpha_pos_std", dist.HalfNormal(0.3)) if 'Ap' in model else 0
-        alpha_neg_std = numpyro.sample("alpha_neg_std", dist.HalfNormal(0.3)) if 'An' in model else 0
-        alpha_c_std = numpyro.sample("alpha_c_std", dist.HalfNormal(0.3))  if 'Ac' in model else 0
-        beta_c_std = numpyro.sample("beta_c_std", dist.HalfNormal(0.3)) if 'Bc' in model else 0
-        beta_r_std = numpyro.sample("beta_r_std", dist.HalfNormal(3)) if 'Br' in model else 0
+        alpha_pos_std = numpyro.sample("alpha_pos_std", dist.HalfNormal(0.3)) if model[0]==1 else 0
+        alpha_neg_std = numpyro.sample("alpha_neg_std", dist.HalfNormal(0.3)) if model[1]==1 else 0
+        alpha_c_std = numpyro.sample("alpha_c_std", dist.HalfNormal(0.3))  if model[2]==1 else 0
+        beta_c_std = numpyro.sample("beta_c_std", dist.HalfNormal(0.3)) if model[3]==1 else 0
+        beta_r_std = numpyro.sample("beta_r_std", dist.HalfNormal(3)) if model[4]==1 else 0
         
         # Individual-level parameters
         alpha_neg = None
         with numpyro.plate("participants", choice.shape[1]):
-            alpha_pos = numpyro.sample("alpha_pos", dist.TruncatedNormal(alpha_pos_mean, alpha_pos_std, low=0.01, high=0.99))[:, None] if 'Ap' in model else 1
-            if 'An' in model:
+            alpha_pos = numpyro.sample("alpha_pos", dist.TruncatedNormal(alpha_pos_mean, alpha_pos_std, low=0.01, high=0.99))[:, None] if model[0]==1 else 1
+            if model[1]==1:
                 alpha_neg = numpyro.sample("alpha_neg", dist.TruncatedNormal(alpha_neg_mean, alpha_neg_std, low=0.01, high=0.99))[:, None]
-            alpha_c = numpyro.sample("alpha_c", dist.TruncatedNormal(alpha_c_mean, alpha_c_std, low=0.01, high=0.99))[:, None] if 'Ac' in model else 1
-            beta_c = numpyro.sample("beta_c", dist.TruncatedNormal(beta_c_mean, beta_c_std, low=0.01, high=0.99)) if 'Bc' in model else 0
-            beta_r = numpyro.sample("beta_r", dist.TruncatedNormal(beta_r_mean, beta_r_std, low=0.01, high=9.99)) if 'Br' in model else 1
-        if 'An' not in model:
+            alpha_c = numpyro.sample("alpha_c", dist.TruncatedNormal(alpha_c_mean, alpha_c_std, low=0.01, high=0.99))[:, None] if model[2]==1 else 1
+            beta_c = numpyro.sample("beta_c", dist.TruncatedNormal(beta_c_mean, beta_c_std, low=0.01, high=0.99)) if model[3]==1 else 0
+            beta_r = numpyro.sample("beta_r", dist.TruncatedNormal(beta_r_mean, beta_r_std, low=0.01, high=9.99)) if model[4]==1 else 1
+        
+        if model[1]==0:
             alpha_neg = alpha_pos
     else:
         # Basic bayesian inference (not hierarchical)
-        alpha_pos = numpyro.sample("alpha_pos", dist.Uniform(0., 1.)) if 'Ap' in model else 1
-        alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.)) if 'An' in model else alpha_pos
-        alpha_c = numpyro.sample("alpha_c", dist.Uniform(0., 1.)) if 'Ac' in model else 1
-        beta_c = numpyro.sample("beta_c", dist.Uniform(0., 10.)) if 'Bc' in model else 0
-        beta_r = numpyro.sample("beta_r", dist.Uniform(0., 10.)) if 'Br' in model else 1
+        alpha_pos = numpyro.sample("alpha_pos", dist.Uniform(0., 1.)) if model[0]==1 else 1
+        alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.)) if model[1]==1 else alpha_pos
+        alpha_c = numpyro.sample("alpha_c", dist.Uniform(0., 1.)) if model[2]==1 else 1
+        beta_c = numpyro.sample("beta_c", dist.Uniform(0., 10.)) if model[3]==1 else 0
+        beta_r = numpyro.sample("beta_r", dist.Uniform(0., 10.)) if model[4]==1 else 1
 
-    def get_action_prob(r_values, c_values):
-        return jax.nn.sigmoid(beta_r * (r_values[:, 1] - r_values[:, 0]) + beta_c * (c_values[:, 1] - c_values[:, 0]))
+    def get_action_prob(r_values, c_values, beta_r, beta_c):
+        r_diff = r_values[:, 1] - r_values[:, 0]
+        c_diff = c_values[:, 1] - c_values[:, 0]
+        
+        # Compute action probabilities
+        return jax.nn.sigmoid(beta_r * r_diff + beta_c * c_diff)
     
-    def update(carry, x):
-        r_values = carry[:, :2]
-        c_values = carry[:, 2:4]
+    def update(carry, x):#, alpha_pos, alpha_neg, alpha_c, beta_r, beta_c):
+        r_values = carry[0]
+        c_values = carry[1]
         ch, rw = x[:, :2], x[:, 2][:, None]
         
         # Compute prediction errors for each outcome
@@ -65,34 +69,47 @@ def rl_model(model: str, choice: jnp.array, reward: jnp.array, hierarchical: boo
         c_values = c_values + alpha_c * cpe
         
         # compute action probabilities
-        action_prob = get_action_prob(r_values, c_values)[:, None]
+        r_diff = r_values[:, 1] - r_values[:, 0]
+        c_diff = c_values[:, 1] - c_values[:, 0]
+        action_prob = jax.nn.sigmoid(beta_r * r_diff + beta_c * c_diff)
+        # action_prob = get_action_prob(r_values, c_values)[:, None]
         
-        y = jnp.concatenate((r_values, c_values, action_prob), axis=-1)
-        return y, y
+        # y = jnp.concatenate((r_values, c_values, action_prob), axis=-1)
+        
+        return (r_values, c_values), action_prob
     
     # Define initial Q-values and initialize the previous choice variable
     r_values = jnp.full((choice.shape[1], 2), 0.5)
     c_values = jnp.zeros((choice.shape[1], 2))
-    carry = jnp.concatenate((r_values, c_values, get_action_prob(r_values, c_values)[:, None]), axis=-1)
     xs = jnp.concatenate((choice[:-1], reward[:-1]), axis=-1)
-    # _, ys = jax.lax.scan(update, carry, xs)
+    # _, ys = jax.lax.scan(update, (r_values, c_values), xs)
     
-    ys = jnp.zeros((choice.shape[0]-1, *carry.shape))
+    ys = jnp.zeros((choice.shape[0]-1, r_values.shape[0]))
+    carry = (r_values, c_values)
     for i in range(len(choice)-1):
-        carry = update(carry, xs[i])[0]
-        ys.at[i].add(carry)
-        
+        carry, y = update(carry, xs[i])
+        ys = ys.at[i].set(y)
+    
     # Use numpyro.plate for sampling
     next_choices = choice[1:, :, -1]
-    action_probs = ys[:, :, -1]
-    
-    if hierarchical:
-        with numpyro.plate("participants", choice.shape[1], dim=-1):
-            with numpyro.plate("time_steps", choice.shape[0] - 1, dim=-2):
-                numpyro.sample("obs", dist.Bernoulli(probs=action_probs), obs=next_choices)
+    valid_mask = ys != -1
+    # Apply the mask to the observations
+    if hierarchical == 1:
+        with numpyro.handlers.mask(mask=valid_mask):
+            with numpyro.plate("participants", choice.shape[1], dim=-1):
+                with numpyro.plate("time_steps", choice.shape[0] - 1, dim=-2):
+                    numpyro.sample("obs", dist.Bernoulli(probs=ys), obs=next_choices)
     else:
-        numpyro.sample("obs", dist.Bernoulli(probs=action_probs.flatten()), obs=next_choices.flatten())
+        with numpyro.handlers.mask(mask=valid_mask.flatten()):
+            numpyro.sample("obs", dist.Bernoulli(probs=ys.flatten()), obs=next_choices.flatten())
 
+
+def encode_model_name(model: str, model_parts: list) -> np.ndarray:
+    enc = np.zeros((len(model_parts),))
+    for i in range(len(model_parts)):
+        if model_parts[i] in model:
+            enc[i] = 1
+    return enc
 
 
 def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool, output_file: str):
@@ -122,7 +139,7 @@ def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: i
     # Run the model
     kernel = infer.NUTS(rl_model)
     mcmc = infer.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
-    mcmc.run(jax.random.PRNGKey(0), model=model, choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
+    mcmc.run(jax.random.PRNGKey(0), model=tuple(encode_model_name(model, valid_config)), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
 
     with open(output_file.split('.')[0] + '_' + model + '.nc', 'wb') as file:
         pickle.dump(mcmc, file)

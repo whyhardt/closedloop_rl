@@ -11,29 +11,30 @@ from sindy_main import main as sindy_main
 
 
 def setup_rnn(
-    path_model=None, 
+    path_model,
+    n_participants, 
     n_actions=2, 
-    hidden_size=8, 
+    hidden_size=8,
     list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
 ) -> RLRNN:
     
-    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
-    if path_model is not None:
-        rnn.load_state_dict(load(path_model)['model'])
+    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=n_participants, list_sindy_signals=list_sindy_signals, device=device)
+    rnn.load_state_dict(load(path_model)['model'])
     
     return rnn
 
 
 def setup_agent_rnn(
-    path_model=None, 
+    path_model,
+    n_participants, 
     n_actions=2, 
     hidden_size=8, 
     list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
     ) -> AgentNetwork:
     
-    rnn = setup_rnn(path_model=path_model, n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
+    rnn = setup_rnn(path_model=path_model, n_participants=n_participants, n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
     agent = AgentNetwork(model=rnn, n_actions=n_actions, deterministic=True)
     
     return agent
@@ -70,7 +71,7 @@ def setup_benchmark_q_agent(
             
             self._parameters = parameters
             
-        def update(self, a, r):
+        def update(self, a, r, *args):
             # q, c = update_rule(self._q, self._c, a, r)
             ch = np.eye(2)[a]
 

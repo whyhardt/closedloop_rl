@@ -233,7 +233,7 @@ def main(
       },
     }
     print('Training finished.')
-    print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
+    # print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
     torch.save(state_dict, params_path)
     print(f'Saved RNN parameters to file {params_path}.')
     print(f'Training took {time.time() - start_time:.2f} seconds.')
@@ -282,7 +282,7 @@ def main(
       'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
     }
     print('Finetuning finished.')
-    print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
+    # print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
     if file_out_finetuning is None:
       file_out_finetuning = params_path.replace('_rnn_', '_rnn_finetuned_')
     torch.save(state_dict, file_out_finetuning)
@@ -304,7 +304,7 @@ def main(
   # -----------------------------------------------------------
   
   if analysis:
-    print(f'Betas of model: {(model._beta_reward.item(), model._beta_choice.item())}')
+    # print(f'Betas of model: {(model._beta_reward.item(), model._beta_choice.item())}')
     # Synthesize a dataset using the fitted network
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
     model.set_device(torch.device('cpu'))

@@ -55,6 +55,7 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
         experiment = BanditSession(
             choices=df[df['session'] == s]['choice'].values,
             rewards=reward,
+            session=np.full_like(reward, i),
             reward_probabilities=np.zeros_like(choice)+0.5,
             q=np.zeros_like(choice)+0.5,
             n_trials=len(choice)

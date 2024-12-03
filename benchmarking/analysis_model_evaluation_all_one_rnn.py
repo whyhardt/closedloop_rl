@@ -15,6 +15,8 @@ from resources.bandits import get_update_dynamics
 from benchmarking.hierarchical_bayes_numpyro import rl_model
 
 def main(data, model):
+    # load data
+    experiment = convert_dataset(data)[1]
     
     agent_rnn, agent_sindy = None, None
     n_parameters_rnn, n_parameters_sindy = None, None
@@ -23,19 +25,15 @@ def main(data, model):
     agent_sindy, n_parameters_sindy = [], []
     
     # setup rnn agent for comparison
-    agent_rnn = setup_agent_rnn(model)
+    agent_rnn = setup_agent_rnn(model, len(experiment))
     n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad)
 
     # setup sindy agent and get number of sindy coefficients which are not 0
-    agent_sindy = setup_agent_sindy(model, data)
-    n_parameters_sindy = agent_sindy._count_sindy_parameters(without_self=True)
+    # agent_sindy = setup_agent_sindy(model, data)
+    # n_parameters_sindy = agent_sindy._count_sindy_parameters(without_self=True)
     
-    # load data
-    experiment = convert_dataset(data)[1]
-    
-    experiment_ids = np.arange(0, len(experiment)) 
-    get_scores_array(experiment_ids, experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment), verbose=True)
-    get_scores_array(experiment_ids, experiment, [agent_sindy]*len(experiment), [n_parameters_sindy]*len(experiment), verbose=True)
+    get_scores_array(experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment), verbose=True)
+    # get_scores_array(experiment_ids, experiment, [agent_sindy]*len(experiment), [n_parameters_sindy]*len(experiment), verbose=True)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

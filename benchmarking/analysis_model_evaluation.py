@@ -14,24 +14,28 @@ from resources.bandits import AgentQ, get_update_dynamics
 from benchmarking.hierarchical_bayes_numpyro import rl_model
 
 
-# data = 'data/sugawara2021_143_processed.csv'
-# model_rnn = 'params/benchmarking/rnn_sugawara.pkl'
+data = 'data/2arm/sugawara2021_143_processed.csv'
+model_rnn = 'params/benchmarking/rnn_sugawara.pkl'
 # model_benchmark = 'benchmarking/params/sugawara2021_143/non_hierarchical/traces.nc'
+model_benchmark = 'benchmarking/params/sugawara2021_143/non_hierarchical/traces.nc'
 
-data = 'data/2arm/eckstein2022_291_processed.csv'
-model_rnn = 'params/benchmarking/rnn_eckstein.pkl'
-model_benchmark = 'benchmarking/params/eckstein2022_291/non_hierarchical/traces.nc'
+# data = 'data/2arm/eckstein2022_291_processed.csv'
+# model_rnn = 'params/benchmarking/rnn_eckstein.pkl'
+# model_benchmark = 'benchmarking/params/eckstein2022_291/non_hierarchical/traces.nc'
 
 models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr']
 # models = ['ApAnBcBr']
 
+# load data
+experiment = convert_dataset(data)[1]
+
 # setup rnn agent for comparison
-agent_rnn = setup_agent_rnn(model_rnn)
+agent_rnn = setup_agent_rnn(model_rnn, len(experiment))
 n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad)
 
 # setup sindy agent and get number of sindy coefficients which are not 0
-agent_sindy = setup_agent_sindy(model_rnn, data)
-n_parameters = agent_sindy._count_sindy_parameters(without_self=True)
+# agent_sindy = setup_agent_sindy(model_rnn, data)
+# n_parameters = agent_sindy._count_sindy_parameters(without_self=True)
 
 # setup random, dummy AgentQ model (as quasi-baseline)
 agent_rl = AgentQ(alpha=0.5, beta=5, perseverance_bias=1.0)
@@ -59,30 +63,28 @@ for model in models:
 
     agent_mcmc[model] = (setup_benchmark_q_agent(parameters), n_parameters_mcmc)
 
-# load data
-experiment = convert_dataset(data)[1]
-experiment_id = np.arange(0, len(experiment))
-
 data = np.zeros((len(models)+3, 3))
 n_experiments = len(experiment)
 
 print('Get LL by RL-Baseline...')
-df = get_scores_array(experiment_id, experiment, [agent_rl]*len(experiment), [2]*len(experiment))
+df = get_scores_array(experiment, [agent_rl]*len(experiment), [2]*len(experiment))
 data[0, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
 
 print('Get LL by RNN...')
-df = get_scores_array(experiment_id, experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment))
+df = get_scores_array(experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment))
 data[-2, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
 
-print('Get LL by SINDy...')
-df = get_scores_array(experiment_id, experiment, [agent_sindy]*len(experiment), [agent_sindy._count_sindy_parameters(True)]*len(experiment))
-data[-1, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
+# print('Get LL by SINDy...')
+# df = get_scores_array(experiment_id, experiment, [agent_sindy]*len(experiment), [agent_sindy._count_sindy_parameters(True)]*len(experiment))
+# data[-1, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
 
-for i in range(1, len(models)+1):
-    key = list(agent_mcmc.keys())[i-1]
-    print(f'Get LL by Benchmark ({key})...')
-    df = get_scores_array(experiment_id, experiment, [agent_mcmc[key][0]]*len(experiment), [agent_mcmc[key][1]]*len(experiment))
-    data[i, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
+import jax
+with jax.default_device(jax.devices('cpu')[0]):
+    for i in range(1, len(models)+1):
+        key = list(agent_mcmc.keys())[i-1]
+        print(f'Get LL by Benchmark ({key})...')
+        df = get_scores_array(experiment, [agent_mcmc[key][0]]*len(experiment), [agent_mcmc[key][1]]*len(experiment))
+        data[i, :] = np.array((df['NLL'].sum(), df['AIC'].sum(), df['BIC'].sum()))
 
 import pandas as pd
 

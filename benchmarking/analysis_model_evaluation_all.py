@@ -64,12 +64,12 @@ def main(data, model, output_file, job_id):
     experiment = convert_dataset(data)[1]
     
     if agent_mcmc is not None:
-        df = get_scores_array(job_id, experiment, agent_mcmc, n_parameters_mcmc, verbose=True)
+        df = get_scores_array(experiment, agent_mcmc, n_parameters_mcmc, verbose=True)
         output_file = output_file.replace('.', '_mcmc_'+model.split('/')[-1].split('_')[-1].split('.')[0]+'.')
         df.to_csv(output_file)
         print(f'Saved MCMC scores in {output_file}')
     if agent_rnn is not None:
-        df = get_scores_array(job_id, experiment, agent_rnn, n_parameters_rnn, verbose=True)
+        df = get_scores_array(experiment, agent_rnn, n_parameters_rnn, verbose=True)
         df.to_csv(output_file.replace('.', '_rnn.'))
     # if agent_sindy is not None:
     #     df = get_scores_array(experiment, agent_sindy, n_parameters_sindy)

@@ -8,15 +8,15 @@ losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
     checkpoint=False,
-    epochs_train=1024,
+    epochs_train=8192,
     # epochs_finetune=1024,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
-    model=f'params/benchmarking/rnn_eckstein.pkl',
-    data = 'data/2arm/eckstein2022_291_processed.csv',
-    # model = f'params/benchmarking/bahrami2020_965_{i}.pkl',
-    # data = 'data/bahrami2020_965_processed.csv',
+    # model=f'params/benchmarking/rnn_eckstein.pkl',
+    # data = 'data/2arm/eckstein2022_291_processed.csv',
+    model = f'params/benchmarking/rnn_sugawara.pkl',
+    data = 'data/2arm/sugawara2021_143_processed.csv',
     
     # n_submodels=8,
     
