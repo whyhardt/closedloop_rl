@@ -50,13 +50,17 @@ def get_scores(experiment, agent, n_parameters) -> float:
         return nll, aic, bic
     
 def get_scores_array(experiment, agent, n_parameters, verbose=False) -> pd.DataFrame:
-        nll, bic, aic = [], [], []
+        nll, bic, aic = np.zeros((len(experiment))), np.zeros((len(experiment))), np.zeros((len(experiment)))
         ids = range(len(experiment))
         for i in tqdm(ids):
-            nll_i, aic_i, bic_i = get_scores(experiment[i], agent[i], n_parameters[i])
-            nll.append(0+nll_i)
-            bic.append(0+bic_i)
-            aic.append(0+aic_i)
+            try:
+                nll_i, aic_i, bic_i = get_scores(experiment[i], agent[i], n_parameters[i])
+            except ValueError:
+                nll_i, aic_i, bic_i = np.nan, np.nan, np.nan
+                print(f'Session {i} could not be calculated due to ValueError (most likely SINDy)')
+            nll[i] += nll_i
+            bic[i] += bic_i
+            aic[i] += aic_i
         if verbose:
             print('Summarized statistics:')
             print(f'NLL = {np.sum(np.array(nll))} --- BIC = {np.sum(np.array(bic))} --- AIC = {np.sum(np.array(aic))}')
@@ -71,6 +75,11 @@ def plot_traces(file_numpyro: Union[str, numpyro.infer.MCMC], figsize=(12, 8)):
     - param_names: list of str, parameter names to include in the plot.
     - figsize: tuple, size of the figure.
     """
+    plt.rc('font', size=7)
+    plt.rc('axes', titlesize=7)
+    plt.rc('axes', labelsize=7)
+    plt.rc('xtick', labelsize=7)
+    plt.rc('ytick', labelsize=7)
     
     if isinstance(file_numpyro, str):
         with open(file_numpyro, 'rb') as file:
@@ -91,15 +100,21 @@ def plot_traces(file_numpyro: Union[str, numpyro.infer.MCMC], figsize=(12, 8)):
         
         # Trace plot
         axes[i, 1].plot(param_samples, alpha=0.7, linewidth=0.7)
-        axes[i, 1].set_title(f"Trace Plot: {param}")
-        axes[i, 1].set_ylabel(param)
-        axes[i, 1].set_xlabel("Iteration")
+        # axes[i, 1].set_title(f"Trace Plot: {param}")
+        # axes[i, 1].set_ylabel(param)
+        # axes[i, 1].set_xlabel("Iteration")
 
         # KDE plot
-        sns.kdeplot(param_samples, ax=axes[i, 0], fill=True, color="skyblue")
-        axes[i, 0].set_title(f"Posterior: {param}")
-        axes[i, 0].set_xlabel(param)
-        axes[i, 0].set_ylabel("Density")
+        sns.kdeplot(param_samples, ax=axes[i, 0], fill=True, color="skyblue", legend=False)
+        # axes[i, 0].set_title(f"Posterior: {param}")
+        # axes[i, 0].set_xlabel(param)
+        y_label = param
+        check_for = ['mean', 'std']
+        for check in check_for:
+            if check in y_label:
+                # remove param name and keep only remaining part (mean or std)
+                param = param[param.find(check):]
+        axes[i, 0].set_ylabel(param)
 
     plt.tight_layout()
     plt.show()

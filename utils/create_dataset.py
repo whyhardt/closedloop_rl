@@ -15,7 +15,7 @@ n_trials_per_session = 256
 parameter_variance = {'beta': 0.5, 'alpha': 0.1, 'alpha_penalty': 0.1, 'perseverance_bias': 0.1}
 
 agent = AgentQ(
-    beta=3.,
+    beta_r=3.,
     alpha=0.5,
     alpha_penalty=0.5,
     confirmation_bias=0.,
@@ -67,7 +67,7 @@ for i in range(len(experiment_list)):
     perseverance_bias += list(np.zeros((len(experiment.choices))) + parameter_list[i]['perseverance_bias'])
     
     # append all mean model parameters for each trial
-    mean_beta += list(np.zeros((len(experiment.choices))) + agent._mean_beta)
+    mean_beta += list(np.zeros((len(experiment.choices))) + agent._mean_beta_r)
     mean_alpha += list(np.zeros((len(experiment.choices))) + agent._mean_alpha)
     mean_alpha_penalty += list(np.zeros((len(experiment.choices))) + agent._mean_alpha_penalty)
     mean_confirmation_bias += list(np.zeros((len(experiment.choices))) + agent._mean_confirmation_bias)
@@ -80,6 +80,6 @@ df = pd.DataFrame(data=data, columns=columns)
 
 if isinstance(parameter_variance, float):
     parameter_variance = np.round(agent._parameter_variance, 2)
-dataset_name = parameter_file_naming('data/data', np.round(agent._mean_alpha, 2), np.round(agent._mean_beta, 2), np.round(agent._mean_forget_rate, 2), np.round(agent._mean_perseverance_bias, 2), np.round(agent._mean_alpha_penalty, 2), np.round(agent._mean_confirmation_bias, 2), parameter_variance).replace('.pkl','.csv')
+dataset_name = parameter_file_naming('data/data', np.round(agent._mean_alpha, 2), np.round(agent._mean_beta_r, 2), np.round(agent._mean_forget_rate, 2), np.round(agent._mean_perseverance_bias, 2), np.round(agent._mean_alpha_penalty, 2), np.round(agent._mean_confirmation_bias, 2), parameter_variance).replace('.pkl','.csv')
 df.to_csv(dataset_name, index=False)
 print(f'Data saved to {dataset_name}')

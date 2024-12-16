@@ -85,18 +85,19 @@ def create_dataset(
       data = [data]
     if verbose:
       Warning('data is not of type Environment. Checking for correct number of sessions and trials per session with respect to the given data object.')
-    if n_sessions > len(data):
-      n_sessions = len(data)
     if isinstance(data, DatasetRNN):
-      if n_trials_per_session > data.xs.shape[1]:
+      if n_trials_per_session > data.xs.shape[1] or n_trials_per_session == -1 or n_trials_per_session == None:
         n_trials_per_session = data.xs.shape[1]
     else:
         if isinstance(data[0], BanditSession):
-          if n_trials_per_session > data[0].choices.shape[0]:
-            n_trials_per_session = data[0].choices.shape[0]
+          if n_trials_per_session == None or n_trials_per_session == -1 or n_trials_per_session > data[0].choices.shape[0]:
+            n_trials_per_session = data[0].choices.shape[0]  
+          if n_sessions == None or n_sessions == -1 or n_sessions > len(data):
+            n_sessions = len(data)
         else:
           if n_trials_per_session > data[0].shape[0]: 
             n_trials_per_session = data[0].shape[0]
+          
   keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
   keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
   

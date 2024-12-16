@@ -14,7 +14,7 @@ import argparse
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
 from resources import rnn, rnn_training, bandits, rnn_utils
-from utils import convert_dataset
+from utils import convert_dataset, plotting
 
 def main(
   checkpoint = False,
@@ -309,117 +309,18 @@ def main(
     environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
     model.set_device(torch.device('cpu'))
     model.to(torch.device('cpu'))
-    rnn_agent = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
+    agent_rnn = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
     
+    # get analysis plot
     session_id = 0
-    experiment = experiment_list_test[session_id]
-    
-    choices = experiment.choices
-    rewards = experiment.rewards
-
-    list_probs = []
-    list_Qs = []
-    list_qs = []
-    list_hs = []
-
-    # get q-values from groundtruth
     if data is None:
-      qs_test, probs_test, _ = bandits.get_update_dynamics(experiment, agent_finetune)
-      list_probs.append(np.expand_dims(probs_test, 0))
-      list_Qs.append(np.expand_dims(qs_test[0], 0))
-      list_qs.append(np.expand_dims(qs_test[1], 0))
-      list_hs.append(np.expand_dims(qs_test[2], 0))
-    elif np.mean(update_dynamics[0]) != -1:
-      qs_test, probs_test = update_dynamics[1:], update_dynamics[0]
-      list_probs.append(np.expand_dims(probs_test[idx_train:][session_id], 0))
-      list_Qs.append(np.expand_dims(qs_test[0][idx_train:][session_id], 0))
-      list_qs.append(np.expand_dims(qs_test[1][idx_train:][session_id], 0))
-      list_hs.append(np.expand_dims(qs_test[2][idx_train:][session_id], 0))
-      
-    # get q-values from trained rnn
-    qs_rnn, probs_rnn, _ = bandits.get_update_dynamics(experiment, rnn_agent)
-    list_probs.append(np.expand_dims(probs_rnn, 0))
-    list_Qs.append(np.expand_dims(qs_rnn[0], 0))
-    list_qs.append(np.expand_dims(qs_rnn[1], 0))
-    list_hs.append(np.expand_dims(qs_rnn[2], 0))
+      agents = {'groundtruth': agent, 'rnn': agent_rnn}
+    else:
+      agents = {'rnn': agent_rnn}
 
-    # concatenate all choice probs and q-values
-    probs = np.concatenate(list_probs, axis=0)
-    Qs = np.concatenate(list_Qs, axis=0)
-    qs = np.concatenate(list_qs, axis=0)
-    hs = np.concatenate(list_hs, axis=0)
-
-    labels = ['Ground Truth', 'RNN'] if Qs.shape[0] == 2 else ['RNN']
-    colors = ['tab:blue', 'tab:orange'] if Qs.shape[0] == 2 else ['tab:orange']
+    experiment_analysis = experiment_list_test[session_id]
+    plotting.plot_session(agents, experiment_analysis)
     
-    # normalize q-values
-    def normalize(qs):
-      return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
-
-    # qs = normalize(qs)
-
-    fig, axs = plt.subplots(5, 1, figsize=(20, 10))
-
-    reward_probs = np.stack([experiment.reward_probabilities[:, i] for i in range(n_actions)], axis=0)
-    bandits.plot_session(
-        compare=True,
-        chosen=(choices==0).astype(int),
-        rewards=rewards,
-        timeseries=reward_probs,
-        timeseries_name='p(R)',
-        labels=[f'Arm {a}' for a in range(n_actions)],
-        color=['tab:purple', 'tab:cyan', 'tab:olive', 'tab:brown'],
-        binary=True,
-        fig_ax=(fig, axs[0]),
-        )
-
-    bandits.plot_session(
-        compare=True,
-        chosen=(choices==0).astype(int),
-        rewards=rewards,
-        timeseries=probs[:, :, 0],
-        timeseries_name='p(A)',
-        color=colors,
-        labels=labels,
-        binary=True,
-        fig_ax=(fig, axs[1]),
-        )
-
-    bandits.plot_session(
-      compare=True,
-      chosen=(choices==0).astype(int),
-      rewards=rewards,
-      timeseries=Qs[:, :, 0],
-      timeseries_name='Q',
-      color=colors,
-      binary=True,
-      fig_ax=(fig, axs[2]),
-      )
-
-    bandits.plot_session(
-        compare=True,
-        chosen=(choices==0).astype(int),
-        rewards=rewards,
-        timeseries=qs[:, :, 0],
-        timeseries_name='q',
-        color=colors,
-        binary=True,
-        fig_ax=(fig, axs[3]),
-        )
-
-    bandits.plot_session(
-        compare=True,
-        chosen=(choices==0).astype(int),
-        rewards=rewards,
-        timeseries=hs[:, :, 0],
-        timeseries_name='a',
-        color=colors,
-        binary=True,
-        fig_ax=(fig, axs[4]),
-        )
-
-    plt.show()
-        
   return model, loss_test
 
 

@@ -14,10 +14,12 @@ from utils.convert_dataset import convert_dataset
 from resources.bandits import get_update_dynamics
 from benchmarking.hierarchical_bayes_numpyro import rl_model
 
-def main(data, model, output_file, job_id):
+def main(data, model, output_file):
     
-    if isinstance(job_id, int):
-        job_id = np.arange(0, job_id)
+    # load data
+    experiment = convert_dataset(data)[1]
+    
+    job_id = np.arange(0, len(experiment))
         
     agent_rnn, agent_sindy, agent_mcmc = None, None, None
     n_parameters_rnn, n_parameters_sindy, n_parameters_mcmc = None, None, None
@@ -59,9 +61,6 @@ def main(data, model, output_file, job_id):
             for key in parameters:
                 parameters_i[key] = parameters[key][i]
             agent_mcmc.append(setup_benchmark_q_agent(parameters_i))
-
-    # load data
-    experiment = convert_dataset(data)[1]
     
     if agent_mcmc is not None:
         df = get_scores_array(experiment, agent_mcmc, n_parameters_mcmc, verbose=True)

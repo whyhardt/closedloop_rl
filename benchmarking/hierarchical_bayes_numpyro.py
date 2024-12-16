@@ -5,27 +5,43 @@ import numpyro.infer as infer
 import jax.numpy as jnp
 import jax
 import pandas as pd
-import arviz as az
 import argparse
 import pickle
     
 # @jax.jit(static_argnames=['model','hierarchical'])
 def rl_model(model, choice, reward, hierarchical):
+
+    def scaled_beta(a, b, low, high):
+        return dist.TransformedDistribution(
+            dist.Beta(a, b),  # Beta distribution in [0, 1]
+            dist.transforms.AffineTransform(low, high - low)  # Scale to [0, 10]
+            )
+    
     if hierarchical == 1:
         # Priors for group-level parameters
-        alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Uniform(low=0.01, high=0.99)) if model[0]==1 else 1
-        alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Uniform(low=0.01, high=0.99)) if model[1]==1 else -1
-        alpha_c_mean = numpyro.sample("alpha_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[2]==1 else 1
-        beta_c_mean = numpyro.sample("beta_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[3]==1 else 0
-        beta_r_mean = numpyro.sample("beta_r_mean", dist.Uniform(low=0.01, high=9.99)) if model[4]==1 in model else 1
+        # alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Uniform(low=0.01, high=0.99)) if model[0]==1 else 1
+        # alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Uniform(low=0.01, high=0.99)) if model[1]==1 else -1
+        # alpha_c_mean = numpyro.sample("alpha_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[2]==1 else 1
+        # beta_c_mean = numpyro.sample("beta_c_mean", dist.Uniform(low=0.01, high=0.99)) if model[3]==1 else 0
+        # beta_r_mean = numpyro.sample("beta_r_mean", dist.Uniform(low=0.01, high=9.99)) if model[4]==1 in model else 1
+        alpha_pos_mean = numpyro.sample("alpha_pos_mean", dist.Beta(2, 2)) if model[0]==1 else 1
+        alpha_neg_mean = numpyro.sample("alpha_neg_mean", dist.Beta(2, 2)) if model[1]==1 else -1
+        alpha_c_mean = numpyro.sample("alpha_c_mean", dist.Beta(2, 2)) if model[2]==1 else 1
+        beta_c_mean = numpyro.sample("beta_c_mean", scaled_beta(2, 2, 0, 10)) if model[3]==1 else 0
+        beta_r_mean = numpyro.sample("beta_r_mean", scaled_beta(2, 2, 0, 10)) if model[4]==1 in model else 1
         
         # Priors for individual-level variation (hierarchical)
-        alpha_pos_std = numpyro.sample("alpha_pos_std", dist.HalfNormal(0.3)) if model[0]==1 else 0
-        alpha_neg_std = numpyro.sample("alpha_neg_std", dist.HalfNormal(0.3)) if model[1]==1 else 0
-        alpha_c_std = numpyro.sample("alpha_c_std", dist.HalfNormal(0.3))  if model[2]==1 else 0
-        beta_c_std = numpyro.sample("beta_c_std", dist.HalfNormal(0.3)) if model[3]==1 else 0
-        beta_r_std = numpyro.sample("beta_r_std", dist.HalfNormal(3)) if model[4]==1 else 0
-        
+        # alpha_pos_std = numpyro.sample("alpha_pos_std", dist.HalfNormal(0.3)) if model[0]==1 else 0
+        # alpha_neg_std = numpyro.sample("alpha_neg_std", dist.HalfNormal(0.3)) if model[1]==1 else 0
+        # alpha_c_std = numpyro.sample("alpha_c_std", dist.HalfNormal(0.3))  if model[2]==1 else 0
+        # beta_c_std = numpyro.sample("beta_c_std", dist.HalfNormal(0.3)) if model[3]==1 else 0
+        # beta_r_std = numpyro.sample("beta_r_std", dist.HalfNormal(3)) if model[4]==1 else 0
+        alpha_pos_std = numpyro.sample("alpha_pos_std", dist.Beta(2, 2)) if model[0]==1 else 0
+        alpha_neg_std = numpyro.sample("alpha_neg_std", dist.Beta(2, 2)) if model[1]==1 else 0
+        alpha_c_std = numpyro.sample("alpha_c_std", dist.Beta(2, 2))  if model[2]==1 else 0
+        beta_c_std = numpyro.sample("beta_c_std", scaled_beta(2, 2, 0, 10)) if model[3]==1 else 0
+        beta_r_std = numpyro.sample("beta_r_std", scaled_beta(2, 2, 0, 10)) if model[4]==1 else 0
+
         # Individual-level parameters
         alpha_neg = None
         with numpyro.plate("participants", choice.shape[1]):
@@ -35,23 +51,16 @@ def rl_model(model, choice, reward, hierarchical):
             alpha_c = numpyro.sample("alpha_c", dist.TruncatedNormal(alpha_c_mean, alpha_c_std, low=0.01, high=0.99))[:, None] if model[2]==1 else 1
             beta_c = numpyro.sample("beta_c", dist.TruncatedNormal(beta_c_mean, beta_c_std, low=0.01, high=0.99)) if model[3]==1 else 0
             beta_r = numpyro.sample("beta_r", dist.TruncatedNormal(beta_r_mean, beta_r_std, low=0.01, high=9.99)) if model[4]==1 else 1
-        
+            
         if model[1]==0:
             alpha_neg = alpha_pos
     else:
         # Basic bayesian inference (not hierarchical)
-        alpha_pos = numpyro.sample("alpha_pos", dist.Uniform(0., 1.)) if model[0]==1 else 1
-        alpha_neg = numpyro.sample("alpha_neg", dist.Uniform(0., 1.)) if model[1]==1 else alpha_pos
-        alpha_c = numpyro.sample("alpha_c", dist.Uniform(0., 1.)) if model[2]==1 else 1
-        beta_c = numpyro.sample("beta_c", dist.Uniform(0., 10.)) if model[3]==1 else 0
-        beta_r = numpyro.sample("beta_r", dist.Uniform(0., 10.)) if model[4]==1 else 1
-
-    def get_action_prob(r_values, c_values, beta_r, beta_c):
-        r_diff = r_values[:, 1] - r_values[:, 0]
-        c_diff = c_values[:, 1] - c_values[:, 0]
-        
-        # Compute action probabilities
-        return jax.nn.sigmoid(beta_r * r_diff + beta_c * c_diff)
+        alpha_pos = numpyro.sample("alpha_pos", dist.Beta(2, 2)) if model[0]==1 else 1
+        alpha_neg = numpyro.sample("alpha_neg", dist.Beta(2, 2)) if model[1]==1 else alpha_pos
+        alpha_c = numpyro.sample("alpha_c", dist.Beta(2, 2)) if model[2]==1 else 1
+        beta_c = numpyro.sample("beta_c", scaled_beta(2, 2, 0, 10)) if model[3]==1 else 0
+        beta_r = numpyro.sample("beta_r", scaled_beta(2, 2, 0, 10)) if model[4]==1 else 1
     
     def update(carry, x):#, alpha_pos, alpha_neg, alpha_c, beta_r, beta_c):
         r_values = carry[0]
@@ -112,7 +121,10 @@ def encode_model_name(model: str, model_parts: list) -> np.ndarray:
     return enc
 
 
-def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool, output_file: str):
+def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, hierarchical: bool, output_file: str, checkpoint: bool):
+    # set output file
+    output_file = output_file.split('.')[0] + '_' + model + '.nc'
+    
     # Check model str
     valid_config = ['Ap', 'An', 'Ac', 'Bc', 'Br']
     model_checked = '' + model
@@ -137,11 +149,25 @@ def main(file: str, model: str, num_samples: int, num_warmup: int, num_chains: i
         rewards[i, :len(choice), 0] = reward
     
     # Run the model
+    numpyro.set_host_device_count(num_chains)
+    print(f'Number of devices: {jax.device_count()}')
     kernel = infer.NUTS(rl_model)
+    if checkpoint and num_warmup > 0:
+        print(f'Checkpoint was set but num_warmup>0 ({num_warmup}). Setting num_warmup=0.')
+        num_warmup = 0
     mcmc = infer.MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains)
-    mcmc.run(jax.random.PRNGKey(0), model=tuple(encode_model_name(model, valid_config)), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
+    print('Initialized MCMC model.')
+    if checkpoint:
+        with open(output_file, 'rb') as file:
+            checkpoint = pickle.load(file)
+        mcmc.post_warmup_state = checkpoint.last_state
+        rng_key = mcmc.post_warmup_state.rng_key
+        print('Checkpoint loaded.')
+    else:
+        rng_key = jax.random.PRNGKey(0)
+    mcmc.run(rng_key, model=tuple(encode_model_name(model, valid_config)), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)), hierarchical=hierarchical)
 
-    with open(output_file.split('.')[0] + '_' + model + '.nc', 'wb') as file:
+    with open(output_file, 'wb') as file:
         pickle.dump(mcmc, file)
     
     return mcmc
@@ -157,9 +183,10 @@ if __name__=='__main__':
     parser.add_argument('--num_chains', type=int, default=1, help='Number of chains')
     parser.add_argument('--hierarchical', action='store_true', help='Whether to do hierarchical inference')
     parser.add_argument('--output_file', type=str, default='benchmarking/params/traces.nc', help='Number of chains')
+    parser.add_argument('--checkpoint', action='store_true', help='Whether to load the specified output file as a checkpoint')
     
     args = parser.parse_args()
 
     # with jax.default_device(jax.devices("cpu")[0]):
-    main(args.file, args.model, args.num_samples, args.num_warmup, args.num_chains, args.hierarchical, args.output_file)
+    main(args.file, args.model, args.num_samples, args.num_warmup, args.num_chains, args.hierarchical, args.output_file, args.checkpoint)
     

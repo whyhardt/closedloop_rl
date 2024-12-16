@@ -3,6 +3,8 @@ import os
 
 from torch import device, load
 import numpy as np
+from typing import List
+import torch
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn import RLRNN
@@ -20,7 +22,7 @@ def setup_rnn(
 ) -> RLRNN:
     
     rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=n_participants, list_sindy_signals=list_sindy_signals, device=device)
-    rnn.load_state_dict(load(path_model)['model'])
+    rnn.load_state_dict(load(path_model, map_location=torch.device('cpu'))['model'])
     
     return rnn
 
@@ -45,7 +47,8 @@ def setup_agent_sindy(
     data,
     threshold = 0.03,
     hidden_size = 8,
-) -> AgentSindy:
+    session_id: int = None,
+) -> List[AgentSindy]:
     
     agent, _, _ = sindy_main(
         model = model,
@@ -54,6 +57,7 @@ def setup_agent_sindy(
         verbose = True,
         hidden_size = hidden_size,
         analysis=False,
+        session_id=session_id,
     )
 
     return agent 

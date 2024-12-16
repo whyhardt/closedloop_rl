@@ -57,7 +57,7 @@ class AgentQ:
       self,
       n_actions: int = 2,
       alpha: float = 0.2,
-      beta: float = 3.,
+      beta_r: float = 3.,
       forget_rate: float = 0.,
       perseverance_bias: float = 0.,
       alpha_perseverance: float = 1.,
@@ -78,7 +78,7 @@ class AgentQ:
       parameter_variance (float): sets a variance around the model parameters' mean values to sample from a normal distribution e.g. at each new session. 0: no variance, -1: std = mean
     """
     
-    self._mean_beta = beta
+    self._mean_beta_r = beta_r
     self._mean_alpha = alpha
     self._mean_alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._mean_confirmation_bias = confirmation_bias
@@ -87,7 +87,7 @@ class AgentQ:
     self._mean_alpha_perseverance = alpha_perseverance
     
     self._list_params = ['beta', 'alpha', 'alpha_penalty', 'confirmation_bias', 'forget_rate', 'perseverance_bias']
-    self._beta = beta
+    self._beta_r = beta_r
     self._alpha = alpha
     self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
     self._confirmation_bias = confirmation_bias
@@ -138,7 +138,7 @@ class AgentQ:
       sanity = False
       while not sanity:
         # sample new parameters until all sanity checks are passed
-        self._beta = np.clip(np.random.normal(self._mean_beta, self._mean_beta/2 if self._parameter_variance['beta'] == -1 else self._parameter_variance['beta']), 0, 2*self._mean_beta)
+        self._beta_r = np.clip(np.random.normal(self._mean_beta_r, self._mean_beta_r/2 if self._parameter_variance['beta'] == -1 else self._parameter_variance['beta']), 0, 2*self._mean_beta_r)
         self._alpha = np.clip(np.random.normal(self._mean_alpha, self._mean_alpha/2 if self._parameter_variance['alpha'] == -1 else self._parameter_variance['alpha']), 0 , 1)
         self._alpha_penalty = np.clip(np.random.normal(self._mean_alpha_penalty, self._mean_alpha_penalty/2 if self._parameter_variance['alpha_penalty'] == -1 else self._parameter_variance['alpha_penalty']), 0, 1)
         self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias/2 if self._parameter_variance['confirmation_bias'] == -1 else self._parameter_variance['confirmation_bias']), 0, 1)
@@ -205,14 +205,14 @@ class AgentQ:
     self._q[choice] += reward_update
     
     # Choice-Perseverance: Action-based updates
-    self._c = np.zeros(self._n_actions)
-    self._c[choice] += self._perseverance_bias
-    # cpe = np.eye(self._n_actions)[choice] - self._c
-    # self._c += self._alpha_perseverance * cpe
+    # self._c = np.zeros(self._n_actions)
+    # self._c[choice] += self._perseverance_bias
+    cpe = np.eye(self._n_actions)[choice] - self._c
+    self._c += self._alpha_perseverance * cpe
 
   @property
   def q(self):
-    return (self._q + self._c)*self._beta
+    return self._q*self._beta_r + self._c*self._perseverance_bias
   
   def set_reward_prediction_error(self, update_rule: Callable):
     self._reward_prediction_error = update_rule
@@ -240,7 +240,7 @@ class AgentSindy:
     
     self.new_sess()
 
-  def update(self, choice: int, reward: int, **kwargs):
+  def update(self, choice: int, reward: int, *args):
 
       choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
       self._prev_choice = 0
@@ -643,6 +643,9 @@ class BanditSession(NamedTuple):
   q: np.ndarray
   n_trials: int
   
+  def set_session(self, session: int):
+    return self(choices=self.choices, rewards=self.rewards, session=np.full_like(self.session, session), reward_probabilities=self.reward_probabilities, q=self.q, n_trials=self.n_trials)
+  
 
 Agent = Union[AgentQ, AgentNetwork, AgentSindy]
 # Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift, EnvironmentBanditsSwitch]
@@ -734,17 +737,23 @@ def create_dataset(
       print(f'Running session {session+1}/{n_sessions}...')
     agent.new_sess(sample_parameters=sample_parameters)
     experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
-    experiment.session += session
+    # set session
+    experiment = BanditSession(n_trials=experiment.n_trials,
+                             choices=experiment.choices,
+                             rewards=experiment.rewards,
+                             session=np.full_like(experiment.session, session),
+                             reward_probabilities=experiment.reward_probabilities,
+                             q=experiment.q)
     experiment_list.append(experiment)
     # one-hot encoding of choices
-    choices = np.eye(agent._n_actions)[choices]
-    xs[:, session] = np.concatenate((choices[:-1], rewards[:-1].reshape(-1, 1), np.full_like(rewards[:-1].reshape(-1, 1))), axis=-1)
-    ys[:, session] = choices[1:]
+    ys[:, session] = np.eye(agent._n_actions)[choices[1:]]
+    xs[:, session] = np.concatenate((np.eye(agent._n_actions)[experiment.choices], experiment.rewards[:, None], experiment.session[:, None]), axis=-1)
+    
     if isinstance(agent, AgentQ):
       # add current parameters to list
       parameter_list.append(
         {
-          'beta': copy(agent._beta),
+          'beta': copy(agent._beta_r),
           'alpha': copy(agent._alpha),
           'alpha_penalty': copy(agent._alpha_penalty),
           'confirmation_bias': copy(agent._confirmation_bias),
@@ -759,6 +768,7 @@ def create_dataset(
     sequence_length=sequence_length,
     stride=stride,
     device=device)
+  
   return dataset, experiment_list, parameter_list
 
 
@@ -835,6 +845,7 @@ def plot_session(
   rewarded = rewards > 0.5
   # y_high = np.max(timeseries) + 0.1
   y_low = np.min(timeseries) - 0.1
+  y_high = np.max(timeseries) + 0.1
   
   # Make the plot
   if fig_ax is None:
@@ -893,23 +904,33 @@ def plot_session(
   #       color='red',
   #       marker='|')
 
-  #   # Rewarded low
+  # Rewarded
+  index_rewarded_low = chosen == 0 * rewarded
   ax.scatter(
-      np.argwhere(chosen & rewarded),
-      y_low * np.ones(np.sum(chosen & rewarded)),
+      np.argwhere(index_rewarded_low),
+      y_low * np.ones(np.sum(index_rewarded_low)),
       color='green',
       marker='|')
-  ax.scatter(
-      np.argwhere(chosen & rewarded),
-      y_low * np.ones(np.sum(chosen & rewarded)),
-      color='green',
-      marker=2)
+  # index_rewarded_high = chosen == 1 * rewarded
+  # ax.scatter(
+  #     np.argwhere(index_rewarded_high),
+  #     y_high * np.ones(np.sum(index_rewarded_high)),
+  #     color='green',
+  #     marker='|')
+  
   # Omission Low
+  index_omitted_low = (chosen == 0).astype(int) * (1 - rewarded)
   ax.scatter(
-      np.argwhere(chosen & 1 - rewarded),
-      y_low * np.ones(np.sum(chosen & 1 - rewarded)),
+      np.argwhere(index_omitted_low),
+      y_low * np.ones(np.sum(index_omitted_low)),
       color='red',
       marker='|')
+  # index_omitted_high = (chosen == 1).astype(int) * (1 - rewarded)
+  # ax.scatter(
+  #     np.argwhere(index_omitted_high),
+  #     y_high * np.ones(np.sum(index_omitted_high)),
+  #     color='red',
+  #     marker='|')
 
   if x_axis_info:
     ax.set_xlabel(x_label)

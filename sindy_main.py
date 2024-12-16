@@ -14,16 +14,18 @@ from resources.sindy_utils import create_dataset, check_library_setup, bandit_lo
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model
 from utils.convert_dataset import convert_dataset
+from utils.plotting import plot_session
 
 warnings.filterwarnings("ignore")
 
 def main(
-    model = None,
-    data = None,
+    model: str = None,
+    data: str = None,
     
     # generated training dataset parameters
     n_trials_per_session = 256,
     n_sessions = 1,
+    session_id: int = None,
     
     # sindy parameters
     threshold = 0.03,
@@ -48,7 +50,7 @@ def main(
     n_actions = 2,
     sigma = .1,
     
-    analysis=False,
+    analysis: bool = False,
     ):
 
     # rnn parameters
@@ -86,25 +88,6 @@ def main(
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
         raise ValueError('Library setup does not match feature list.')
 
-    # set up rnn agent and expose q-values to train sindy
-    if model is None:
-        params_path = parameter_file_naming('params/params', alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance, verbose=True)
-    else:
-        params_path = model
-    state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
-    rnn = RLRNN(n_actions, hidden_size, 0.5, list_sindy_signals=sindy_feature_list)
-    print('Loaded model ' + params_path)
-    if isinstance(state_dict, dict):
-        rnn.load_state_dict(state_dict)
-    elif isinstance(state_dict, list):
-        print('Loading ensemble model...')
-        model_list = []
-        for state_dict_i in state_dict:
-            model_list.append(deepcopy(rnn))
-            model_list[-1].load_state_dict(state_dict_i)
-        rnn = EnsembleRNN(model_list, voting_type=voting_type)
-    agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)
-
     if data is None:
         # set up ground truth agent and environment
         environment = EnvironmentBanditsDrift(sigma, n_actions)
@@ -117,13 +100,39 @@ def main(
     else:
         # get data from experiments
         _, experiment_list_train, _, _ = convert_dataset(data)
-        experiment_list_test = [experiment_list_train[-1]]
-        experiment_list_train = experiment_list_train[:-1]            
+        index_test = len(experiment_list_train)-1
+        experiment_list_test = [experiment_list_train[index_test]]
+        # experiment_list_train = experiment_list_train[:-1]
+
+    # set up rnn agent and expose q-values to train sindy
+    if model is None:
+        params_path = parameter_file_naming('params/params', alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance, verbose=True)
+    else:
+        params_path = model
+    state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
+    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=len(experiment_list_train), init_value=0.5, list_sindy_signals=sindy_feature_list)
+    print('Loaded model ' + params_path)
+    if isinstance(state_dict, dict):
+        rnn.load_state_dict(state_dict)
+    elif isinstance(state_dict, list):
+        print('Loading ensemble model...')
+        model_list = []
+        for state_dict_i in state_dict:
+            model_list.append(deepcopy(rnn))
+            model_list[-1].load_state_dict(state_dict_i)
+        rnn = EnsembleRNN(model_list, voting_type=voting_type)
+    agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)            
 
     # create dataset for sindy training, fit sindy, set up sindy agent
-    z_train, control, feature_names = create_dataset(agent_rnn, experiment_list_train, n_trials_per_session, n_sessions, clear_offset=False, shuffle=False, trimming=True)
-    sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, verbose, False, threshold, regularization)
-    agent_sindy = AgentSindy(sindy_models, n_actions, (agent_rnn._model._beta_reward.item(), agent_rnn._model._beta_choice.item()), True)
+    if session_id is not None:
+        experiment_list_train = [experiment_list_train[session_id]]
+        index_test = 0
+    agent_sindy = []
+    for i in range(len(experiment_list_train)):
+        z_train, control, feature_names = create_dataset(agent_rnn, [experiment_list_train[i]], n_trials_per_session, n_sessions, clear_offset=False, shuffle=False, trimming=True)
+        sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, verbose, False, threshold, regularization)
+        agent_rnn.new_sess(i)
+        agent_sindy.append(AgentSindy(sindy_models, n_actions, (agent_rnn._model._beta_reward(agent_rnn._participant_embedding).item(), agent_rnn._model._beta_choice((agent_rnn._participant_embedding)).item()), True))
     
     # if verbose:
     #     print(f'SINDy Beta: {agent_rnn._model._beta_reward.item():.2f} and {agent_rnn._model._beta_choice.item():.2f}')
@@ -138,135 +147,21 @@ def main(
     # --------------------------------------------------------------
 
     if analysis:
-        labels = ['Ground Truth', 'RNN', 'SINDy'] if data is None else ['RNN', 'SINDy']
-        experiment_test = experiment_list_test[0]
-        choices = experiment_test.choices
-        rewards = experiment_test.rewards
-
-        list_probs = []
-        list_Qs = []
-        list_qs = []
-        list_hs = []
-
-        # get q-values from groundtruth
-        if data is None:
-            qs_test, probs_test, _ = get_update_dynamics(experiment_list_test[0], agent)
-            list_probs.append(np.expand_dims(probs_test, 0))
-            list_Qs.append(np.expand_dims(qs_test[0], 0))
-            list_qs.append(np.expand_dims(qs_test[1], 0))
-            list_hs.append(np.expand_dims(qs_test[2], 0))
-
-        # get q-values from trained rnn
-        qs_rnn, probs_rnn, _ = get_update_dynamics(experiment_list_test[0], agent_rnn)
-        list_probs.append(np.expand_dims(probs_rnn, 0))
-        list_Qs.append(np.expand_dims(qs_rnn[0], 0))
-        list_qs.append(np.expand_dims(qs_rnn[1], 0))
-        list_hs.append(np.expand_dims(qs_rnn[2], 0))
         
-        # get q-values from trained sindy
-        qs_sindy, probs_sindy, _ = get_update_dynamics(experiment_list_test[0], agent_sindy)
-        list_probs.append(np.expand_dims(probs_sindy, 0))
-        list_Qs.append(np.expand_dims(qs_sindy[0], 0))
-        list_qs.append(np.expand_dims(qs_sindy[1], 0))
-        list_hs.append(np.expand_dims(qs_sindy[2], 0))
-
-        # concatenate all choice probs and q-values
-        probs = np.concatenate(list_probs, axis=0)
-        Qs = np.concatenate(list_Qs, axis=0)
-        qs = np.concatenate(list_qs, axis=0)
-        hs = np.concatenate(list_hs, axis=0)
-
-        colors = ['tab:blue', 'tab:orange', 'tab:pink', 'tab:grey']
-
-        # normalize q-values
-        def normalize(qs):
-            return (qs - np.min(qs, axis=1, keepdims=True)) / (np.max(qs, axis=1, keepdims=True) - np.min(qs, axis=1, keepdims=True))
-
-        # qs = normalize(qs)
-
-        fig, axs = plt.subplots(4, 1, figsize=(20, 10))
-        axs_row = 0
-        fig_col = None
+        # print sindy equations from tested sindy agent
+        agent_sindy[index_test].new_sess()
+        for model in agent_sindy[index_test]._models:
+            agent_sindy[index_test]._models[model].print()
         
-        reward_probs = np.stack([experiment_list_test[0].reward_probabilities[:, i] for i in range(n_actions)], axis=0)
-        # plot_session(
-        #     compare=True,
-        #     choices=choices,
-        #     rewards=rewards,
-        #     timeseries=reward_probs,
-        #     timeseries_name='$P(r)$',
-        #     labels=[f'Arm {a}' for a in range(n_actions)],
-        #     color=['tab:purple', 'tab:cyan'],
-        #     binary=not non_binary_reward,
-        #     fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-        #     x_axis_info=False,
-        #     y_axis_info=True,
-        #     )
-        # axs_row += 1
-        
-        plot_session(
-            compare=True,
-            chosen=choices,
-            rewards=rewards,
-            timeseries=probs[:, :, 0],
-            timeseries_name='$P(action)$',
-            color=colors,
-            labels=labels,
-            binary=True,
-            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-            x_axis_info=False,
-            y_axis_info=True,
-            )
-        axs_row += 1
-        
-        plot_session(
-            compare=True,
-            chosen=choices,
-            rewards=rewards,
-            timeseries=Qs[:, :, 0],
-            timeseries_name='$q$',
-            color=colors,
-            binary=True,
-            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-            y_axis_info=True,
-            x_axis_info=False,
-            )
-        axs_row += 1
-        
-        plot_session(
-            compare=True,
-            chosen=choices,
-            rewards=rewards,
-            timeseries=qs[:, :, 0],
-            timeseries_name='$q_{reward}$',
-            color=colors,
-            binary=True,
-            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-            x_axis_info=False,
-            y_axis_info=True,
-            )
-        axs_row += 1
-
-        plot_session(
-            compare=True,
-            chosen=choices,
-            rewards=rewards,
-            timeseries=hs[:, :, 0],
-            timeseries_name='$q_{choice}$',
-            color=colors,
-            binary=True,
-            fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),
-            x_axis_info=True,
-            y_axis_info=True,
-            )
-        axs_row += 1
-        
-    plt.show()
+        # get analysis plot
+        agents = {'groundtruth': agent, 'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
+        experiment_analysis = experiment_list_test[0]
+        plot_session(agents, experiment_analysis)
 
     # save a dictionary of trained features per model
     features = {
-        'beta_reward': (('beta_reward'), (agent_sindy._beta_reward)),
-        'beta_choice': (('beta_choice'), (agent_sindy._beta_choice)),
+        'beta_reward': (('beta_reward'), (agent_sindy[index_test]._beta_reward)),
+        'beta_choice': (('beta_choice'), (agent_sindy[index_test]._beta_choice)),
         }
     for m in sindy_models:
         features[m] = []
@@ -282,37 +177,43 @@ def main(
         features[m].append(tuple(coeffs_i))
         features[m] = tuple(features[m])
     
-    agent_sindy.new_sess()
+    for i in range(len(agent_sindy)):
+        agent_sindy[i].new_sess()
+        
     return agent_sindy, sindy_models, features
 
 
 if __name__=='__main__':
     main(
-        # model = 'params/dataset_ensemble_noise_analysis/params_rnn_sessions4096_submodels16_noise3',
+        model = 'params/benchmarking/rnn_sugawara.pkl',
+        data = 'data/2arm/sugawara2021_143_processed.csv',
+        n_trials_per_session=None,
+        n_sessions=None,
+        verbose=False,
         
         # sindy parameters
         polynomial_degree=2,
         threshold=0.05,
         regularization=0,
         
-        # generated training dataset parameters
-        n_trials_per_session = 200,
-        n_sessions = 100,
-        
         # rnn parameters
         hidden_size = 8,
         
+        # generated training dataset parameters
+        # n_trials_per_session = 200,
+        # n_sessions = 100,
+        
         # ground truth parameters
-        alpha = 0.25,
-        beta = 3,
-        forget_rate = 0.,
-        perseverance_bias = 0.25,
-        alpha_penalty = 0.5,
-        confirmation_bias = 0.5,
+        # alpha = 0.25,
+        # beta = 3,
+        # forget_rate = 0.,
+        # perseverance_bias = 0.25,
+        # alpha_penalty = 0.5,
+        # confirmation_bias = 0.5,
         # reward_update_rule = lambda q, reward: reward-q,
         
         # environment parameters
-        sigma = 0.1,
+        # sigma = 0.1,
         
         analysis=True,
     )
