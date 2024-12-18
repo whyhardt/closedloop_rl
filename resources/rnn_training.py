@@ -50,7 +50,14 @@ def batch_train(
         y_pred = model(xs[:, t:t+n_steps], state, batch_first=True)[0]
         
         mask = xs[:, t:t+n_steps, :model._n_actions] > -1
-        loss = loss_fn((y_pred*mask).reshape(-1, model._n_actions), (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)) 
+        loss = loss_fn(
+            (y_pred*mask).reshape(-1, model._n_actions), 
+            (ys[:, t:t+n_steps]*mask).reshape(-1, model._n_actions)
+            ) 
+        # loss = loss_fn(
+        #     (y_pred*mask)[:, -1].reshape(-1, model._n_actions), 
+        #     (ys[:, t:t+n_steps]*mask)[:, -1].reshape(-1, model._n_actions)
+        #     )
         
         loss_batch += loss
         iterations += 1

@@ -44,7 +44,7 @@ agent_sindy = setup_agent_sindy(model_rnn, data, session_id=session_id)
 n_parameters_sindy = [agent._count_sindy_parameters(without_self=True) for agent in agent_sindy]
 
 # setup AgentQ model with values from sugawara paper as baseline
-agent_rl = AgentQ(alpha=.45, beta_r=.19, alpha_perseverance=0.41, perseverance_bias=1.10)
+agent_rl = AgentQ(alpha_reward=.45, beta_reward=.19, alpha_choice=0.41, beta_choice=1.10)
 
 agent_mcmc = {}
 for model in models:

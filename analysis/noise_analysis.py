@@ -106,9 +106,9 @@ def main(
                     n_actions=n_actions,
                     
                     alpha=alpha,
-                    beta=b,
+                    beta_reward=b,
                     forget_rate=forget_rate,
-                    perseverance_bias=perseverance_bias,
+                    beta_choice=perseverance_bias,
                     alpha_penalty=regret,
                     )
 

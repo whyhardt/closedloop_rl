@@ -214,8 +214,8 @@ class RLRNN(BaseRNN):
         # participant-embedding layer
         emb_size = 8
         self.participant_embedding = nn.Embedding(n_participants, emb_size)
-        self._beta_reward = nn.Linear(emb_size, 1)
-        self._beta_choice = nn.Linear(emb_size, 1)
+        self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+        self._beta_choice = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
         
         # action-based subnetwork
         self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
@@ -227,7 +227,7 @@ class RLRNN(BaseRNN):
         self.xQf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # learning-rate subnetwork
-        self.xLR = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
+        self.xLR = self.setup_subnetwork(3+emb_size, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
@@ -249,27 +249,28 @@ class RLRNN(BaseRNN):
         # add dimension to value, action and reward
         value = value.unsqueeze(-1)
         action = action.unsqueeze(-1)
-        reward = reward.unsqueeze(-1).repeat((1, self._n_actions, 1))
+        reward = reward.unsqueeze(-1)#.repeat((1, self._n_actions, 1))
         
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
         next_value = torch.zeros_like(value)# + value
         
-        # reward sub-network for chosen action
-        inputs = torch.concat([value, reward, participant_embedding], dim=-1)
+        # learning rate sub-network for chosen and not-chosen action
+        inputs = torch.concat([value, reward, action, participant_embedding], dim=-1)
         # inputs = torch.concat([value, reward], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
-        update_chosen = value + learning_rate * rpe
-
-        # reward sub-network for non-chosen action
-        inputs = torch.concat([value, participant_embedding], dim=-1)
-        # inputs = value
-        update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
-        update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
         
-        next_value += update_chosen * action + update_not_chosen * (1-action)
+        next_value = value + learning_rate * rpe
+
+        # # reward sub-network for non-chosen action
+        # inputs = torch.concat([value, participant_embedding], dim=-1)
+        # # inputs = value
+        # update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
+        # update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
+        
+        # next_value += update_chosen * action + update_not_chosen * (1-action)
 
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
@@ -316,12 +317,9 @@ class RLRNN(BaseRNN):
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
         
-        action = inputs[:, :, :-2].float()
-        reward = inputs[:, :, -2].unsqueeze(-1).float()
-        # participant_id = torch.nn.functional.one_hot(inputs[:, :, -1].unsqueeze(-1).long())[:, :, 0]
+        action = inputs[:, :, :self._n_actions].float()
+        reward = inputs[:, :, self._n_actions:-1].float()
         participant_id = inputs[:, :, -1].unsqueeze(-1).int()
-        timesteps = torch.arange(inputs.shape[0])
-        logits = torch.zeros(inputs.shape[0], inputs.shape[1], self._n_actions, device=self.device)
            
         if prev_state is not None:
             self.set_state(prev_state[0], prev_state[1], prev_state[2], prev_state[3], prev_state[4], prev_state[5])
@@ -337,6 +335,8 @@ class RLRNN(BaseRNN):
         beta_reward = self._beta_reward(participant_embedding[0, :, 0])
         beta_choice = self._beta_choice(participant_embedding[0, :, 0])
         
+        timesteps = torch.arange(inputs.shape[0])
+        logits = torch.zeros_like(action, device=self.device)
         for t, a, r, p in zip(timesteps, action, reward, participant_embedding):         
             # compute additional variables
             # compute whether action was repeated---across all batch samples

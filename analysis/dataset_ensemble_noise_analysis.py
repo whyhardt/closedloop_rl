@@ -41,9 +41,9 @@ if __name__ == '__main__':
         
         # ground truth parameters
         alpha = 0.25,
-        beta = beta,
+        beta_reward = beta,
         forget_rate = 0.2,
-        perseverance_bias = 0.25,
+        beta_choice = 0.25,
         alpha_penalty = True,
         confirmation_bias = True,
         # reward_update_rule = lambda q, reward: reward-q,

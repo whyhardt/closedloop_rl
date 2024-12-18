@@ -1,17 +1,11 @@
 import sys, os
 
-import jax
-
+import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from benchmarking.hierarchical_bayes_numpyro import rl_model
-from resources.model_evaluation import plot_traces
 
 
 if __name__=='__main__':
-    var = jax.numpy.array(False, dtype=float)
+    ls = [0, 1, 2, 3, 4]
     
-    print(var)
-    if var:
-        print('Passed')
-    else:
-        print('NONONON')
+    print(ls[0:-1])
+    print(ls[1:None])

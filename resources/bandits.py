@@ -56,12 +56,13 @@ class AgentQ:
   def __init__(
       self,
       n_actions: int = 2,
-      alpha: float = 0.2,
-      beta_r: float = 3.,
-      forget_rate: float = 0.,
-      perseverance_bias: float = 0.,
-      alpha_perseverance: float = 1.,
+      beta_reward: float = 3.,
+      alpha_reward: float = 0.2,
       alpha_penalty: float = -1,
+      alpha_counterfactual: float = 0.,
+      beta_choice: float = 0.,
+      alpha_choice: float = 1.,
+      forget_rate: float = 0.,
       confirmation_bias: float = 0.,
       parameter_variance: Union[Dict[str, float], float] = 0.,
       ):
@@ -78,22 +79,25 @@ class AgentQ:
       parameter_variance (float): sets a variance around the model parameters' mean values to sample from a normal distribution e.g. at each new session. 0: no variance, -1: std = mean
     """
     
-    self._mean_beta_r = beta_r
-    self._mean_alpha = alpha
-    self._mean_alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
+    self._list_params = ['beta_reward', 'alpha_reward', 'alpha_penalty', 'alpha_counterfactual', 'beta_choice', 'alpha_choice', 'confirmation_bias', 'forget_rate']
+    
+    self._mean_beta_reward = beta_reward
+    self._mean_alpha_reward = alpha_reward
+    self._mean_alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha_reward
     self._mean_confirmation_bias = confirmation_bias
     self._mean_forget_rate = forget_rate
-    self._mean_perseverance_bias = perseverance_bias
-    self._mean_alpha_perseverance = alpha_perseverance
+    self._mean_beta_choice = beta_choice
+    self._mean_alpha_choice = alpha_choice
+    self._mean_alpha_counterfactual = alpha_counterfactual
     
-    self._list_params = ['beta', 'alpha', 'alpha_penalty', 'confirmation_bias', 'forget_rate', 'perseverance_bias']
-    self._beta_r = beta_r
-    self._alpha = alpha
-    self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha
+    self._beta_reward = beta_reward
+    self._alpha_reward = alpha_reward
+    self._alpha_penalty = alpha_penalty if alpha_penalty >= 0 else alpha_reward
     self._confirmation_bias = confirmation_bias
     self._forget_rate = forget_rate
-    self._perseverance_bias = perseverance_bias
-    self._alpha_perseverance = alpha_perseverance
+    self._beta_choice = beta_choice
+    self._alpha_choice = alpha_choice
+    self._alpha_counterfactual = alpha_counterfactual
     
     self._n_actions = n_actions
     self._parameter_variance = self.check_parameter_variance(parameter_variance)
@@ -101,18 +105,20 @@ class AgentQ:
     
     self.new_sess()
 
-    _check_in_0_1_range(alpha, 'alpha')
+    _check_in_0_1_range(alpha_reward, 'alpha')
+    if alpha_penalty >= 0:
+      _check_in_0_1_range(alpha_penalty, 'alpha_penalty')
+    _check_in_0_1_range(alpha_counterfactual, 'alpha_countefactual')
+    _check_in_0_1_range(alpha_choice, 'alpha_choice')
     _check_in_0_1_range(forget_rate, 'forget_rate')
     
     self._reward_prediction_error = lambda q, reward: reward-q
     
-    self.new_sess()
-
   def check_parameter_variance(self, parameter_variance):
     if isinstance(parameter_variance, float):
       par_var_dict = {}
       for key in self._list_params:
-        par_var_dict[key] = float
+        par_var_dict[key] = parameter_variance
       parameter_variance = par_var_dict
     elif isinstance(parameter_variance, dict):
       # check that all keys in parameter_variance are valid
@@ -138,19 +144,20 @@ class AgentQ:
       sanity = False
       while not sanity:
         # sample new parameters until all sanity checks are passed
-        self._beta_r = np.clip(np.random.normal(self._mean_beta_r, self._mean_beta_r/2 if self._parameter_variance['beta'] == -1 else self._parameter_variance['beta']), 0, 2*self._mean_beta_r)
-        self._alpha = np.clip(np.random.normal(self._mean_alpha, self._mean_alpha/2 if self._parameter_variance['alpha'] == -1 else self._parameter_variance['alpha']), 0 , 1)
+        self._beta_reward = np.clip(np.random.normal(self._mean_beta_reward, self._mean_beta_reward/2 if self._parameter_variance['beta'] == -1 else self._parameter_variance['beta']), 0, 2*self._mean_beta_reward)
+        self._alpha_reward = np.clip(np.random.normal(self._mean_alpha_reward, self._mean_alpha_reward/2 if self._parameter_variance['alpha'] == -1 else self._parameter_variance['alpha']), 0 , 1)
         self._alpha_penalty = np.clip(np.random.normal(self._mean_alpha_penalty, self._mean_alpha_penalty/2 if self._parameter_variance['alpha_penalty'] == -1 else self._parameter_variance['alpha_penalty']), 0, 1)
+        self._alpha_counterfactual = np.clip(np.random.normal(self._mean_alpha_counterfactual, self._mean_alpha_counterfactual/2 if self._parameter_variance['alpha_counterfactual'] == -1 else self._parameter_variance['alpha_counterfactual']), 0, 1)
         self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias/2 if self._parameter_variance['confirmation_bias'] == -1 else self._parameter_variance['confirmation_bias']), 0, 1)
         self._forget_rate = np.clip(np.random.normal(self._mean_forget_rate, self._mean_forget_rate/2 if self._parameter_variance['forget_rate'] == -1 else self._parameter_variance['forget_rate']), 0, 1)
-        self._perseverance_bias = np.clip(np.random.normal(self._mean_perseverance_bias, self._mean_perseverance_bias/2 if self._parameter_variance['perseverance_bias'] == -1 else self._parameter_variance['perseverance_bias']), 0, 1)
-        self._alpha_perseverance = np.clip(np.random.normal(self._mean_alpha_perseverance, self._mean_alpha_perseverance/2 if self._parameter_variance['alpha_perseverance'] == -1 else self._parameter_variance['alpha_perseverance']), 0, 1)
+        self._beta_choice = np.clip(np.random.normal(self._mean_beta_choice, self._mean_beta_choice/2 if self._parameter_variance['perseverance_bias'] == -1 else self._parameter_variance['perseverance_bias']), 0, 1)
+        self._alpha_choice = np.clip(np.random.normal(self._mean_alpha_choice, self._mean_alpha_choice/2 if self._parameter_variance['alpha_perseverance'] == -1 else self._parameter_variance['alpha_perseverance']), 0, 1)
 
         # sanity checks
         # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
         #     with max_confirmation = (q-q0)(r-q0) = +/- 0.25
-        max_learning_rate = self._alpha + self._confirmation_bias*0.25 <= 1 and self._alpha_penalty + self._confirmation_bias*0.25 <= 1
-        min_learning_rate = self._alpha + self._confirmation_bias*-0.25 >= 0 and self._alpha_penalty + self._confirmation_bias*-0.25 >= 0 
+        max_learning_rate = self._alpha_reward + self._confirmation_bias*0.25 <= 1 and self._alpha_penalty + self._confirmation_bias*0.25 <= 1
+        min_learning_rate = self._alpha_reward + self._confirmation_bias*-0.25 >= 0 and self._alpha_penalty + self._confirmation_bias*-0.25 >= 0 
         sanity = max_learning_rate and min_learning_rate
       
   def get_choice_probs(self) -> np.ndarray:
@@ -165,7 +172,7 @@ class AgentQ:
     choice = np.random.choice(self._n_actions, p=choice_probs)
     return choice
 
-  def update(self, choice: int, reward: float, *args):
+  def update(self, choice: int, reward: np.ndarray, *args):
     """Update the agent after one step of the task.
 
     Args:
@@ -174,22 +181,32 @@ class AgentQ:
     """
     
     # Reward-based updates
-    # asymmetric learning rates
-    alpha = self._alpha if reward > 0.5 else self._alpha_penalty
+    
+    # adjust learning rates for every received reward
+    alpha = np.zeros_like(reward)
+    for i in range(len(reward)):
+      if i == choice:
+        # factual case
+        alpha_r = self._alpha_reward
+        alpha_p = self._alpha_penalty
+      else: 
+        # counterfactual case
+        # counterfactual learning rate applies in case of foregone reward
+        # no counterfactual learning in case of foregone penalty
+        alpha_r = self._alpha_counterfactual
+        alpha_p = 0
+        
+      # asymmetric learning rates
+      alpha[i] = alpha_r if reward[i] > 0.5 else alpha_p
+      # add confirmation bias to learning rate
+      # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
+      # if self._confirmation_bias:  
+      # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+      # differentiable confirmation bias:
+      alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(reward[i] - 0.5)
     
     # Reward-prediction-error
-    rpe = self._reward_prediction_error(self._q[choice], reward)
-    
-    # Forgetting - restore q-values of non-chosen actions towards the initial value
-    non_chosen_action = np.arange(self._n_actions) != choice
-    forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
-    
-    # add confirmation bias to learning rate
-    # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
-    # if self._confirmation_bias:  
-    # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
-    # differentiable confirmation bias:
-    alpha += self._confirmation_bias * (self._q[choice]-self._q_init)*(reward - 0.5)
+    rpe = self._reward_prediction_error(self._q, reward)
       
       # full learning rate equation w/ confirmation bias = 0.5: 
       # (xLR)[k+1]    = 0.25 + 0.5 * (Q-0.5) * (Reward - 0.5)
@@ -197,22 +214,27 @@ class AgentQ:
       # SINDy target: = 0.375 - 0.25*Q - 0.25*Reward + 0.5*Q*Reward
 
     reward_update = alpha * rpe
+    
+    # Forgetting - restore q-values of non-chosen actions towards the initial value
+    non_chosen_action = np.arange(self._n_actions) != choice
+    forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
+    
     # Value_new = Value_old - lr * Value_old + lr * Reward 
     # Standard (static) with lr=0.25 --> Value_new = (1-0.25) * Value_old + 0.25 * Reward
     # w/ regret=lr/2 --> (1 - (lr + regret*(1-Reward))) * Value_old + (lr + regret*(1-Reward)) * Reward
     # w/ confirmation bias with cb=lr/2 
-    self._q[non_chosen_action] += forget_update
-    self._q[choice] += reward_update
+    self._q[non_chosen_action] += reward_update[non_chosen_action] + forget_update
+    self._q[choice] += reward_update[choice]
     
     # Choice-Perseverance: Action-based updates
     # self._c = np.zeros(self._n_actions)
     # self._c[choice] += self._perseverance_bias
     cpe = np.eye(self._n_actions)[choice] - self._c
-    self._c += self._alpha_perseverance * cpe
+    self._c += self._alpha_choice * cpe
 
   @property
   def q(self):
-    return self._q*self._beta_r + self._c*self._perseverance_bias
+    return self._q*self._beta_reward + self._c*self._beta_choice
   
   def set_reward_prediction_error(self, update_rule: Callable):
     self._reward_prediction_error = update_rule
@@ -362,12 +384,14 @@ class AgentNetwork:
       self._model.set_initial_state(batch_size=1)
       self._xs = torch.zeros((1, self._n_actions+2))
       self._xs[0, -1] = session
-      self._participant_embedding = self._model.participant_embedding(session)
+      participant_embedding = self._model.participant_embedding(session)
+      self._beta_reward = self._model._beta_reward(participant_embedding).item()
+      self._beta_choice = self._model._beta_choice(participant_embedding).item()
       self.set_state()
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._q * self._model._beta_reward(self._participant_embedding).item() + self._c * self._model._beta_choice(self._participant_embedding).item() # + self._u #* self._directed_exploration_bias
+      logit = self._q * self._beta_reward + self._c * self._beta_choice # + self._u #* self._directed_exploration_bias
       return logit
     
     def get_choice_probs(self) -> np.ndarray:
@@ -386,7 +410,7 @@ class AgentNetwork:
 
     def update(self, choice: float, reward: float, session: float):
       choice = torch.eye(self._n_actions)[int(choice)]
-      self._xs = torch.concat([choice, torch.tensor(reward)[None], torch.tensor(session)[None]])[None, None, :].to(device=self._model.device)
+      self._xs = torch.concat([choice, torch.tensor(reward), torch.tensor(session)[None]])[None, None, :].to(device=self._model.device)
       with torch.no_grad():
         self._model(self._xs, self._model.get_state())
       self.set_state()
@@ -422,6 +446,7 @@ class EnvironmentBanditsFlips(Environment):
       block_flip_prob: float = 0.02,
       reward_prob_high: float = 0.8,
       reward_prob_low: float = 0.2,
+      counterfactual: bool = False,
   ):
     
     super(EnvironmentBanditsFlips, self).__init__()
@@ -430,6 +455,7 @@ class EnvironmentBanditsFlips(Environment):
     self._block_flip_prob = block_flip_prob
     self._reward_prob_high = reward_prob_high
     self._reward_prob_low = reward_prob_low
+    self._counterfactual = counterfactual
     # Choose a random block to start in
     self._block = np.random.binomial(1, 0.5)
     # Set up the new block
@@ -445,20 +471,22 @@ class EnvironmentBanditsFlips(Environment):
     else:
       self.reward_probs = [self._reward_prob_low, self._reward_prob_high]
 
-  def step(self, choice):
+  def step(self):
     """Step the model forward given chosen action."""
     # Choose the reward probability associated with agent's choice
-    reward_prob_trial = self.reward_probs[choice]
+    # reward_prob_trial = self.reward_probs[choice]
 
     # Sample a reward with this probability
-    reward = float(np.random.binomial(1, reward_prob_trial))
+    # reward = float(np.random.binomial(1, reward_prob_trial))
 
+    reward = np.array([float(np.random.binomial(1, prob)) for prob in self.reward_probs], dtype=float)
+    
     # Check whether to flip the block
     if np.random.binomial(1, self._block_flip_prob):
       self.new_block()
 
     # Return the reward
-    return float(reward)
+    return reward
 
   @property
   def n_actions(self) -> int:
@@ -474,6 +502,7 @@ class EnvironmentBanditsSwitch(Environment):
       reward_prob_high: float = 0.75,
       reward_prob_low: float = 0.25,
       reward_prob_middle: float = 0.5,
+      counterfactual: bool = False,
       **kwargs,
   ):
     
@@ -484,7 +513,7 @@ class EnvironmentBanditsSwitch(Environment):
     self._reward_prob_high = reward_prob_high
     self._reward_prob_low = reward_prob_low
     self._reward_prob_middle = reward_prob_middle
-    
+    self._counterfactual = counterfactual
     self._n_blocks = 7
     
     # Choose a random block to start in
@@ -518,20 +547,21 @@ class EnvironmentBanditsSwitch(Environment):
     elif self._block == 6:
       self._reward_probs = [self._reward_prob_high, self._reward_prob_middle]
       
-  def step(self, choice):
+  def step(self):
     """Step the model forward given chosen action."""
-    # Choose the reward probability associated with agent's choice
-    reward_prob_trial = self.reward_probs[choice]
+    # Choose the reward probability associated with agent's choice    
+    # reward_prob_trial = self.reward_probs[choice]
 
     # Sample a reward with this probability
-    reward = float(np.random.binomial(1, reward_prob_trial))
+    # reward = float(np.random.binomial(1, reward_prob_trial))
+    reward = np.array([float(np.random.binomial(1, prob)) for prob in self.reward_probs], dtype=float)
 
     # Check whether to flip the block
     if np.random.uniform() < self._block_flip_prob:
       self.new_block()
 
     # Return the reward
-    return float(reward)
+    return reward
 
   @property
   def reward_probs(self) -> np.ndarray:
@@ -560,6 +590,7 @@ class EnvironmentBanditsDrift(Environment):
       n_actions: int = 2,
       non_binary_reward: bool = False,
       correlated_reward: bool = False,
+      # counterfactual: bool = False,
       ):
     """Initialize the environment."""
     
@@ -575,6 +606,7 @@ class EnvironmentBanditsDrift(Environment):
     self._n_actions = n_actions
     self._non_binary_reward = non_binary_reward
     self._correlated_rewards = correlated_reward
+    # self._counterfactual = counterfactual
 
     # Sample new reward probabilities
     self._new_sess()
@@ -584,7 +616,7 @@ class EnvironmentBanditsDrift(Environment):
     # Sample randomly between 0 and 1
     self._reward_probs = np.random.rand(self._n_actions)
 
-  def step(self, choice: int) -> int:
+  def step(self) -> np.ndarray:
     """Run a single trial of the task.
 
     Args:
@@ -596,18 +628,25 @@ class EnvironmentBanditsDrift(Environment):
 
     """
     # Check inputs
-    if choice not in range(self._n_actions):
-      msg = (
-          f'Found value for choice of {choice}, but must be in '
-          f'{list(range(self._n_actions))}')
-      raise ValueError(msg)
+    # if choice not in range(self._n_actions):
+    #   msg = (
+    #       f'Found value for choice of {choice}, but must be in '
+    #       f'{list(range(self._n_actions))}')
+    #   raise ValueError(msg)
 
     # Sample reward with the probability of the chosen side
     # reward = np.random.rand() < self._reward_probs[choice]
     if not self._non_binary_reward:
-      reward = float(np.random.rand() < self._reward_probs[choice])
-    else: 
-      reward = self._reward_probs[choice]
+      reward = np.array([float(np.random.rand() < self._reward_probs[i]) for i in range(self._n_actions)])
+    else:
+      reward = self._reward_probs#[choice]
+    
+    # if self._counterfactual:
+    # reward = rewards[choice]
+    # reward_c = rewards[np.arange(rewards.shape[0]) != choice]
+    # else:
+    #   reward = rewards[choice]
+    #   reward_c = None
     
     # Add gaussian noise to reward probabilities
     drift = np.random.normal(loc=0, scale=self._sigma, size=self._n_actions)
@@ -646,7 +685,9 @@ class BanditSession(NamedTuple):
   def set_session(self, session: int):
     return self(choices=self.choices, rewards=self.rewards, session=np.full_like(self.session, session), reward_probabilities=self.reward_probabilities, q=self.q, n_trials=self.n_trials)
   
-
+  def __getitem__(self, val):
+    return self._replace(choices=self.choices.__getitem__(val), rewards=self.rewards.__getitem__(val), session=self.session.__getitem__(val), reward_probabilities=self.reward_probabilities.__getitem__(val), q=self.q.__getitem__(val), n_trials=self.choices.__getitem__(val).shape[0])
+  
 Agent = Union[AgentQ, AgentNetwork, AgentSindy]
 # Environment = Union[EnvironmentBanditsFlips, EnvironmentBanditsDrift, EnvironmentBanditsSwitch]
 
@@ -673,7 +714,7 @@ def run_experiment(
   """
   
   choices = np.zeros(n_trials+1)
-  rewards = np.zeros(n_trials+1)
+  rewards = np.zeros((n_trials+1, environment.n_actions))
   qs = np.zeros((n_trials+1, environment.n_actions))
   reward_probs = np.zeros((n_trials+1, environment.n_actions))
 
@@ -684,17 +725,18 @@ def run_experiment(
     # First - agent makes a choice
     choice = agent.get_choice()
     # Second - environment computes a reward
-    reward = environment.step(choice)
+    reward = environment.step()
     # Log choice and reward
     choices[trial] = choice
     rewards[trial] = reward
+    
     # Third - agent updates its believes based on chosen action and received reward
     agent.update(choice, reward)
     
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),
                              rewards=rewards[:-1],
-                             session=np.zeros_like(rewards[:-1]).astype(int),
+                             session=np.zeros(rewards[:-1].shape[0]).astype(int),
                              reward_probabilities=reward_probs[:-1],
                              q=qs[:-1])
   return experiment, choices.astype(int), rewards
@@ -727,7 +769,7 @@ def create_dataset(
     An experliment_list with the results of (simulated) experiments
   """
   
-  xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions + 2))
+  xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions*2 + 1))
   ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
   experiment_list = []
   parameter_list = []
@@ -747,18 +789,18 @@ def create_dataset(
     experiment_list.append(experiment)
     # one-hot encoding of choices
     ys[:, session] = np.eye(agent._n_actions)[choices[1:]]
-    xs[:, session] = np.concatenate((np.eye(agent._n_actions)[experiment.choices], experiment.rewards[:, None], experiment.session[:, None]), axis=-1)
+    xs[:, session] = np.concatenate((np.eye(agent._n_actions)[experiment.choices], experiment.rewards, experiment.session[:, None]), axis=-1)
     
     if isinstance(agent, AgentQ):
       # add current parameters to list
       parameter_list.append(
         {
-          'beta': copy(agent._beta_r),
-          'alpha': copy(agent._alpha),
+          'beta': copy(agent._beta_reward),
+          'alpha': copy(agent._alpha_reward),
           'alpha_penalty': copy(agent._alpha_penalty),
           'confirmation_bias': copy(agent._confirmation_bias),
           'forget_rate': copy(agent._forget_rate),
-          'perseverance_bias': copy(agent._perseverance_bias),
+          'perseverance_bias': copy(agent._beta_choice),
         }
       )
 
@@ -784,7 +826,8 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   """
   
   choices = np.expand_dims(experiment.choices, 1)
-  rewards = np.expand_dims(experiment.rewards, 1)
+  # rewards = np.expand_dims(experiment.rewards, 1)
+  rewards = experiment.rewards
   Qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   qs = np.zeros((experiment.choices.shape[0], agent._n_actions))
   cs = np.zeros((experiment.choices.shape[0], agent._n_actions))
@@ -799,7 +842,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
     cs[trial] = agent._c
     
     choice_probs[trial] = agent.get_choice_probs()
-    agent.update(int(choices[trial]), float(rewards[trial]), int(experiment.session[0]))
+    agent.update(int(choices[trial]), rewards[trial], int(experiment.session[0]))
   
   return (Qs, qs, cs), choice_probs, agent
 
@@ -810,7 +853,7 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
 
 
 def plot_session(
-  chosen: np.ndarray,
+  choices: np.ndarray,
   rewards: np.ndarray,
   timeseries: Tuple[np.ndarray],
   timeseries_name: str,
@@ -839,13 +882,6 @@ def plot_session(
 
   if color == None:
     color = [None]*len(timeseries)
-  
-  # choose_high = choices == 1
-  # choose_low = choices == 0
-  rewarded = rewards > 0.5
-  # y_high = np.max(timeseries) + 0.1
-  y_low = np.min(timeseries) - 0.1
-  y_high = np.max(timeseries) + 0.1
   
   # Make the plot
   if fig_ax is None:
@@ -884,53 +920,19 @@ def plot_session(
       ax.legend(bbox_to_anchor=(1, 1))
     else:  # Skip legend.
       ax.plot(timeseries[i], color=color[i])
-
-  # if choices.max() <= 1:
-  #   # Rewarded high
-  #   ax.scatter(
-  #       np.argwhere(choose_high & rewarded),
-  #       y_high * np.ones(np.sum(choose_high & rewarded)),
-  #       color='green',
-  #       marker=3)
-  #   ax.scatter(
-  #       np.argwhere(choose_high & rewarded),
-  #       y_high * np.ones(np.sum(choose_high & rewarded)),
-  #       color='green',
-  #       marker='|')
-  #   # Omission high
-  #   ax.scatter(
-  #       np.argwhere(choose_high & 1 - rewarded),
-  #       y_high * np.ones(np.sum(choose_high & 1 - rewarded)),
-  #       color='red',
-  #       marker='|')
-
-  # Rewarded
-  index_rewarded_low = chosen == 0 * rewarded
-  ax.scatter(
-      np.argwhere(index_rewarded_low),
-      y_low * np.ones(np.sum(index_rewarded_low)),
-      color='green',
-      marker='|')
-  # index_rewarded_high = chosen == 1 * rewarded
-  # ax.scatter(
-  #     np.argwhere(index_rewarded_high),
-  #     y_high * np.ones(np.sum(index_rewarded_high)),
-  #     color='green',
-  #     marker='|')
   
-  # Omission Low
-  index_omitted_low = (chosen == 0).astype(int) * (1 - rewarded)
-  ax.scatter(
-      np.argwhere(index_omitted_low),
-      y_low * np.ones(np.sum(index_omitted_low)),
-      color='red',
-      marker='|')
-  # index_omitted_high = (chosen == 1).astype(int) * (1 - rewarded)
-  # ax.scatter(
-  #     np.argwhere(index_omitted_high),
-  #     y_high * np.ones(np.sum(index_omitted_high)),
-  #     color='red',
-  #     marker='|')
+  # Plot ticks relating to whether the option was chosen (factual) or not (counterfactual) and whether it was rewarded
+  x = np.arange(len(choices))
+  chosen_y = -0.1  # Lower position for chosen (bigger tick)
+  not_chosen_y = -0.2  # Slightly lower for not chosen (smaller tick)
+
+  # Plot ticks for chosen options
+  ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='black', s=100, marker='|')  # Large green tick for chosen reward
+  ax.scatter(x[(choices == 1) & (rewards == 0)], np.full(sum((choices == 1) & (rewards == 0)), chosen_y), color='lightgrey', s=100, marker='|')  # Large red tick for chosen penalty
+
+  # Plot ticks for not chosen options
+  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='black', s=50, marker='|')  # Small green tick
+  ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='lightgrey', s=50, marker='|')  # Small red tick
 
   if x_axis_info:
     ax.set_xlabel(x_label)

@@ -107,24 +107,28 @@ def load_checkpoint(params_path, model, optimizer, voting_type=None):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, gen_alpha, gen_beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, variance, verbose=False):
+def parameter_file_naming(params_path, alpha, alpha_penalty, alpha_counterfactual, confirmation_bias, forget_rate, beta_reward, alpha_choice, beta_choice, variance, verbose=False):
     # create name for corresponding rnn
   
     params_path += '_rnn'
     
-    if gen_alpha > 0:
-        params_path += f'_a' + str(gen_alpha).replace('.', '')
+    params_path += '_br' + str(beta_reward).replace('.', '')
     
-    params_path += f'_b' + str(gen_beta).replace('.', '')
+    if alpha > 0:
+        params_path += '_a' + str(alpha).replace('.', '')
     
-    if forget_rate > 0:
-        params_path += f'_f' + str(forget_rate).replace('.', '')
-        
-    if perseverance_bias > 0:
-        params_path += f'_p' + str(perseverance_bias).replace('.', '')
-        
     if alpha_penalty >= 0:
         params_path += '_ap' + str(alpha_penalty).replace('.', '')
+    
+    if alpha_counterfactual > 0:
+        params_path += '_ac' + str(alpha_counterfactual).replace('.', '')
+        
+    if beta_choice > 0 and alpha_choice > 0:
+        params_path += '_bch' + str(beta_choice).replace('.', '')
+        params_path += '_ach' + str(alpha_choice).replace('.', '')
+    
+    if forget_rate > 0:
+        params_path += '_f' + str(forget_rate).replace('.', '')
         
     if confirmation_bias > 0:
         params_path += '_cb' + str(confirmation_bias).replace('.', '')

@@ -32,16 +32,11 @@ def main(
   init_population = -1,
   ensemble = rnn_training.ensembleTypes.AVERAGE,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
   voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
-
-  # training parameters
-  dataset_train = None,
-  dataset_val = None,
-  dataset_test = None,
-  experiment_list_test = None,
   
   # data and training parameters
   epochs_train = 128,
   epochs_finetune = 0,
+  train_test_ratio = 0.7,
   n_trials_per_session = 64,
   n_sessions = 4096,
   bagging = False,
@@ -57,11 +52,13 @@ def main(
   parameter_variance = 0.,
   
   # ground truth parameters
+  beta_reward = 3.,
   alpha = 0.25,
-  beta = 3.,
-  forget_rate = 0.,
-  perseverance_bias = 0.,
   alpha_penalty = -1.,
+  alpha_counterfactual = 0.,
+  beta_choice = 0.,
+  alpha_choice = 1.,
+  forget_rate = 0.,
   confirmation_bias = 0.,
   reward_prediction_error: Callable = None,
   
@@ -87,86 +84,92 @@ def main(
   elif init_population < n_submodels:
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
   
-  update_dynamics = -1
-  if data is None and dataset_train is None:
+  dataset_test, experiment_list_test = None, None
+  if data is None:
     # setup
-    environment = bandits.EnvironmentBanditsDrift(sigma, n_actions)
-    # environment = bandits.EnvironmentBanditsSwitch(sigma)
-    agent = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance)  
-    agent_finetune = bandits.AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)  
+    # environment = bandits.EnvironmentBanditsDrift(sigma, n_actions)
+    environment = bandits.EnvironmentBanditsSwitch(sigma)
+    agent = bandits.AgentQ(
+      n_actions=n_actions, 
+      alpha_reward=alpha, 
+      beta_reward=beta_reward, 
+      forget_rate=forget_rate, 
+      beta_choice=beta_choice, 
+      alpha_choice=alpha_choice,
+      alpha_penalty=alpha_penalty, 
+      alpha_counterfactual=alpha_counterfactual, 
+      confirmation_bias=confirmation_bias, 
+      parameter_variance=parameter_variance,
+      )
     if reward_prediction_error is not None:
       agent.set_reward_prediction_error(reward_prediction_error)
     print('Setup of the environment and agent complete.')
-
-    if epochs_train > 0:
-      if dataset_train is None:    
-        print('Creating the training dataset...')
-        dataset_train, experiment_list_train, parameter_list_train = bandits.create_dataset(
-            agent=agent,
-            environment=environment,
-            n_trials_per_session=n_trials_per_session,
-            n_sessions=n_sessions,
-            sample_parameters=parameter_variance!=0,
-            device=device)
-
-      if dataset_val is None:
-        print('Creating the validation dataset...')
-        dataset_val, _, parameter_list_val = bandits.create_dataset(
-            agent=agent_finetune,
-            environment=environment,
-            n_trials_per_session=64,
-            n_sessions=16,
-            device=device)
-      
-    if dataset_test is None:
-      print('Creating the test dataset...')
+    
+    print('No path to dataset provided.')
+    print('Generating the synthetic dataset...')
+    dataset, experiment_list, parameter_list = bandits.create_dataset(
+        agent=agent,
+        environment=environment,
+        n_trials_per_session=n_trials_per_session,
+        n_sessions=n_sessions,
+        sample_parameters=parameter_variance!=0,
+        device=device)
+    
+    if train_test_ratio == 0:
       dataset_test, experiment_list_test, parameter_list_test = bandits.create_dataset(
-          agent=agent_finetune,
-          environment=environment,
-          n_trials_per_session=200,
-          n_sessions=1024,
-          device=device)
-      
-    print('Creating the finetune dataset...')
-    dataset_fine, experiment_list_fine, parameter_list_fine = bandits.create_dataset(
-          agent=agent_finetune,
-          environment=environment,
-          n_trials_per_session=n_trials_per_session,
-          n_sessions=1,
-          device=device)
-    
-    print('Setup of datasets complete.')
-  elif data is not None and dataset_train is None:
-    dataset, experiment_list, df, update_dynamics = convert_dataset.convert_dataset(data)
-    indexes_dataset = np.arange(len(dataset.xs))
-    # np.random.shuffle(indexes_dataset)
-    
-    # idx_train = int(0.95*len(dataset.xs))
-    idx_train = -1
-    # experiment_list_test = experiment_list_test[idx_train:]
-    experiment_list_test = [experiment_list[20]]
-    xs_train, ys_train = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[:idx_train]], dataset.ys[indexes_dataset[:idx_train]]
-    xs_val, ys_val = dataset.xs, dataset.ys#dataset.xs[indexes_dataset[idx_train:]], dataset.ys[indexes_dataset[idx_train:]]
-    xs_test, ys_test = xs_val, ys_val
-    dataset_train = rnn_utils.DatasetRNN(xs_train, ys_train)#, sequence_length=32)
-    dataset_val = rnn_utils.DatasetRNN(xs_val, ys_val)
-    dataset_test = rnn_utils.DatasetRNN(xs_test, ys_test)
-    
-    n_participants = len(experiment_list)
-    
-    # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
-    if 'mean_beta' in df.columns:
-      beta = df['beta'].values[idx_train]
-      alpha = df['alpha'].values[idx_train]
-      alpha_penalty = df['alpha_penalty'].values[idx_train]
-      confirmation_bias = df['confirmation_bias'].values[idx_train]
-      forget_rate = df['forget_rate'].values[idx_train]
-      perseverance_bias = df['perseverance_bias'].values[idx_train]
+        agent=agent,
+        environment=environment,
+        n_trials_per_session=n_trials_per_session,
+        n_sessions=n_sessions,
+        sample_parameters=parameter_variance!=0,
+        device=device)
+
+    print('Generation of dataset complete.')
   else:
-    dataset_val = dataset_train
+    dataset, experiment_list, df, update_dynamics = convert_dataset.convert_dataset(data)
+    
+    # # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
+    # if 'mean_beta' in df.columns:
+    #   beta = df['beta'].values[idx_train]
+    #   alpha = df['alpha'].values[idx_train]
+    #   alpha_penalty = df['alpha_penalty'].values[idx_train]
+    #   confirmation_bias = df['confirmation_bias'].values[idx_train]
+    #   forget_rate = df['forget_rate'].values[idx_train]
+    #   perseverance_bias = df['perseverance_bias'].values[idx_train]
   
+  n_participants = len(experiment_list)
+  
+  if train_test_ratio > 0:
+    # setup of validation and test dataset
+    index_train = int(train_test_ratio * dataset.xs.shape[1])
+    experiment_list_test, experiment_list_train = [], []
+    for i in range(n_participants):
+      experiment_list_test.append(experiment_list[i][index_train:])
+      experiment_list_train.append(experiment_list[i][:index_train])
+    xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
+    xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
+    dataset_test = bandits.DatasetRNN(xs_test, ys_test)
+    dataset_train = bandits.DatasetRNN(xs_train, ys_train)#, sequence_length=32)
+  else:
+    if dataset_test is None:
+      dataset_test, experiment_list_test = dataset, experiment_list
+    dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys)#, sequence_length=32)
+    experiment_list_train = experiment_list
+    
   if model is None:
-    params_path = rnn_utils.parameter_file_naming('params/params',alpha,beta,forget_rate,perseverance_bias,alpha_penalty,confirmation_bias,parameter_variance,verbose=True)
+    params_path = rnn_utils.parameter_file_naming(
+      'params/params', 
+      alpha=alpha, 
+      beta_reward=beta_reward, 
+      alpha_counterfactual=alpha_counterfactual,
+      forget_rate=forget_rate, 
+      beta_choice=beta_choice,
+      alpha_choice=alpha_choice,
+      alpha_penalty=alpha_penalty,
+      confirmation_bias=confirmation_bias, 
+      variance=parameter_variance, 
+      verbose=True,
+      )
   else:
     params_path = model
 
@@ -205,7 +208,6 @@ def main(
     model, optimizer_rnn, _ = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_train,
-        # dataset_test=dataset_test,
         optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs_train,
@@ -225,9 +227,9 @@ def main(
       'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
       'groundtruth': {
         'alpha': alpha,
-        'beta': beta,
+        'beta': beta_reward,
         'forget_rate': forget_rate,
-        'perseverance_bias': perseverance_bias,
+        'perseverance_bias': beta_choice,
         'alpha_penalty': alpha_penalty,
         'confirmation_bias': confirmation_bias,
       },
@@ -253,7 +255,7 @@ def main(
       )
   
   # Finetune the RNN with individual data
-  if dataset_val is not None and epochs_finetune > 0:
+  if epochs_finetune > 0:
     start_time = time.time()
     print('Finetuning the RNN...')
     for subnetwork in x_train_list:
@@ -261,7 +263,7 @@ def main(
     optimizer_fine = [torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_finetune, weight_decay=weight_decay)]
     model, optimizer_fine, _ = rnn_training.fit_model(
         model=[model],
-        dataset_train=dataset_val,
+        dataset_train=dataset_test,
         optimizer=optimizer_fine,
         convergence_threshold=convergence_threshold,
         epochs=epochs_finetune,
@@ -319,7 +321,10 @@ def main(
       agents = {'rnn': agent_rnn}
 
     experiment_analysis = experiment_list_test[session_id]
-    plotting.plot_session(agents, experiment_analysis)
+    fig, axs = plotting.plot_session(agents, experiment_analysis)
+    
+    fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
+    plt.show()
     
   return model, loss_test
 
@@ -395,9 +400,9 @@ if __name__=='__main__':
     
     # ground truth parameters
     alpha = args.alpha,
-    beta = args.beta,
+    beta_reward = args.beta,
     forget_rate = args.forget_rate,
-    perseverance_bias = args.perseverance_bias,
+    beta_choice = args.perseverance_bias,
     alpha_penalty = args.alpha_p,
     confirmation_bias = args.confirmation_bias,
     # reward_update_rule = lambda q, reward: reward-q,

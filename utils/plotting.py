@@ -9,13 +9,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, BanditSession, get_update_dynamics, plot_session as plt_session
 
 def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiment: BanditSession, labels: List[str] = None, save: str = None):    
+    # plot the dynamcis associated with the first arm
     
     # valid keys in agent dictionary
     valid_keys_color_pairs = {'groundtruth': 'tab:blue', 'rnn': 'tab:orange', 'sindy': 'tab:pink', 'benchmark':'tab:grey'}    
     
-    choices = experiment.choices
-    rewards = experiment.rewards
+    choices = np.eye(agents[list(agents.keys())[0]]._n_actions)[experiment.choices][:, 0]
+    rewards = experiment.rewards[:, 0]
 
+    # get beta values
+    
     list_probs = []
     list_Qs = []
     list_qs = []
@@ -59,7 +62,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     
     plt_session(
         compare=True,
-        chosen=choices,
+        choices=choices,
         rewards=rewards,
         timeseries=probs[:, :, 0],
         timeseries_name='$P(action)$',
@@ -74,7 +77,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     
     plt_session(
         compare=True,
-        chosen=choices,
+        choices=choices,
         rewards=rewards,
         timeseries=Qs[:, :, 0],
         timeseries_name='$q$',
@@ -88,7 +91,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     
     plt_session(
         compare=True,
-        chosen=choices,
+        choices=choices,
         rewards=rewards,
         timeseries=qs[:, :, 0],
         timeseries_name='$q_{reward}$',
@@ -102,7 +105,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
 
     plt_session(
         compare=True,
-        chosen=choices,
+        choices=choices,
         rewards=rewards,
         timeseries=hs[:, :, 0],
         timeseries_name='$q_{choice}$',
@@ -114,10 +117,10 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
         )
     axs_row += 1
     
-    if save is None:
-        plt.show()
-    else:
+    if save is not None:
         plt.savefig(save, dpi=300)
+    
+    return fig, axs
 
 def plot_pca(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiments: List[BanditSession], labels=None, save=None):
     
