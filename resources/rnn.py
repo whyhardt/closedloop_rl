@@ -145,7 +145,6 @@ class BaseRNN(nn.Module):
     def setup_subnetwork(self, input_size, hidden_size, dropout):
         seq = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            # nn.BatchNorm1d(hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size, 1),
@@ -182,6 +181,7 @@ class RLRNN(BaseRNN):
         self._tanh = nn.Tanh()
         self._shrink = nn.Tanhshrink()
         self._n_participants = n_participants
+        self._counterfactual = counterfactual
         
         # participant-embedding layer
         emb_size = 0
@@ -233,7 +233,7 @@ class RLRNN(BaseRNN):
 
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
-        next_value = torch.zeros_like(value)
+        next_value = torch.zeros_like(value)# + value
         
         # learning rate sub-network for chosen and not-chosen action
         if self.xLR[0].in_features-participant_embedding.shape[-1]-2 > 0:
@@ -244,7 +244,8 @@ class RLRNN(BaseRNN):
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
-        update_chosen = value + learning_rate * rpe
+        update_chosen = learning_rate * rpe
+        update_chosen += value
         
         if counterfactual:
             # counterfactual feedback
@@ -257,9 +258,11 @@ class RLRNN(BaseRNN):
             # reward sub-network for non-chosen action
             inputs = torch.concat([value, participant_embedding], dim=-1)
             update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
-            update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
+            update_not_chosen = self._sigmoid(update_not_chosen)
+            # update_not_chosen = self._shrink(update_not_chosen)
             
-            # no counterfactual feedback -> apply update_chosen only for chosen option and update_not_chosen for not-chosen option
+            # apply update_chosen only for chosen option and update_not_chosen for not-chosen option
+            # sigmoid applied only to not-chosen action because chosen action is already bounded to range [0, 1]
             next_value += update_chosen * action + update_not_chosen * (1-action)
             
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
@@ -278,16 +281,19 @@ class RLRNN(BaseRNN):
         inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
         # inputs = torch.concat([value, repeated], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
-        update_chosen = self._tanh(self._shrink(update_chosen))
+        update_chosen = self._sigmoid(update_chosen)
+        # update_chosen = self._shrink(update_chosen)
         
         # choice sub-network for non-chosen action
         inputs = torch.concat([value, participant_embedding], dim=-1)
         # inputs = value
         update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
-        update_not_chosen = self._tanh(self._shrink(update_not_chosen))
+        update_not_chosen = self._sigmoid(update_not_chosen)
+        # update_not_chosen = self._shrink(update_not_chosen)
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)
+        # next_value = self._sigmoid(next_value)
         
         return next_value.squeeze(-1), next_state.unsqueeze(1)
     

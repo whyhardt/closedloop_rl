@@ -374,7 +374,15 @@ class AgentNetwork:
         
         if device != model.device:
           model = model.to(device)
-        self._model = RLRNN(model._n_actions, model._hidden_size, model._n_participants, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
+        self._model = RLRNN(
+          n_actions=model._n_actions, 
+          hidden_size=model._hidden_size, 
+          n_participants=model._n_participants, 
+          init_value=model.init_value, 
+          list_sindy_signals=list(model.history.keys()), 
+          counterfactual=model._counterfactual, 
+          device=model.device
+          ).to(model.device)
         self._model.load_state_dict(model.state_dict())
         self._model.eval()
         
@@ -720,6 +728,7 @@ def run_experiment(
   agent: Agent,
   environment: Environment,
   n_trials: int,
+  session_id: int = 0,
   ) -> BanditSession:
   """Runs a behavioral session from a given agent and environment.
 
@@ -755,7 +764,7 @@ def run_experiment(
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),
                              rewards=rewards[:-1],
-                             session=np.zeros(rewards[:-1].shape[0]).astype(int),
+                             session=np.full(rewards[:-1].shape[0], session_id).astype(int),
                              reward_probabilities=reward_probs[:-1],
                              q=qs[:-1])
   return experiment, choices.astype(int), rewards
@@ -788,8 +797,8 @@ def create_dataset(
     An experliment_list with the results of (simulated) experiments
   """
   
-  xs = np.zeros((n_trials_per_session, n_sessions, agent._n_actions*2 + 1))
-  ys = np.zeros((n_trials_per_session, n_sessions, agent._n_actions))
+  xs = np.zeros((n_sessions, n_trials_per_session, agent._n_actions*2 + 1))
+  ys = np.zeros((n_sessions, n_trials_per_session, agent._n_actions))
   experiment_list = []
   parameter_list = []
 
@@ -797,18 +806,13 @@ def create_dataset(
     if verbose:
       print(f'Running session {session+1}/{n_sessions}...')
     agent.new_sess(sample_parameters=sample_parameters)
-    experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session)
-    # set session
-    experiment = BanditSession(n_trials=experiment.n_trials,
-                             choices=experiment.choices,
-                             rewards=experiment.rewards,
-                             session=np.full_like(experiment.session, session),
-                             reward_probabilities=experiment.reward_probabilities,
-                             q=experiment.q)
+    experiment, choices, rewards = run_experiment(agent, environment, n_trials_per_session, session)
     experiment_list.append(experiment)
+    
     # one-hot encoding of choices
-    ys[:, session] = np.eye(agent._n_actions)[choices[1:]]
-    xs[:, session] = np.concatenate((np.eye(agent._n_actions)[experiment.choices], experiment.rewards, experiment.session[:, None]), axis=-1)
+    choices = np.eye(agent._n_actions)[choices]
+    ys[session] = choices[1:]
+    xs[session] = np.concatenate((choices[:-1], rewards[:-1], experiment.session[:, None]), axis=-1)
     
     if isinstance(agent, AgentQ):
       # add current parameters to list
@@ -824,8 +828,8 @@ def create_dataset(
       )
 
   dataset = DatasetRNN(
-    xs=np.swapaxes(xs, 0, 1), 
-    ys=np.swapaxes(ys, 0, 1),
+    xs=xs, 
+    ys=ys,
     sequence_length=sequence_length,
     stride=stride,
     device=device)
@@ -857,8 +861,8 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   for trial in range(experiment.choices.shape[0]):
     # track all states
     Qs[trial] = agent.q
-    qs[trial] = agent._q
-    cs[trial] = agent._c
+    qs[trial] = agent._q * agent._beta_reward
+    cs[trial] = agent._c * agent._beta_choice
     
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), rewards[trial], int(experiment.session[0]))

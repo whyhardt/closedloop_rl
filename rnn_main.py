@@ -94,7 +94,7 @@ def main(
     print('Setup of the environment and agent complete.')
     
     print('Generating the synthetic dataset...')
-    dataset, experiment_list, _ = bandits.create_dataset(
+    dataset, _, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=n_trials_per_session,
@@ -104,10 +104,10 @@ def main(
         device=device)
     
     if train_test_ratio == 0:
-      dataset_test, _, _ = bandits.create_dataset(
+      dataset_test, experiment_list, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
-        n_trials_per_session=n_trials_per_session,
+        n_trials_per_session=256,
         n_sessions=n_sessions,
         sample_parameters=parameter_variance!=0,
         device=device)
@@ -134,13 +134,13 @@ def main(
     
     xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
     xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
-    dataset_train = bandits.DatasetRNN(xs_train, ys_train)#, sequence_length=32)
+    dataset_train = bandits.DatasetRNN(xs_train, ys_train, sequence_length=sequence_length)
     if dataset_test is None:
       dataset_test = bandits.DatasetRNN(xs_test, ys_test)  
   else:
     if dataset_test is None:
       dataset_test = dataset
-    dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys)#, sequence_length=32)
+    dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length)
     
   experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
     
@@ -227,7 +227,6 @@ def main(
   if analysis:
     # print(f'Betas of model: {(model._beta_reward.item(), model._beta_choice.item())}')
     # Synthesize a dataset using the fitted network
-    environment = bandits.EnvironmentBanditsDrift(sigma=sigma)
     model.set_device(torch.device('cpu'))
     model.to(torch.device('cpu'))
     agent_rnn = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
