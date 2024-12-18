@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn_utils import DatasetRNN
 from resources.bandits import BanditSession
 
-def convert_dataset(file: str, device = None):
+def convert_dataset(file: str, device = None, sequence_length: int = None):
     df = pd.read_csv(file, index_col=None)
     
     # replace all nan values with -1
@@ -87,4 +87,4 @@ def convert_dataset(file: str, device = None):
         
         experiment_list.append(experiment)
         
-    return DatasetRNN(xs, ys, device=device), experiment_list, df, (probs_choice, values_action, values_reward, values_choice)
+    return DatasetRNN(xs, ys, device=device, sequence_length=sequence_length), experiment_list, df, (probs_choice, values_action, values_reward, values_choice)

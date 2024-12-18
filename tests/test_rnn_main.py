@@ -4,11 +4,9 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
 
-losses = []
-# for i in range(2, 3):
 _, loss = rnn_main.main(
-    checkpoint=False,
-    epochs_train=1024,
+    checkpoint=True,
+    epochs=0,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
@@ -25,9 +23,9 @@ _, loss = rnn_main.main(
     bagging=True,
     # weight_decay=1e-4,
 
-    lr_train=1e-2,
-    n_oversampling_train=-1,
-    batch_size_train=-1,
+    learning_rate=1e-2,
+    batch_size=-1,
+    sequence_length=None,
     
     train_test_ratio=0,
     n_sessions=1024,
@@ -46,14 +44,3 @@ _, loss = rnn_main.main(
     
     analysis=True,
 )
-
-losses.append(0+loss)
-    
-print(losses)
-import numpy as np
-mean = np.mean(losses)
-mean_str = str(np.round(mean, 4)).replace('.','')
-std = np.std(losses)
-std_str = str(np.round(std, 4)).replace('.','')
-print('Mean: ' + str(mean))
-print('Std: ' + str(std))

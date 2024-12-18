@@ -63,7 +63,7 @@ if __name__=='__main__':
             n_submodels=n_submodels,
             n_sessions=n_sessions,
             ensemble=1,
-            epochs_train=0,
+            epochs=0,
             alpha=0.25,
             beta_reward=beta,
             forget_rate=0.2,

@@ -8,7 +8,7 @@ from copy import deepcopy
 from typing import Callable
 
 sys.path.append('resources')
-from resources.rnn import RLRNN, EnsembleRNN
+from resources.rnn import RLRNN
 from resources.bandits import AgentQ, AgentSindy, AgentNetwork, EnvironmentBanditsDrift, EnvironmentBanditsSwitch, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
 from resources.sindy_utils import create_dataset, check_library_setup, bandit_loss
 from resources.rnn_utils import parameter_file_naming
@@ -52,9 +52,6 @@ def main(
     
     analysis: bool = False,
     ):
-
-    # rnn parameters
-    voting_type = EnsembleRNN.MEDIAN
 
     # tracked variables in the RNN
     z_train_list = ['xLR', 'xQf', 'xC', 'xCf']
@@ -112,15 +109,7 @@ def main(
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
     rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=len(experiment_list_train), init_value=0.5, list_sindy_signals=sindy_feature_list)
     print('Loaded model ' + params_path)
-    if isinstance(state_dict, dict):
-        rnn.load_state_dict(state_dict)
-    elif isinstance(state_dict, list):
-        print('Loading ensemble model...')
-        model_list = []
-        for state_dict_i in state_dict:
-            model_list.append(deepcopy(rnn))
-            model_list[-1].load_state_dict(state_dict_i)
-        rnn = EnsembleRNN(model_list, voting_type=voting_type)
+    rnn.load_state_dict(state_dict)
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)            
 
     # create dataset for sindy training, fit sindy, set up sindy agent

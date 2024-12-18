@@ -33,7 +33,7 @@ def main(model, data, index: int = None, max_iterations: int = None):
             file_out_finetuning=model.replace('.pkl', f'_finetuned{i if index is None or index == -1 else index}.pkl'),
             checkpoint=True,
             dataset_train=data_session,
-            epochs_train=0,
+            epochs=0,
             epochs_finetune=1024,
             dropout=0.1,
             lr_finetune=1e-6,

@@ -20,12 +20,12 @@ if __name__ == '__main__':
         model = model,
 
         # training parameters
-        epochs_train = 128,
+        epochs = 128,
         n_trials_per_session = 64,
         n_sessions = 4096,
         n_steps_per_call = n_steps_per_call,
         bagging = True,
-        lr_train = 1e-2,
+        learning_rate = 1e-2,
 
         # ensemble parameters
         n_submodels = 8,

@@ -20,33 +20,21 @@ def main(
   checkpoint = False,
   model: str = None,
   data: str = None,
-  file_out_finetuning: str = None,
 
   # rnn parameters
   hidden_size = 8,
   dropout = 0.1,
 
-  # ensemble parameters
-  evolution_interval = -1,
-  n_submodels = 1,
-  init_population = -1,
-  ensemble = rnn_training.ensembleTypes.AVERAGE,  # Options; .BEST (picking best submodel after training), .AVERAGE (averaging the parameters of all submodels after each epoch), .VOTE (keeping all models but voting at each time step after being trained)
-  voting_type = rnn.EnsembleRNN.MEDIAN,  # Options: .MEAN, .MEDIAN; applies only for ensemble==rnn_training.ensemble_types.VOTE
-  
   # data and training parameters
-  epochs_train = 128,
-  epochs_finetune = 0,
+  epochs = 128,
   train_test_ratio = 0.7,
   n_trials_per_session = 64,
   n_sessions = 4096,
   bagging = False,
-  n_oversampling_train = -1,
-  n_oversampling_finetune = -1,
+  sequence_length = 32,
   n_steps_per_call = 16,  # -1 for full sequence
-  batch_size_train = -1,  # -1 for one batch per epoch
-  batch_size_finetune = -1,
-  lr_train = 1e-2,
-  lr_finetune = 1e-4,
+  batch_size = -1,  # -1 for one batch per epoch
+  learning_rate = 1e-2,
   convergence_threshold = 1e-6,
   weight_decay = 0.,
   parameter_variance = 0.,
@@ -81,19 +69,14 @@ def main(
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-  if init_population == -1:
-    init_population = n_submodels
-  elif init_population < n_submodels:
-    raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
   
   dataset_test = None
   if data is None:
     print('No path to dataset provided.')
     
     # setup
-    # environment = bandits.EnvironmentBanditsDrift(sigma, n_actions, counterfactual=counterfactual)
-    environment = bandits.EnvironmentBanditsSwitch(sigma, counterfactual=counterfactual)
+    environment = bandits.EnvironmentBanditsDrift(sigma, n_actions, counterfactual=counterfactual)
+    # environment = bandits.EnvironmentBanditsSwitch(sigma, counterfactual=counterfactual)
     agent = bandits.AgentQ(
       n_actions=n_actions, 
       alpha_reward=alpha, 
@@ -111,16 +94,17 @@ def main(
     print('Setup of the environment and agent complete.')
     
     print('Generating the synthetic dataset...')
-    dataset, experiment_list, parameter_list = bandits.create_dataset(
+    dataset, experiment_list, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=n_trials_per_session,
         n_sessions=n_sessions,
         sample_parameters=parameter_variance!=0,
+        sequence_length=sequence_length,
         device=device)
     
     if train_test_ratio == 0:
-      dataset_test, experiment_list_test, parameter_list_test = bandits.create_dataset(
+      dataset_test, _, _ = bandits.create_dataset(
         agent=agent,
         environment=environment,
         n_trials_per_session=n_trials_per_session,
@@ -130,7 +114,7 @@ def main(
 
     print('Generation of dataset complete.')
   else:
-    dataset, experiment_list, df, update_dynamics = convert_dataset.convert_dataset(data)
+    dataset, experiment_list, _, _ = convert_dataset.convert_dataset(data, sequence_length=sequence_length)
     dataset_test = rnn_utils.DatasetRNN(dataset.xs, dataset.ys)
     
     # # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
@@ -145,22 +129,20 @@ def main(
   n_participants = len(experiment_list)
   
   if train_test_ratio > 0:
-    # setup of validation and test dataset
+    # setup of training and test dataset
     index_train = int(train_test_ratio * dataset.xs.shape[1])
     
     xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
     xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
     dataset_train = bandits.DatasetRNN(xs_train, ys_train)#, sequence_length=32)
     if dataset_test is None:
-      dataset_test = bandits.DatasetRNN(xs_test, ys_test)
-    
-    experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
-  
+      dataset_test = bandits.DatasetRNN(xs_test, ys_test)  
   else:
     if dataset_test is None:
-      dataset_test, experiment_list_test = dataset, experiment_list
+      dataset_test = dataset
     dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys)#, sequence_length=32)
-    experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
+    
+  experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
     
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
@@ -179,12 +161,8 @@ def main(
   else:
     params_path = model
 
-  if ensemble > -1 and n_submodels == 1:
-    Warning('Ensemble is actived but n_submodels is set to 1. Deactivated ensemble.')
-    ensemble = rnn_training.ensembleTypes.BEST
-
   # define model
-  model = [rnn.RLRNN(
+  model = rnn.RLRNN(
       n_actions=n_actions, 
       hidden_size=hidden_size, 
       init_value=0.5,
@@ -194,55 +172,36 @@ def main(
       n_participants=n_participants,
       counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
       ).to(device)
-          for _ in range(init_population)]
 
-  optimizer_rnn = [torch.optim.Adam(m.parameters(), lr=lr_train, weight_decay=weight_decay) for m in model]
+  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
   print('Setup of the RNN model complete.')
 
   if checkpoint:
-      model, optimizer_rnn = rnn_utils.load_checkpoint(params_path, model, optimizer_rnn, voting_type)
+      model, optimizer_rnn = rnn_utils.load_checkpoint(params_path, model, optimizer_rnn)
       print('Loaded model parameters.')
 
   loss_test = None
-  if epochs_train > 0:
+  if epochs > 0:
     start_time = time.time()
     
     #Fit the RNN
     print('Training the RNN...')
-    for m in model:
-      m.train()
     model, optimizer_rnn, _ = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_train,
         optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
-        epochs=epochs_train,
-        batch_size=batch_size_train,
-        n_submodels=n_submodels,
-        ensemble_type=ensemble,
-        voting_type=voting_type,
+        epochs=epochs,
+        batch_size=batch_size,
         bagging=bagging,
-        n_oversampling=n_oversampling_train,
-        evolution_interval=evolution_interval,
         n_steps_per_call=n_steps_per_call,
     )
     
     # save trained parameters
-    state_dict = {
-      'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
-      'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
-      'groundtruth': {
-        'alpha': alpha,
-        'beta': beta_reward,
-        'forget_rate': forget_rate,
-        'perseverance_bias': beta_choice,
-        'alpha_penalty': alpha_penalty,
-        'confirmation_bias': confirmation_bias,
-      },
-    }
+    state_dict = {'model': model.state_dict(), 'optimizer': optimizer_rnn.state_dict()}
+    
     print('Training finished.')
-    # print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
     torch.save(state_dict, params_path)
     print(f'Saved RNN parameters to file {params_path}.')
     print(f'Training took {time.time() - start_time:.2f} seconds.')
@@ -260,53 +219,6 @@ def main(
           model=model,
           dataset_train=dataset_train,
       )
-  
-  # Finetune the RNN with individual data
-  if epochs_finetune > 0:
-    start_time = time.time()
-    print('Finetuning the RNN...')
-    for subnetwork in x_train_list:
-      model.finetune_training(subnetwork, keep_dropout=True)
-    optimizer_fine = [torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_finetune, weight_decay=weight_decay)]
-    model, optimizer_fine, _ = rnn_training.fit_model(
-        model=[model],
-        dataset_train=dataset_test,
-        optimizer=optimizer_fine,
-        convergence_threshold=convergence_threshold,
-        epochs=epochs_finetune,
-        batch_size=batch_size_finetune,
-        n_submodels=n_submodels,
-        ensemble_type=ensemble,
-        voting_type=voting_type,
-        bagging=bagging,
-        n_oversampling=n_oversampling_finetune,
-        evolution_interval=evolution_interval,
-        n_steps_per_call=n_steps_per_call,
-    )
-    model.eval()
-    
-    # save trained parameters  
-    state_dict = {
-      'model': model.state_dict() if isinstance(model, torch.nn.Module) else [model_i.state_dict() for model_i in model],
-      'optimizer': optimizer_rnn.state_dict() if isinstance(optimizer_rnn, torch.optim.Adam) else [optim_i.state_dict() for optim_i in optimizer_rnn],
-    }
-    print('Finetuning finished.')
-    # print(f'Trained beta of RNN is: {model._beta_reward.item()} and {model._beta_choice.item()}')
-    if file_out_finetuning is None:
-      file_out_finetuning = params_path.replace('_rnn_', '_rnn_finetuned_')
-    torch.save(state_dict, file_out_finetuning)
-    print(f'Saved RNN parameters to file {file_out_finetuning}.')
-    print(f'Finetuning took {time.time() - start_time:.2f} seconds.')
-    
-    # validate model
-    if dataset_test is not None:
-      print('\nTesting the finetuned RNN on the finetune dataset...')
-      model.eval()
-      with torch.no_grad():
-        _, _, loss_test = rnn_training.fit_model(
-            model=model,
-            dataset_train=dataset_test,
-        )
   
   # -----------------------------------------------------------
   # Analysis
@@ -348,13 +260,8 @@ if __name__=='__main__':
   parser.add_argument('--n_sessions', type=int, default=4096, help='Number of sessions')
   parser.add_argument('--n_steps_per_call', type=int, default=8, help='Number of steps per call')
   parser.add_argument('--bagging', action='store_true', help='Whether to use bagging')
-  parser.add_argument('--n_oversampling_train', type=int, default=-1, help='Number of oversampling iterations')
   parser.add_argument('--batch_size_train', type=int, default=-1, help='Batch size')
   parser.add_argument('--lr_train', type=float, default=0.01, help='Learning rate of the RNN')
-
-  # Ensemble parameters
-  parser.add_argument('--n_submodels', type=int, default=1, help='Number of submodels in the ensemble')
-  parser.add_argument('--ensemble', type=int, default=1, help='Defines the type of ensembling. Options -- -1: take the best model; 0: let the submodels vote (median); 1: average the parameters after each epoch (recommended)')
 
   # RNN parameters
   parser.add_argument('--hidden_size', type=int, default=8, help='Hidden size of the RNN')
@@ -386,19 +293,14 @@ if __name__=='__main__':
     n_actions=args.n_actions,
 
     # training parameters
-    epochs_train=args.epochs_train,
+    epochs=args.epochs_train,
     n_trials_per_session = args.n_trials_per_session,
     n_sessions = args.n_sessions,
     n_steps_per_call = args.n_steps_per_call,
     bagging = args.bagging,
-    n_oversampling_train=args.n_oversampling_train,
-    batch_size_train=args.batch_size_train,
-    lr_train=args.lr_train,
+    batch_size=args.batch_size_train,
+    learning_rate=args.lr_train,
 
-    # ensemble parameters
-    n_submodels=args.n_submodels,
-    ensemble=args.ensemble,
-    
     # rnn parameters
     hidden_size = args.hidden_size,
     dropout = args.dropout,
@@ -410,8 +312,7 @@ if __name__=='__main__':
     beta_choice = args.perseverance_bias,
     alpha_penalty = args.alpha_p,
     confirmation_bias = args.confirmation_bias,
-    # reward_update_rule = lambda q, reward: reward-q,
-    
+
     # environment parameters
     sigma = args.sigma,
     

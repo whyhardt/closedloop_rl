@@ -1,9 +1,6 @@
 import torch
 from torch.utils.data import Dataset
 
-# Add resources folder to path
-from resources.rnn import BaseRNN, EnsembleRNN
-
 
 class DatasetRNN(Dataset):
     def __init__(
@@ -89,21 +86,13 @@ class DatasetRNN(Dataset):
         return self.xs[idx, :], self.ys[idx, :]
 
 
-def load_checkpoint(params_path, model, optimizer, voting_type=None):
+def load_checkpoint(params_path, model, optimizer):
     # load trained parameters
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))
     state_dict_model = state_dict['model']
     state_dict_optimizer = state_dict['optimizer']
-    if isinstance(state_dict_model, dict):
-      for m, o in zip(model, optimizer):
-        m.load_state_dict(state_dict_model)
-        o.load_state_dict(state_dict_optimizer)
-    elif isinstance(state_dict_model, list):
-        print('Loading ensemble model...')
-        for i, state_dict_model_i, state_dict_optim_i in zip(len(state_dict_model), state_dict_model, state_dict_optimizer):
-            model[i].load_state_dict(state_dict_model_i)
-            optimizer[i].load_state_dict(state_dict_optim_i)
-        model = EnsembleRNN(model, voting_type=voting_type)
+    model.load_state_dict(state_dict_model)
+    optimizer.load_state_dict(state_dict_optimizer)
     return model, optimizer
 
 
@@ -148,41 +137,3 @@ def parameter_file_naming(params_path, alpha, alpha_penalty, alpha_counterfactua
         print(f'Automatically generated name for model parameter file: {params_path}.')
         
     return params_path
-
-
-def check_ensemble_rnn():
-    """
-    Checks that EnsembleRNN class is correctly implemented i.e. that it has the same methods as the BaseRNN class. 
-    BaseRNN.forward should be matched with EnsembleRNN.__call__.
-    """
-    
-    import inspect
-    
-    list_missing_methods = []
-    list_exceptions = ['append_timestep_sample']
-    
-    # Get all methods of the class
-    methods_ensemble_rnn = inspect.getmembers(EnsembleRNN, predicate=inspect.isfunction)
-    methods_base_rnn = inspect.getmembers(BaseRNN, predicate=inspect.isfunction)
-    # Filter out methods that are not defined in this class
-    methods_ensemble_rnn = [name for name, func in methods_ensemble_rnn if func.__qualname__.startswith(EnsembleRNN.__name__ + '.')]
-    methods_base_rnn = [name for name, func in methods_base_rnn if func.__qualname__.startswith(BaseRNN.__name__ + '.')]
-    # Check if all methods of BaseRNN are implemented in EnsembleRNN
-    # match forward with __call__
-    if 'forward' in methods_base_rnn and '__call__' in methods_ensemble_rnn:
-        pass
-    else:
-        list_missing_methods.append('forward')
-    methods_base_rnn.remove('forward')
-    methods_ensemble_rnn.remove('__call__')
-    # Filter all methods from EnsembleRNN that are not in BaseRNN
-    methods_ensemble_rnn = [name for name in methods_ensemble_rnn if name in methods_base_rnn]
-    for method in methods_base_rnn:
-        if method not in methods_ensemble_rnn and method not in list_exceptions:
-            list_missing_methods.append(method)
-    
-    if len(list_missing_methods) == 0:
-        print('EnsembleRNN is correctly implemented.')
-    else:
-        print('EnsembleRNN is not correctly implemented. The following methods are missing:')
-        print(list_missing_methods)

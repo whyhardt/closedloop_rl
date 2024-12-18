@@ -1,17 +1,14 @@
-"""Environments + agents for 2-armed bandit task."""
-# pylint: disable=line-too-long
 from typing import NamedTuple, Union, Optional, Dict, Callable, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
-from copy import copy, deepcopy
+from copy import copy
 import torch
-from torch import nn
 import torch.utils
 import pysindy as ps
 
-from resources.rnn import RLRNN, EnsembleRNN
+from resources.rnn import RLRNN
 from resources.rnn_utils import DatasetRNN
 
 # Setup so that plots will look nice
@@ -359,7 +356,7 @@ class AgentNetwork:
 
     def __init__(
       self,
-      model: Union[RLRNN, EnsembleRNN],
+      model: RLRNN,
       n_actions: int = 2,
       device = torch.device('cpu'),
       deterministic: bool = False,
@@ -373,17 +370,13 @@ class AgentNetwork:
         
         self._deterministic = deterministic
         self._q_init = 0.5
-        if device != model.device:
-          model = model.to(device)
-        if isinstance(model, RLRNN):
-          self._model = RLRNN(model._n_actions, model._hidden_size, model._n_participants, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
-          self._model.load_state_dict(model.state_dict())
-        else:
-          self._model = model
-        self._model.eval()
         self._n_actions = n_actions
         
-        # self._directed_exploration_bias = self._model._directed_exploration_bias.item()
+        if device != model.device:
+          model = model.to(device)
+        self._model = RLRNN(model._n_actions, model._hidden_size, model._n_participants, model.init_value, list(model.history.keys()), device=model.device).to(model.device)
+        self._model.load_state_dict(model.state_dict())
+        self._model.eval()
         
         self.new_sess()
 
@@ -391,12 +384,18 @@ class AgentNetwork:
       """Reset the network for the beginning of a new session."""
       if not isinstance(session, torch.Tensor):
         session = torch.tensor(session, dtype=int)[None]
+      
       self._model.set_initial_state(batch_size=1)
+      
       self._xs = torch.zeros((1, self._n_actions*2+1))
       self._xs[0, -1] = session
-      participant_embedding = self._model.participant_embedding(session)
-      self._beta_reward = self._model._beta_reward(participant_embedding).item()
-      self._beta_choice = self._model._beta_choice(participant_embedding).item()
+      
+      # participant_embedding = self._model.participant_embedding(session)
+      # self._beta_reward = self._model._beta_reward(participant_embedding).item()
+      # self._beta_choice = self._model._beta_choice(participant_embedding).item()
+      self._beta_reward = self._model._beta_reward.item()
+      self._beta_choice = self._model._beta_choice.item()
+      
       self.set_state()
 
     def get_logit(self):

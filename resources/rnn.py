@@ -1,10 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-import numpy as np
-from copy import deepcopy
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, Union
 
 
 class BaseRNN(nn.Module):
@@ -161,26 +157,6 @@ class BaseRNN(nn.Module):
         
         return seq
     
-    def finetune_training(self, subnetwork: Union[nn.Sequential, str], keep_dropout: bool = False):
-        # freeze all layers except for the last one
-        if isinstance(subnetwork, str):
-            if hasattr(self, subnetwork):
-                subnetwork = getattr(self, subnetwork)
-        
-        for i in range(len(subnetwork)-1):
-            # loop until len-1 to keep output layer trainable for finetuning
-            if isinstance(subnetwork[i], nn.Linear):
-                # freeze weights of linear layers
-                for param in subnetwork[i].parameters():
-                    param.requires_grad = False
-            elif isinstance(subnetwork[i], nn.Dropout) and not keep_dropout:
-                # disable dropout
-                subnetwork[i].p = 0
-            elif isinstance(subnetwork[i], nn.BatchNorm1d):
-                # stop updating of running statistics in batch-norm layer
-                for param in subnetwork[i].parameters():
-                    param.requires_grad = False
-                subnetwork[i].eval()
 
 class RLRNN(BaseRNN):
     def __init__(
@@ -207,16 +183,13 @@ class RLRNN(BaseRNN):
         self._shrink = nn.Tanhshrink()
         self._n_participants = n_participants
         
-        # trainable parameters
-        # self._beta_reward = nn.Parameter(torch.tensor(1.))
-        # self._beta_choice = nn.Parameter(torch.tensor(1.))
-        # self._directed_exploration_bias_raw = nn.Parameter(torch.tensor(1.))
-        
         # participant-embedding layer
-        emb_size = 8
-        self.participant_embedding = nn.Embedding(n_participants, emb_size)
-        self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
-        self._beta_choice = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+        emb_size = 0
+        # self.participant_embedding = nn.Embedding(n_participants, emb_size)
+        # self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+        # self._beta_choice = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+        self._beta_reward = nn.Parameter(torch.tensor(1.))
+        self._beta_choice = nn.Parameter(torch.tensor(1.))
         
         # action-based subnetwork
         self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
@@ -260,7 +233,7 @@ class RLRNN(BaseRNN):
 
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
-        next_value = torch.zeros_like(value)# + value
+        next_value = torch.zeros_like(value)
         
         # learning rate sub-network for chosen and not-chosen action
         if self.xLR[0].in_features-participant_embedding.shape[-1]-2 > 0:
@@ -348,9 +321,12 @@ class RLRNN(BaseRNN):
         reward_state, choice_state, uncertainty_state, reward_value, choice_value, uncertainty_value = state
         
         # get participant embedding
-        participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
-        beta_reward = self._beta_reward(participant_embedding[0, :, 0])
-        beta_choice = self._beta_choice(participant_embedding[0, :, 0])
+        # participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
+        # beta_reward = self._beta_reward(participant_embedding[0, :, 0])
+        # beta_choice = self._beta_choice(participant_embedding[0, :, 0])
+        participant_embedding = torch.zeros((*inputs.shape[:-1], 2, 0), device=self.device)
+        beta_reward = self._beta_reward
+        beta_choice = self._beta_choice
         
         timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros_like(action, device=self.device)
@@ -364,7 +340,6 @@ class RLRNN(BaseRNN):
             reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r, p)
             choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated, p)
             
-            # logits[t, :, :] += (reward_value + action_value) * self.beta
             logits[t, :, :] += reward_value * beta_reward + choice_value * beta_choice
             
             self._prev_action = a.clone()
@@ -392,164 +367,3 @@ class RLRNN(BaseRNN):
     def set_initial_state(self, batch_size: int=1, return_dict=False):
         self._prev_action = torch.zeros(batch_size, self._n_actions, device=self.device)
         return super().set_initial_state(batch_size, return_dict)
-
-    
-class EnsembleRNN:
-    
-    MEAN = 0
-    MEDIAN = 1
-    
-    def __init__(self, model_list: List[BaseRNN], device=torch.device('cpu'), voting_type=0):
-        self.device = device
-        self.models = model_list
-        self.voting_type = voting_type
-        self.history = {key: [] for key in self.models[0].history.keys()}
-        
-    def __call__(self, inputs: torch.Tensor, prev_state: Optional[List[Tuple[torch.Tensor]]] = None, batch_first=False):
-        if len(inputs.shape) == 2:
-            # unsqueeze time dimension
-            if batch_first:
-                inputs = inputs.unsqueeze(1)
-            else:
-                inputs = inputs.unsqueeze(0)
-            
-        if batch_first:
-            inputs = inputs.permute(1, 0, 2)
-            
-        if prev_state is None:
-            # initialize state if not provided
-            self.initial_state(batch_size=inputs.shape[0])
-            state = self.get_state()
-        elif len(prev_state[0].shape) == 2:
-            # repeat state for each model and return list of stacked states with shape (n_models, batch_size, hidden_size)
-            self.set_state([prev_state for _ in range(len(self.models))])
-            state = self.get_state()
-        else:
-            state = prev_state
-        
-        logits = []
-        for inputs_t in inputs:
-            history_call = {key: [] for key in self.models[0].history.keys()}
-            logits_t = []
-            states = []
-            for i, model in enumerate(self.models):
-                logits_i, state_i = model(inputs_t.unsqueeze(0), [s[:, i] for s in state])
-                logits_t.append(logits_i)
-                states.append(state_i)
-                for key in history_call.keys():
-                    if len(model.get_history(key)) > 0:
-                        history_call[key].append(model.get_history(key)[-1])
-            self.set_state(states)
-            state = self.get_state()
-            logits.append(self.vote(torch.stack(logits_t, dim=1), self.voting_type).squeeze(1))
-            self.append_timestep_sample(history_call)
-
-        logits = torch.concat(logits)
-        
-        if batch_first:
-            logits = logits.permute(1, 0, 2)
-        
-        return logits, self.get_state()
-    
-    def __iter__(self):
-        return iter(self.models)
-    
-    def __getitem__(self, index):
-        return self.models[index]
-    
-    def __len__(self):
-        return len(self.models)
-    
-    @staticmethod
-    def vote(values: torch.Tensor, voting_type) -> torch.Tensor:
-        if voting_type == 1:
-            return torch.median(values, dim=1)[0].unsqueeze(1)
-        elif voting_type == 0:
-            return torch.mean(values, dim=1, keepdim=True)
-        else:
-            raise ValueError(f'Invalid ensemble type {voting_type}. Must be either 0 (mean) or 1 (median).')
-    
-    def get_voting_states(self):
-        # get states that are voted for and 
-        return [True if state_i.shape[-1] == self.models[0]._n_actions else False for state_i in self.models[0].get_state()]
-    
-    def set_state(self, states: List[Tuple[torch.Tensor]]):
-        # vote for all non-hidden states i.e. visible values (habit and value) and copy all hidden states of each submodel
-        # non-hidden states are identified by state[i].shape[-1] == self.models[0]._n_actions
-        # transform all tuples to lists
-        states = [list(s) for s in states]
-        states_tensor = [None for _ in range(len(states[0]))]
-        voting_states = self.get_voting_states()
-        for i, voting in enumerate(voting_states):
-            state_all_models = [s[i] for s in states]
-            if voting:
-                # if non-hidden state (aka visible states like habit and value) vote over all models and repeat the voted state for each model
-                new_state = self.vote(torch.concatenate(state_all_models, dim=1), self.voting_type).repeat(1, len(self), 1)
-            else:
-                # if hidden state keep the state of each model
-                new_state = torch.concatenate(state_all_models, dim=1)
-            states_tensor[i] = new_state.clone()
-        self._state = states_tensor
-    
-    def get_state(self, detach=False, return_dict=False):        
-        state = self._state
-        
-        if detach:
-            state = [s.detach() for s in state]
-            
-        if return_dict:
-            keys = ['hidden_value', 'hidden_habit', 'hidden_uncertainty', 'value', 'habit', 'uncertainty']
-            state = {keys[i]: state[i] for i in range(len(state))}
-        else:
-            state = tuple(state)
-            
-        return state
-    
-    def initial_state(self, batch_size=1, return_dict=False):
-        self.history = {key: [] for key in self.models[0].history.keys()}
-        state = []
-        for model in self.models:
-            state.append(model.set_initial_state(batch_size=batch_size))
-        # state = list(zip(*state))
-        # state = [torch.concat(s, dim=1) for s in state]
-        # self._state = state
-        self.set_state(state)
-        return self.get_state(return_dict=return_dict)
-    
-    def get_history(self, key):
-        if 'x' in key:
-            # vote for internal values e.g. habit, reward-blind update, reward-based update
-            return self.vote(torch.stack([model.get_history(key) for model in self.models]), self.voting_type)
-        else:
-            # control signals are equal for all models. It's sufficient to get only the first model's value
-            return self.models[0].get_history(key)
-        
-    def append_timestep_sample(self, history_ensemble):
-        for key in history_ensemble.keys():
-            if 'x' in key:
-                if len(history_ensemble[key]) > 0:
-                    # vote history values
-                    self.history[key].append(self.vote(torch.stack(history_ensemble[key], dim=1), self.voting_type).squeeze(1))
-            elif 'c' in key:
-                # control signals are equal for all models. It's sufficient to get only the first model's value
-                self.history[key].append(history_ensemble[key][0])
-            else:
-                raise ValueError(f'Invalid history key {key}.')
-        
-    def set_device(self, device): 
-        self.device = device
-        
-    def to(self, device: torch.device):
-        for model in self.models:
-            model = model.to(device)
-            model.set_device(device)
-        self.device = device
-        return self
-    
-    def eval(self):
-        for model in self.models:
-            model.eval()
-            
-    def train(self):
-        for model in self.models:
-            model.train()
