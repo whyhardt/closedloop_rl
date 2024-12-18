@@ -89,6 +89,8 @@ def main(
   
   dataset_test = None
   if data is None:
+    print('No path to dataset provided.')
+    
     # setup
     # environment = bandits.EnvironmentBanditsDrift(sigma, n_actions, counterfactual=counterfactual)
     environment = bandits.EnvironmentBanditsSwitch(sigma, counterfactual=counterfactual)
@@ -108,7 +110,6 @@ def main(
       agent.set_reward_prediction_error(reward_prediction_error)
     print('Setup of the environment and agent complete.')
     
-    print('No path to dataset provided.')
     print('Generating the synthetic dataset...')
     dataset, experiment_list, parameter_list = bandits.create_dataset(
         agent=agent,
@@ -191,7 +192,7 @@ def main(
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
       n_participants=n_participants,
-      counterfactual=counterfactual,
+      counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
       ).to(device)
           for _ in range(init_population)]
 

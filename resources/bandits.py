@@ -184,9 +184,12 @@ class AgentQ:
     non_chosen_action = np.arange(self._n_actions) != choice
     
     # if only factual feedback, assign reward to the correct column
+    new_reward = np.zeros_like(reward)
     if reward[1] == -1:
-      reward[choice] = reward[0]
-      reward[non_chosen_action] = -1
+      new_reward[choice] += reward[0]
+      new_reward[non_chosen_action] += -1
+    else:
+      new_reward = reward
     
     # adjust learning rates for every received reward
     alpha = np.zeros_like(reward)
@@ -203,7 +206,7 @@ class AgentQ:
         alpha_p = 0
         
       # asymmetric learning rates
-      alpha[i] = alpha_r if reward[i] > 0.5 else alpha_p
+      alpha[i] = alpha_r if new_reward[i] > 0.5 else alpha_p
       
       if i == choice:
         # add confirmation bias to learning rate
@@ -211,10 +214,10 @@ class AgentQ:
         # if self._confirmation_bias:  
         # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
         # differentiable confirmation bias:
-        alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(reward[i] - 0.5)
+        alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(new_reward[i] - 0.5)
     
     # Reward-prediction-error
-    rpe = self._reward_prediction_error(self._q, reward)
+    rpe = self._reward_prediction_error(self._q, new_reward)
       
       # full learning rate equation w/ confirmation bias = 0.5: 
       # (xLR)[k+1]    = 0.25 + 0.5 * (Q-0.5) * (Reward - 0.5)
