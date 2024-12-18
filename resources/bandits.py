@@ -181,6 +181,12 @@ class AgentQ:
     """
     
     # Reward-based updates
+    non_chosen_action = np.arange(self._n_actions) != choice
+    
+    # if only factual feedback, assign reward to the correct column
+    if reward[1] == -1:
+      reward[choice] = reward[0]
+      reward[non_chosen_action] = -1
     
     # adjust learning rates for every received reward
     alpha = np.zeros_like(reward)
@@ -198,12 +204,14 @@ class AgentQ:
         
       # asymmetric learning rates
       alpha[i] = alpha_r if reward[i] > 0.5 else alpha_p
-      # add confirmation bias to learning rate
-      # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
-      # if self._confirmation_bias:  
-      # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
-      # differentiable confirmation bias:
-      alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(reward[i] - 0.5)
+      
+      if i == choice:
+        # add confirmation bias to learning rate
+        # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
+        # if self._confirmation_bias:  
+        # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
+        # differentiable confirmation bias:
+        alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(reward[i] - 0.5)
     
     # Reward-prediction-error
     rpe = self._reward_prediction_error(self._q, reward)
@@ -216,7 +224,6 @@ class AgentQ:
     reward_update = alpha * rpe
     
     # Forgetting - restore q-values of non-chosen actions towards the initial value
-    non_chosen_action = np.arange(self._n_actions) != choice
     forget_update = self._forget_rate * (self._q_init - self._q[non_chosen_action])
     
     # Value_new = Value_old - lr * Value_old + lr * Reward 
@@ -382,7 +389,7 @@ class AgentNetwork:
       if not isinstance(session, torch.Tensor):
         session = torch.tensor(session, dtype=int)[None]
       self._model.set_initial_state(batch_size=1)
-      self._xs = torch.zeros((1, self._n_actions+2))
+      self._xs = torch.zeros((1, self._n_actions*2+1))
       self._xs[0, -1] = session
       participant_embedding = self._model.participant_embedding(session)
       self._beta_reward = self._model._beta_reward(participant_embedding).item()
@@ -471,7 +478,7 @@ class EnvironmentBanditsFlips(Environment):
     else:
       self.reward_probs = [self._reward_prob_low, self._reward_prob_high]
 
-  def step(self):
+  def step(self, choice: int = None):
     """Step the model forward given chosen action."""
     # Choose the reward probability associated with agent's choice
     # reward_prob_trial = self.reward_probs[choice]
@@ -486,7 +493,10 @@ class EnvironmentBanditsFlips(Environment):
       self.new_block()
 
     # Return the reward
-    return reward
+    if self._counterfactual:
+      return reward
+    else:
+      return reward[choice].reshape(1,)
 
   @property
   def n_actions(self) -> int:
@@ -547,7 +557,7 @@ class EnvironmentBanditsSwitch(Environment):
     elif self._block == 6:
       self._reward_probs = [self._reward_prob_high, self._reward_prob_middle]
       
-  def step(self):
+  def step(self, choice: int = None):
     """Step the model forward given chosen action."""
     # Choose the reward probability associated with agent's choice    
     # reward_prob_trial = self.reward_probs[choice]
@@ -561,7 +571,10 @@ class EnvironmentBanditsSwitch(Environment):
       self.new_block()
 
     # Return the reward
-    return reward
+    if self._counterfactual:
+      return reward
+    else:
+      return reward[choice].reshape(1,)
 
   @property
   def reward_probs(self) -> np.ndarray:
@@ -590,7 +603,7 @@ class EnvironmentBanditsDrift(Environment):
       n_actions: int = 2,
       non_binary_reward: bool = False,
       correlated_reward: bool = False,
-      # counterfactual: bool = False,
+      counterfactual: bool = False,
       ):
     """Initialize the environment."""
     
@@ -606,7 +619,7 @@ class EnvironmentBanditsDrift(Environment):
     self._n_actions = n_actions
     self._non_binary_reward = non_binary_reward
     self._correlated_rewards = correlated_reward
-    # self._counterfactual = counterfactual
+    self._counterfactual = counterfactual
 
     # Sample new reward probabilities
     self._new_sess()
@@ -616,7 +629,7 @@ class EnvironmentBanditsDrift(Environment):
     # Sample randomly between 0 and 1
     self._reward_probs = np.random.rand(self._n_actions)
 
-  def step(self) -> np.ndarray:
+  def step(self, choice: int) -> np.ndarray:
     """Run a single trial of the task.
 
     Args:
@@ -662,7 +675,11 @@ class EnvironmentBanditsDrift(Environment):
     # Fix reward probs that've drifted below 0 or above 1
     self._reward_probs = np.clip(self._reward_probs, 0, 1)
 
-    return reward
+    # Return the reward
+    if self._counterfactual:
+      return reward
+    else:
+      return reward[choice].reshape(1,)
 
   @property
   def reward_probs(self) -> np.ndarray:
@@ -713,10 +730,10 @@ def run_experiment(
     experiment: A BanditSession holding choices and rewards from the session
   """
   
-  choices = np.zeros(n_trials+1)
-  rewards = np.zeros((n_trials+1, environment.n_actions))
-  qs = np.zeros((n_trials+1, environment.n_actions))
-  reward_probs = np.zeros((n_trials+1, environment.n_actions))
+  choices = np.zeros(n_trials+1) - 1
+  rewards = np.zeros((n_trials+1, environment.n_actions)) - 1
+  qs = np.zeros((n_trials+1, environment.n_actions)) - 1
+  reward_probs = np.zeros((n_trials+1, environment.n_actions)) - 1
 
   for trial in range(n_trials+1):
     # Log environment reward probabilities and Q-Values
@@ -725,13 +742,13 @@ def run_experiment(
     # First - agent makes a choice
     choice = agent.get_choice()
     # Second - environment computes a reward
-    reward = environment.step()
+    reward = environment.step(choice)
     # Log choice and reward
     choices[trial] = choice
-    rewards[trial] = reward
+    rewards[trial, :len(reward)] = reward
     
     # Third - agent updates its believes based on chosen action and received reward
-    agent.update(choice, reward)
+    agent.update(choice, rewards[trial])
     
   experiment = BanditSession(n_trials=n_trials,
                              choices=choices[:-1].astype(int),

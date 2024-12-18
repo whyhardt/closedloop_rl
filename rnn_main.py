@@ -65,10 +65,13 @@ def main(
   # environment parameters
   n_actions = 2,
   sigma = 0.1,
-
+  counterfactual = False,
+  
   analysis: bool = False,
   ):
 
+  session_id_test = -1
+  
   if not os.path.exists('params'):
     os.makedirs('params')
   
@@ -84,11 +87,11 @@ def main(
   elif init_population < n_submodels:
     raise ValueError(f'init_population ({init_population}) must be greater or equal to n_submodels ({n_submodels}).')
   
-  dataset_test, experiment_list_test = None, None
+  dataset_test = None
   if data is None:
     # setup
-    # environment = bandits.EnvironmentBanditsDrift(sigma, n_actions)
-    environment = bandits.EnvironmentBanditsSwitch(sigma)
+    # environment = bandits.EnvironmentBanditsDrift(sigma, n_actions, counterfactual=counterfactual)
+    environment = bandits.EnvironmentBanditsSwitch(sigma, counterfactual=counterfactual)
     agent = bandits.AgentQ(
       n_actions=n_actions, 
       alpha_reward=alpha, 
@@ -127,6 +130,7 @@ def main(
     print('Generation of dataset complete.')
   else:
     dataset, experiment_list, df, update_dynamics = convert_dataset.convert_dataset(data)
+    dataset_test = rnn_utils.DatasetRNN(dataset.xs, dataset.ys)
     
     # # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
     # if 'mean_beta' in df.columns:
@@ -142,19 +146,20 @@ def main(
   if train_test_ratio > 0:
     # setup of validation and test dataset
     index_train = int(train_test_ratio * dataset.xs.shape[1])
-    experiment_list_test, experiment_list_train = [], []
-    for i in range(n_participants):
-      experiment_list_test.append(experiment_list[i][index_train:])
-      experiment_list_train.append(experiment_list[i][:index_train])
+    
     xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
     xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
-    dataset_test = bandits.DatasetRNN(xs_test, ys_test)
     dataset_train = bandits.DatasetRNN(xs_train, ys_train)#, sequence_length=32)
+    if dataset_test is None:
+      dataset_test = bandits.DatasetRNN(xs_test, ys_test)
+    
+    experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
+  
   else:
     if dataset_test is None:
       dataset_test, experiment_list_test = dataset, experiment_list
     dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys)#, sequence_length=32)
-    experiment_list_train = experiment_list
+    experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
     
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
@@ -186,6 +191,7 @@ def main(
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
       n_participants=n_participants,
+      counterfactual=counterfactual,
       ).to(device)
           for _ in range(init_population)]
 
@@ -314,14 +320,12 @@ def main(
     agent_rnn = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
     
     # get analysis plot
-    session_id = 0
     if data is None:
       agents = {'groundtruth': agent, 'rnn': agent_rnn}
     else:
       agents = {'rnn': agent_rnn}
 
-    experiment_analysis = experiment_list_test[session_id]
-    fig, axs = plotting.plot_session(agents, experiment_analysis)
+    fig, axs = plotting.plot_session(agents, experiment_test)
     
     fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
     plt.show()

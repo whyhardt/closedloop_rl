@@ -191,6 +191,7 @@ class RLRNN(BaseRNN):
         init_value=0.5,
         list_sindy_signals=['xQf', 'xQr', 'xQc', 'xC', 'ca', 'cr'],
         dropout=0.,
+        counterfactual=False,
         device=torch.device('cpu'),
         ):
         
@@ -227,7 +228,8 @@ class RLRNN(BaseRNN):
         self.xQf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # learning-rate subnetwork
-        self.xLR = self.setup_subnetwork(3+emb_size, hidden_size, dropout)
+        add_action_dim = 1 if counterfactual else 0
+        self.xLR = self.setup_subnetwork(2+add_action_dim+emb_size, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
@@ -249,29 +251,44 @@ class RLRNN(BaseRNN):
         # add dimension to value, action and reward
         value = value.unsqueeze(-1)
         action = action.unsqueeze(-1)
-        reward = reward.unsqueeze(-1)#.repeat((1, self._n_actions, 1))
         
+        counterfactual = True
+        reward = reward.unsqueeze(-1)
+        if reward[:, 1].mean() == -1:
+            counterfactual = False
+            reward = reward[:, 0].unsqueeze(1).repeat((1, self._n_actions, 1))
+
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
         next_value = torch.zeros_like(value)# + value
         
         # learning rate sub-network for chosen and not-chosen action
-        inputs = torch.concat([value, reward, action, participant_embedding], dim=-1)
+        if self.xLR[0].in_features-participant_embedding.shape[-1]-2 > 0:
+            inputs = torch.concat([value, reward, action, participant_embedding], dim=-1)
+        else:
+            inputs = torch.concat([value, reward, participant_embedding], dim=-1)
         # inputs = torch.concat([value, reward], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
+        update_chosen = value + learning_rate * rpe
         
-        next_value = value + learning_rate * rpe
-
-        # # reward sub-network for non-chosen action
-        # inputs = torch.concat([value, participant_embedding], dim=-1)
-        # # inputs = value
-        # update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
-        # update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
-        
-        # next_value += update_chosen * action + update_not_chosen * (1-action)
-
+        if counterfactual:
+            # counterfactual feedback
+            
+            # apply update_chosen for all values and don't apply forgetting since participant sees all rewards at every trial
+            next_value += update_chosen
+        else:
+            # no counterfactual feedback -> apply forgetting for not-chosen values
+            
+            # reward sub-network for non-chosen action
+            inputs = torch.concat([value, participant_embedding], dim=-1)
+            update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
+            update_not_chosen = self._sigmoid(self._shrink(update_not_chosen))
+            
+            # no counterfactual feedback -> apply update_chosen only for chosen option and update_not_chosen for not-chosen option
+            next_value += update_chosen * action + update_not_chosen * (1-action)
+            
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
     def choice_network(self, state: torch.Tensor, value: torch.Tensor, action: torch.Tensor, repeated: torch.Tensor, participant_embedding: torch.Tensor):
@@ -352,16 +369,17 @@ class RLRNN(BaseRNN):
             
             self._prev_action = a.clone()
             
-            # append timestep samples for SINDy
-            self.append_timestep_sample('ca', a)
-            self.append_timestep_sample('cr', r)
-            self.append_timestep_sample('cp', 1-r)
-            self.append_timestep_sample('ca_repeat', repeated)
-            self.append_timestep_sample('cQ', old_rv)
-            self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
-            self.append_timestep_sample('xQf', old_rv, reward_value)
-            self.append_timestep_sample('xC', old_cv, choice_value)
-            self.append_timestep_sample('xCf', old_cv, choice_value)
+            if not torch.is_grad_enabled():
+                # append timestep samples for SINDy
+                self.append_timestep_sample('ca', a)
+                self.append_timestep_sample('cr', r)
+                self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1))
+                self.append_timestep_sample('ca_repeat', repeated)
+                self.append_timestep_sample('cQ', old_rv)
+                self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
+                self.append_timestep_sample('xQf', old_rv, reward_value)
+                self.append_timestep_sample('xC', old_cv, choice_value)
+                self.append_timestep_sample('xCf', old_cv, choice_value)
 
         # add model dim again and set state
         self.set_state(reward_state.unsqueeze(1), choice_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), choice_value.unsqueeze(1), uncertainty_value.unsqueeze(1))

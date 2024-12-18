@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.rnn_utils import DatasetRNN
 from resources.bandits import BanditSession
 
-def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSession]]:
+def convert_dataset(file: str, device = None):
     df = pd.read_csv(file, index_col=None)
     
     # replace all nan values with -1
@@ -30,32 +30,48 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
     # number of possible actions
     n_actions = int(df['choice'].max() + 1)
     
-    # normalize rewards
-    r_min = df['reward'].min()
-    r_max = df['reward'].max()
-    df['reward'] = (df['reward'] - r_min) / (r_max - r_min)
+    # get all columns with rewards
+    reward_cols = []
+    for c in df.columns:
+        if 'reward' in c:
+            reward_cols.append(c)
     
-    xs = np.zeros((len(sessions), max_trials, n_actions + 2)) - 1
+    # normalize rewards
+    r_min, r_max = [], []
+    for c in reward_cols:
+        r_min.append(df[c].min())
+        r_max.append(df[c].max())
+    r_min = np.min(r_min)
+    r_max = np.max(r_max)
+    for c in reward_cols:
+        df[c] = (df[c] - r_min) / (r_max - r_min)
+    
+    xs = np.zeros((len(sessions), max_trials, n_actions*2 + 1)) - 1
     ys = np.zeros((len(sessions), max_trials, n_actions)) - 1
     
-    choice_probs = np.zeros((len(sessions), max_trials, n_actions)) - 1
-    action_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
-    reward_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
-    choice_values = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    probs_choice = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    values_action = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    values_reward = np.zeros((len(sessions), max_trials, n_actions)) - 1
+    values_choice = np.zeros((len(sessions), max_trials, n_actions)) - 1
     
     experiment_list = []
     for i, s in enumerate(sessions):
         choice = np.eye(n_actions)[df[df['session'] == s]['choice'].values.astype(int)]
-        reward = df[df['session'] == s]['reward'].values
-        xs[i, :len(choice), :-2] = choice
-        xs[i, :len(choice), -2] = reward
+        rewards = np.zeros((len(choice), n_actions)) - 1
+        for j, c in enumerate(reward_cols):
+            reward = df[df['session'] == s][c].values
+            rewards[:, j] = reward
+        
+        # write arrays for DatasetRNN
+        xs[i, :len(choice), :n_actions] = choice
+        xs[i, :len(choice), n_actions:n_actions*2] = rewards
         xs[i, :, -1] += i+1
         ys[i, :len(choice)-1] = choice[1:]
 
         experiment = BanditSession(
             choices=df[df['session'] == s]['choice'].values,
-            rewards=reward,
-            session=np.full_like(reward, i),
+            rewards=rewards,
+            session=np.full((*rewards.shape[:-1], 1), i),
             reward_probabilities=np.zeros_like(choice)+0.5,
             q=np.zeros_like(choice)+0.5,
             n_trials=len(choice)
@@ -63,15 +79,12 @@ def convert_dataset(file: str, device = None) -> tuple[DatasetRNN, List[BanditSe
         
         # get update dynamics if available - only for generated data with e.g. utils/create_dataset.py
         if 'choice_prob_0' in df.columns:
-            choice_probs[i, :len(choice), 0] = df[df['session'] == s]['choice_prob_0'].values
-            choice_probs[i, :len(choice), 1] = df[df['session'] == s]['choice_prob_1'].values
-            action_values[i, :len(choice), 0] = df[df['session'] == s]['action_value_0'].values
-            action_values[i, :len(choice), 1] = df[df['session'] == s]['action_value_1'].values
-            reward_values[i, :len(choice), 0] = df[df['session'] == s]['reward_value_0'].values
-            reward_values[i, :len(choice), 1] = df[df['session'] == s]['reward_value_1'].values
-            choice_values[i, :len(choice), 0] = df[df['session'] == s]['choice_value_0'].values
-            choice_values[i, :len(choice), 1] = df[df['session'] == s]['choice_value_1'].values
+            for i in range(n_actions):
+                probs_choice[i, :len(choice), i] = df[df['session'] == s][f'choice_prob_{i}'].values
+                values_action[i, :len(choice), i] = df[df['session'] == s][f'action_value_{i}'].values
+                values_reward[i, :len(choice), i] = df[df['session'] == s][f'reward_value_{i}'].values
+                values_choice[i, :len(choice), i] = df[df['session'] == s][f'choice_value_{i}'].values
         
         experiment_list.append(experiment)
         
-    return DatasetRNN(xs, ys, device=device), experiment_list, df, (choice_probs, action_values, reward_values, choice_values)
+    return DatasetRNN(xs, ys, device=device), experiment_list, df, (probs_choice, values_action, values_reward, values_choice)

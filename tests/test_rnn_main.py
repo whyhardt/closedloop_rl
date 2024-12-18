@@ -8,8 +8,7 @@ losses = []
 # for i in range(2, 3):
 _, loss = rnn_main.main(
     checkpoint=False,
-    epochs_train=4096,
-    # epochs_finetune=1024,
+    epochs_train=512,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
@@ -19,8 +18,6 @@ _, loss = rnn_main.main(
     
     # model = f'params/benchmarking/rnn_sugawara.pkl',
     # data = 'data/2arm/sugawara2021_143_processed.csv',
-    
-    # n_submodels=8,
     
     n_actions=2,
     
@@ -32,22 +29,19 @@ _, loss = rnn_main.main(
     n_oversampling_train=-1,
     batch_size_train=-1,
     
-    lr_finetune=1e-4,
-    n_oversampling_finetune=-1,
-    batch_size_finetune=-1,
-    
     train_test_ratio=0,
     n_sessions=1024,
     n_trials_per_session=256,
     sigma=0.05,
-    beta_reward=3.,
-    alpha=0.5,
-    alpha_counterfactual=0.25,
+    counterfactual=False,
+    # beta_reward=3.,
+    # alpha=0.5,
+    # alpha_counterfactual=0.5,
     # forget_rate=0.2,
     # alpha_penalty=0.5,
     # confirmation_bias=0.5,
-    beta_choice=3.0,
-    alpha_choice=0.25,
+    # beta_choice=3.0,
+    # alpha_choice=0.25,
     # parameter_variance=0.,
     
     analysis=True,
