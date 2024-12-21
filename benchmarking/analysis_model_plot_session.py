@@ -3,6 +3,7 @@ import sys
 
 import numpy as np
 import pickle
+import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_benchmark_q_agent
@@ -23,7 +24,7 @@ def main(data, model_mcmc, model_rnn, session_id):
     agent_sindy, n_parameters_sindy = [], []
     
     # setup rnn agent for comparison
-    agent_rnn = setup_agent_rnn(model_rnn, len(experiment_list))
+    agent_rnn = setup_agent_rnn(model_rnn, len(experiment_list), participant_emb=True, counterfactual=False)
     n_parameters_rnn.append(sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad))
 
     # setup sindy agent and get number of sindy coefficients which are not 0
@@ -57,14 +58,17 @@ def main(data, model_mcmc, model_rnn, session_id):
     
     agent_mcmc = setup_benchmark_q_agent(parameters)
     
-    plot_session(
+    fig, axs = plot_session(
         {
-            'benchmark': agent_mcmc, 
+            # 'benchmark': agent_mcmc, 
             'rnn': agent_rnn, 
             'sindy': agent_sindy,
             }, 
         experiment,
         )
+    
+    fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
+    plt.show()
 
         
 if __name__ == "__main__":

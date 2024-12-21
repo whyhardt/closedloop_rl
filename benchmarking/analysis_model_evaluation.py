@@ -20,6 +20,7 @@ model_rnn = 'params/benchmarking/rnn_sugawara.pkl'
 model_benchmark = 'benchmarking/params/sugawara2021_143/non_hierarchical/traces.nc'
 results = 'benchmarking/results/results_sugawara.csv'
 session_id = 142
+participant_emb = True,
 
 # data = 'data/2arm/eckstein2022_291_processed.csv'
 # model_rnn = 'params/benchmarking/rnn_eckstein.pkl'
@@ -36,11 +37,11 @@ if isinstance(session_id, int):
     experiment = [experiment[session_id]]
 
 # setup rnn agent for comparison
-agent_rnn = setup_agent_rnn(model_rnn, n_sessions)
+agent_rnn = setup_agent_rnn(model_rnn, n_sessions, participant_emb=participant_emb)
 n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad)
 
 # setup sindy agent and get number of sindy coefficients which are not 0
-agent_sindy = setup_agent_sindy(model_rnn, data, session_id=session_id)
+agent_sindy = setup_agent_sindy(model_rnn, data, session_id=session_id, participant_emb=participant_emb)
 n_parameters_sindy = [agent._count_sindy_parameters(without_self=True) for agent in agent_sindy]
 
 # setup AgentQ model with values from sugawara paper as baseline

@@ -63,13 +63,11 @@ def main(data, model, output_file):
             agent_mcmc.append(setup_benchmark_q_agent(parameters_i))
     
     if agent_mcmc is not None:
-        df = get_scores_array(experiment, agent_mcmc, n_parameters_mcmc, verbose=True)
         output_file = output_file.replace('.', '_mcmc_'+model.split('/')[-1].split('_')[-1].split('.')[0]+'.')
-        df.to_csv(output_file)
+        get_scores_array(experiment, agent_mcmc, n_parameters_mcmc, verbose=True, save=output_file)
         print(f'Saved MCMC scores in {output_file}')
     if agent_rnn is not None:
-        df = get_scores_array(experiment, agent_rnn, n_parameters_rnn, verbose=True)
-        df.to_csv(output_file.replace('.', '_rnn.'))
+        get_scores_array(experiment, agent_rnn, n_parameters_rnn, verbose=True, save=output_file.replace('.', '_rnn.'))
     # if agent_sindy is not None:
     #     df = get_scores_array(experiment, agent_sindy, n_parameters_sindy)
     #     df.to_csv(output_file.replace('.', '_sindy.'))
@@ -77,10 +75,9 @@ def main(data, model, output_file):
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--job_id', type=int, required=True, help='SLURM job array ID')
     parser.add_argument('--output_file', type=str, required=True, help='Output CSV file')
     parser.add_argument('--model', type=str, required=True, help='model file (either RNN (torch; without job-id in the end) or MCMC (numpyro))')
     parser.add_argument('--data', type=str, required=True, help='File with experimental data')
     args = parser.parse_args()
     
-    main(args.data, args.model, args.output_file, args.job_id)
+    main(args.data, args.model, args.output_file)

@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 from copy import copy
 
-base_file = 'benchmarking/results/results_sugawara_mcmc.csv'
-# base_file = 'benchmarking/results/results_eckstein_mcmc.csv'
+base_file = 'benchmarking/results/results_sugawara.csv'
+# base_file = 'benchmarking/results/results_eckstein.csv'
 
 file = base_file.split('/')[-1].split('.')[0]
 directory_list = base_file.split('/')[:-1]
@@ -18,9 +18,9 @@ for f in os.listdir(directory):
     if file in f:
         model = f.split('_')[-1].split('.')[0]
         df_dict[model] = pd.read_csv(directory + f, index_col=0)
-    elif file.replace('mcmc', 'sindy') in f:
-        # get sindy data as reference which sessions to ignore
-        df_sindy = pd.read_csv(directory + f)
+        if 'sindy' in f:
+            # get sindy data as reference which sessions to ignore
+            df_sindy = pd.read_csv(directory + f)
 
 index_ignore = None
 if df_sindy is not None:
@@ -35,12 +35,13 @@ for i in range(len(df_dict[model])):
     else:
         min_nll, min_aic, min_bic = np.inf, np.inf, np.inf
         for j, m in enumerate(models):
-            if df_dict[m]['NLL'].iloc[i] < min_nll:
-                min_nll = df_dict[m]['NLL'].iloc[i]
-            if df_dict[m]['AIC'].iloc[i] < min_aic:
-                min_aic = df_dict[m]['AIC'].iloc[i]
-            if df_dict[m]['BIC'].iloc[i] < min_bic:
-                min_bic = df_dict[m]['BIC'].iloc[i]
+            if m not in ['sindy', 'rnn']:
+                if df_dict[m]['NLL'].iloc[i] < min_nll:
+                    min_nll = df_dict[m]['NLL'].iloc[i]
+                if df_dict[m]['AIC'].iloc[i] < min_aic:
+                    min_aic = df_dict[m]['AIC'].iloc[i]
+                if df_dict[m]['BIC'].iloc[i] < min_bic:
+                    min_bic = df_dict[m]['BIC'].iloc[i]
         nll[i] += min_nll
         aic[i] += min_aic
         bic[i] += min_bic

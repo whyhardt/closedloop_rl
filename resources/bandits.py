@@ -255,6 +255,7 @@ class AgentSindy:
       n_actions: int=2,
       beta: Tuple[float]=(1., 1.),
       deterministic: bool=False,
+      counterfactual: bool=False,
       ):
     
     self._models = sindy_models
@@ -264,6 +265,7 @@ class AgentSindy:
     self._beta_choice = beta[1]
     self._n_actions = n_actions
     self._prev_choice = None
+    self._counterfactual = counterfactual
     
     self._n_parameters = self._count_sindy_parameters()
     
@@ -276,19 +278,24 @@ class AgentSindy:
       
       for action in range(self._n_actions):
         chosen = np.abs(choice - action) == 0
+        reward_action = reward[action]
         
         # reward network
         if chosen:
           # current action was chosen
           if 'xLR' in self._models:
-            learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward, 1-reward]).reshape(1, -1))[-1]
-            reward_prediction_error = reward - self._q[action]
+            learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+            reward_prediction_error = reward_action - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
           if 'xC' in self._models:
             self._c[action] = self._models['xC'].predict(np.array([self._c[action]]), u=np.array([choice_repeat]).reshape(1, -1))[-1]
         else:
           # current action was not chosen
-          if 'xQf' in self._models:
+          if self._counterfactual and 'xLR_cf' in self._models:
+            learning_rate = self._models['xLR_cf'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+            reward_prediction_error = reward_action - self._q[action]
+            self._q[action] += learning_rate * reward_prediction_error
+          elif not self._counterfactual and 'xQf' in self._models:
             self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
           if 'xCf' in self._models:
             self._c[action] = self._models['xCf'].predict(np.array([self._c[action]]), u=np.array([0]).reshape(1, -1))[-1]
@@ -380,7 +387,8 @@ class AgentNetwork:
           n_participants=model._n_participants, 
           init_value=model.init_value, 
           list_sindy_signals=list(model.history.keys()), 
-          counterfactual=model._counterfactual, 
+          counterfactual=model._counterfactual,
+          participant_emb=model._participant_emb,
           device=model.device
           ).to(model.device)
         self._model.load_state_dict(model.state_dict())
@@ -398,11 +406,13 @@ class AgentNetwork:
       self._xs = torch.zeros((1, self._n_actions*2+1))
       self._xs[0, -1] = session
       
-      # participant_embedding = self._model.participant_embedding(session)
-      # self._beta_reward = self._model._beta_reward(participant_embedding).item()
-      # self._beta_choice = self._model._beta_choice(participant_embedding).item()
-      self._beta_reward = self._model._beta_reward.item()
-      self._beta_choice = self._model._beta_choice.item()
+      if self._model._participant_emb:
+        participant_embedding = self._model.participant_embedding(session)
+        self._beta_reward = self._model._beta_reward(participant_embedding).item()
+        self._beta_choice = self._model._beta_choice(participant_embedding).item()
+      else:
+        self._beta_reward = self._model._beta_reward.item()
+        self._beta_choice = self._model._beta_choice.item()
       
       self.set_state()
 

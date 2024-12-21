@@ -37,13 +37,14 @@ def main(
     hidden_size = 8,
     
     # ground truth parameters
+    beta_reward = 3.,
     alpha = 0.25,
-    alpha_penalty = -1,
-    confirmation_bias = 0.,
+    alpha_penalty = -1.,
+    alpha_counterfactual = 0.,
+    beta_choice = 0.,
+    alpha_choice = 1.,
     forget_rate = 0.,
-    perseverance_bias = 0.,
-    beta = 3,
-    parameter_variance = 0.,
+    confirmation_bias = 0.,
     reward_prediction_error: Callable = None,
     
     # environment parameters
@@ -54,14 +55,15 @@ def main(
     ):
 
     # tracked variables in the RNN
-    z_train_list = ['xLR', 'xQf', 'xC', 'xCf']
-    control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']
+    z_train_list = ['xLR', 'xLR_cf', 'xQf', 'xC', 'xCf']
+    control_list = ['ca', 'cr', 'cp', 'cr_cf', 'cp_cf', 'ca_repeat', 'cQ']
     sindy_feature_list = z_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
-        'xLR': ['cQ', 'cr', 'cp'],
+        'xLR': ['cQ', 'cr', 'cp'],  # learning rate for chosen action
+        'xLR_cf': ['cQ', 'cr', 'cp'],  # learning rate for not-chosen action in counterfactual setup -> same inputs as for chosen action because inputs are 2D (action_0, action_1) -> difference made in filter setup!
         'xQf': [],
         'xC': ['ca_repeat'],
         'xCf': [],
@@ -76,7 +78,8 @@ def main(
     # Example:
     # 'xQf': ['ca', 0, True] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf' and the control parameter 'ca' is removed for training the model
     datafilter_setup = {
-        'xLR': ['ca', 1, True],
+        'xLR': ['ca', 1, True],  # learning rate for chosen action
+        'xLR_cf': ['ca', 0, True],  # learning rate for not-chosen action in counterfactual setup
         'xQf': ['ca', 0, True],
         'xC': ['ca', 1, True],
         'xCf': ['ca', 0, True],
@@ -89,11 +92,11 @@ def main(
         # set up ground truth agent and environment
         environment = EnvironmentBanditsDrift(sigma, n_actions)
         # environment = EnvironmentBanditsSwitch(sigma)
-        agent = AgentQ(n_actions, alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias)
+        agent = AgentQ(n_actions, beta_reward=beta_reward, alpha_reward=alpha, alpha_penalty=alpha_penalty, beta_choice=beta_choice, alpha_choice=alpha_choice, forget_rate=forget_rate, confirmation_bias=confirmation_bias, alpha_counterfactual=alpha_counterfactual)
         if reward_prediction_error is not None:
             agent.set_reward_prediction_error(reward_prediction_error)
-        _, experiment_list_test, parameter_list = create_dataset_bandits(agent, environment, 100, 1)
-        _, experiment_list_train, parameter_list = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
+        _, experiment_list_test, _ = create_dataset_bandits(agent, environment, 100, 1)
+        _, experiment_list_train, _ = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
     else:
         # get data from experiments
         _, experiment_list_train, _, _ = convert_dataset(data)
@@ -103,11 +106,13 @@ def main(
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', alpha, beta, forget_rate, perseverance_bias, alpha_penalty, confirmation_bias, parameter_variance, verbose=True)
+        params_path = parameter_file_naming('params/params', beta_reward=beta_reward, alpha=alpha, alpha_penalty=alpha_penalty, beta_choice=beta_choice, alpha_choice=alpha_choice, forget_rate=forget_rate, confirmation_bias=confirmation_bias, alpha_counterfactual=alpha_counterfactual, variance=parameter_variance, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
-    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=len(experiment_list_train), init_value=0.5, list_sindy_signals=sindy_feature_list)
+    counterfactual = np.mean(experiment_list_train[0].rewards[:, -1]) != -1
+    participant_emb = 'participant_embedding.weight' in state_dict.keys()
+    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=len(experiment_list_train), init_value=0.5, list_sindy_signals=sindy_feature_list, participant_emb=participant_emb, counterfactual=counterfactual)
     print('Loaded model ' + params_path)
     rnn.load_state_dict(state_dict)
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)            
@@ -120,8 +125,8 @@ def main(
     for i in range(len(experiment_list_train)):
         z_train, control, feature_names = create_dataset(agent_rnn, [experiment_list_train[i]], n_trials_per_session, n_sessions, clear_offset=False, shuffle=False, trimming=True)
         sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, verbose, False, threshold, regularization)
-        agent_rnn.new_sess(i)
-        agent_sindy.append(AgentSindy(sindy_models, n_actions, (agent_rnn._model._beta_reward(agent_rnn._participant_embedding).item(), agent_rnn._model._beta_choice((agent_rnn._participant_embedding)).item()), True))
+        agent_rnn.new_sess(experiment_list_train[i].session[0])
+        agent_sindy.append(AgentSindy(sindy_models, n_actions, (agent_rnn._beta_reward, agent_rnn._beta_choice), True, agent_rnn._model._counterfactual))
     
     # if verbose:
     #     print(f'SINDy Beta: {agent_rnn._model._beta_reward.item():.2f} and {agent_rnn._model._beta_choice.item():.2f}')
@@ -143,10 +148,15 @@ def main(
             agent_sindy[index_test]._models[model].print()
         
         # get analysis plot
-        agents = {'groundtruth': agent, 'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
+        if data is None:
+            agents = {'groundtruth': agent, 'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
+        else:
+            agents = {'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
         experiment_analysis = experiment_list_test[0]
-        plot_session(agents, experiment_analysis)
-
+        fig, axs = plot_session(agents, experiment_analysis)
+        fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
+        plt.show()
+        
     # save a dictionary of trained features per model
     features = {
         'beta_reward': (('beta_reward'), (agent_sindy[index_test]._beta_reward)),

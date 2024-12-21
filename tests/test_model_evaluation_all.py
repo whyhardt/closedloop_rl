@@ -21,5 +21,6 @@ for bm in benchmarking_models:
     model = 'benchmarking/params/sugawara2021_143/hierarchical/traces_hbi_'+bm+'.nc'
     output_file = 'benchmarking/results/results_sugawara.csv'    
     
-    with jax.default_device(jax.devices('cpu')[0]):
-        main(data, model, output_file)
+    jax.config.update('jax_platform_name', 'cpu')
+    # with jax.default_device(jax.devices('cpu')[0]):
+    main(data, model, output_file)

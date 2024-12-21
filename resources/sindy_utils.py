@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import pysindy as ps
 
 from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics, BanditSession
-from resources.rnn import EnsembleRNN
 from resources.rnn_utils import DatasetRNN
 
 
@@ -136,13 +135,11 @@ def create_dataset(
       if len(agent._model.history[key]) > 1:
         # TODO: resolve ugly workaround with class distinction
         history = agent._model.history[key]
-        if isinstance(agent._model, EnsembleRNN):
-          history = history[-1]
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
         # high-pass: check if dv/dt > threshold; otherwise set v(t=1) = v(t=0)
         dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
         for i_action in range(values.shape[-1]):
-          values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-2, values[:, 1, i_action], values[:, 0, i_action])
+          values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-3, values[:, 1, i_action], values[:, 0, i_action])
         values = np.round(values, 2)
         if values.shape[-1] == 1:
             values = np.repeat(values, agent._n_actions, -1)

@@ -14,7 +14,7 @@ from utils.convert_dataset import convert_dataset
 from resources.bandits import get_update_dynamics
 from benchmarking.hierarchical_bayes_numpyro import rl_model
 
-def main(data, model):
+def main(data, model, output_file):
     # load data
     experiment = convert_dataset(data)[1]
     
@@ -25,20 +25,22 @@ def main(data, model):
     agent_sindy, n_parameters_sindy = [], []
     
     # setup rnn agent for comparison
-    agent_rnn = setup_agent_rnn(model, len(experiment))
+    agent_rnn = setup_agent_rnn(model, len(experiment), participant_emb=True, counterfactual=False)
     n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.requires_grad)
 
     # setup sindy agent and get number of sindy coefficients which are not 0
-    # agent_sindy = setup_agent_sindy(model, data)
-    # n_parameters_sindy = agent_sindy._count_sindy_parameters(without_self=True)
+    agent_sindy = setup_agent_sindy(model, data)
+    n_parameters_sindy = [agent._count_sindy_parameters(without_self=True) for agent in agent_sindy]
     
-    get_scores_array(experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment), verbose=True)
-    # get_scores_array(experiment_ids, experiment, [agent_sindy]*len(experiment), [n_parameters_sindy]*len(experiment), verbose=True)
+    get_scores_array(experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment), verbose=True, save=output_file.replace('.', '_rnn.'))
+    get_scores_array(experiment, agent_sindy, n_parameters_sindy, verbose=True, save=output_file.replace('.', '_sindy.'))
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, required=True, help='model file (either RNN (torch; without job-id in the end) or MCMC (numpyro))')
     parser.add_argument('--data', type=str, required=True, help='File with experimental data')
+    parser.add_argument('--output_file', type=str, required=True, help='Output CSV file')
+
     args = parser.parse_args()
     
-    main(args.data, args.model, args.output_file, args.job_id)
+    main(args.data, args.model, args.output_file)

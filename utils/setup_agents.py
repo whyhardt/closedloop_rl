@@ -17,11 +17,13 @@ def setup_rnn(
     n_participants, 
     n_actions=2, 
     hidden_size=8,
+    participant_emb=False,
+    counterfactual=False,
     list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
 ) -> RLRNN:
     
-    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=n_participants, list_sindy_signals=list_sindy_signals, device=device)
+    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=n_participants, list_sindy_signals=list_sindy_signals, device=device, participant_emb=participant_emb, counterfactual=counterfactual)
     rnn.load_state_dict(load(path_model, map_location=torch.device('cpu'))['model'])
     
     return rnn
@@ -31,12 +33,14 @@ def setup_agent_rnn(
     path_model,
     n_participants, 
     n_actions=2, 
-    hidden_size=8, 
-    list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
+    hidden_size=8,
+    participant_emb=False,
+    counterfactual=False, 
+    list_sindy_signals=['xLR', 'xLR_cf', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
     device=device('cpu'),
     ) -> AgentNetwork:
     
-    rnn = setup_rnn(path_model=path_model, n_participants=n_participants, n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device)
+    rnn = setup_rnn(path_model=path_model, n_participants=n_participants, n_actions=n_actions, hidden_size=hidden_size, list_sindy_signals=list_sindy_signals, device=device, participant_emb=participant_emb, counterfactual=counterfactual)
     agent = AgentNetwork(model=rnn, n_actions=n_actions, deterministic=True)
     
     return agent

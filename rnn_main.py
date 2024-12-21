@@ -24,6 +24,7 @@ def main(
   # rnn parameters
   hidden_size = 8,
   dropout = 0.1,
+  participant_emb = False,
 
   # data and training parameters
   epochs = 128,
@@ -56,15 +57,16 @@ def main(
   counterfactual = False,
   
   analysis: bool = False,
+  session_id: int = 0
   ):
 
-  session_id_test = -1
+  session_id_test = session_id
   
   if not os.path.exists('params'):
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xLR', 'xC', 'xCf']
+  x_train_list = ['xQf', 'xLR', 'xLR_cf', 'xC', 'xCf']
   control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']
   sindy_feature_list = x_train_list + control_list
 
@@ -170,6 +172,7 @@ def main(
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
       n_participants=n_participants,
+      participant_emb=participant_emb,
       counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
       ).to(device)
 

@@ -49,7 +49,7 @@ def get_scores(experiment, agent, n_parameters) -> float:
         nll = -ll
         return nll, aic, bic
     
-def get_scores_array(experiment, agent, n_parameters, verbose=False) -> pd.DataFrame:
+def get_scores_array(experiment, agent, n_parameters, verbose=False, save:str=None) -> pd.DataFrame:
         nll, bic, aic = np.zeros((len(experiment))), np.zeros((len(experiment))), np.zeros((len(experiment)))
         ids = range(len(experiment))
         for i in tqdm(ids):
@@ -64,7 +64,10 @@ def get_scores_array(experiment, agent, n_parameters, verbose=False) -> pd.DataF
         if verbose:
             print('Summarized statistics:')
             print(f'NLL = {np.sum(np.array(nll))} --- BIC = {np.sum(np.array(bic))} --- AIC = {np.sum(np.array(aic))}')
-        return pd.DataFrame({'Job_ID': ids, 'NLL': nll, 'BIC': bic, 'AIC': aic})
+        df = pd.DataFrame({'Job_ID': ids, 'NLL': nll, 'BIC': bic, 'AIC': aic})
+        if save is not None:
+            df.to_csv(save, index=False)
+        return df
     
 def plot_traces(file_numpyro: Union[str, numpyro.infer.MCMC], figsize=(12, 8)):
     """

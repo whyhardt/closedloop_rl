@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
 results_dir = 'benchmarking/results/'
-results_file = 'results_sugawara2021_143'
+results_file = 'results_sugawara'
 
 dict_df = {}
 # Iterate over all files in the directory

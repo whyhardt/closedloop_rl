@@ -44,4 +44,4 @@ agent_mcmc = setup_benchmark_q_agent(parameters)
 # load data
 experiment = convert_dataset(data)[1]
 
-get_scores_array([agent_mcmc]*len(experiment), [n_parameters_mcmc]*len(experiment), verbose=True)
+get_scores_array(experiment, [agent_mcmc]*len(experiment), [n_parameters_mcmc]*len(experiment), verbose=True)

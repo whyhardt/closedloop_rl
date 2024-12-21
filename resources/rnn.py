@@ -167,6 +167,7 @@ class RLRNN(BaseRNN):
         list_sindy_signals=['xQf', 'xQr', 'xQc', 'xC', 'ca', 'cr'],
         dropout=0.,
         counterfactual=False,
+        participant_emb=False,
         device=torch.device('cpu'),
         ):
         
@@ -182,14 +183,18 @@ class RLRNN(BaseRNN):
         self._shrink = nn.Tanhshrink()
         self._n_participants = n_participants
         self._counterfactual = counterfactual
+        self._participant_emb = participant_emb
         
         # participant-embedding layer
-        emb_size = 0
-        # self.participant_embedding = nn.Embedding(n_participants, emb_size)
-        # self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
-        # self._beta_choice = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
-        self._beta_reward = nn.Parameter(torch.tensor(1.))
-        self._beta_choice = nn.Parameter(torch.tensor(1.))
+        if participant_emb:
+            emb_size = 8
+            self.participant_embedding = nn.Embedding(n_participants, emb_size)
+            self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+            self._beta_choice = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
+        else:
+            emb_size = 0
+            self._beta_reward = nn.Parameter(torch.tensor(1.))
+            self._beta_choice = nn.Parameter(torch.tensor(1.))
         
         # action-based subnetwork
         self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
@@ -240,7 +245,6 @@ class RLRNN(BaseRNN):
             inputs = torch.concat([value, reward, action, participant_embedding], dim=-1)
         else:
             inputs = torch.concat([value, reward, participant_embedding], dim=-1)
-        # inputs = torch.concat([value, reward], dim=-1)
         learning_rate, _ = self.call_subnetwork('xLR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
@@ -249,6 +253,7 @@ class RLRNN(BaseRNN):
         
         if counterfactual:
             # counterfactual feedback
+            # update_not_chosen given via counterfactual learning
             
             # apply update_chosen for all values and don't apply forgetting since participant sees all rewards at every trial
             next_value += update_chosen
@@ -258,12 +263,13 @@ class RLRNN(BaseRNN):
             # reward sub-network for non-chosen action
             inputs = torch.concat([value, participant_embedding], dim=-1)
             update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
-            update_not_chosen = self._sigmoid(update_not_chosen)
-            # update_not_chosen = self._shrink(update_not_chosen)
+            # update_not_chosen = self._sigmoid(update_not_chosen)
+            update_not_chosen = self._shrink(update_not_chosen)
             
             # apply update_chosen only for chosen option and update_not_chosen for not-chosen option
             # sigmoid applied only to not-chosen action because chosen action is already bounded to range [0, 1]
-            next_value += update_chosen * action + update_not_chosen * (1-action)
+            # next_value += update_chosen * action + self._sigmoid(value + update_not_chosen) * (1-action)
+            next_value += update_chosen * action + self._sigmoid(value + update_not_chosen) * (1-action)
             
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
@@ -275,25 +281,23 @@ class RLRNN(BaseRNN):
         repeated = repeated.unsqueeze(-1).repeat((1, self._n_actions, 1))
         
         next_state = torch.zeros((state.shape[0], state.shape[-1]), device=self.device)
-        next_value = torch.zeros_like(value)# + value
+        next_value = torch.zeros_like(value) + value
         
         # choice sub-network for chosen action
         inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
-        # inputs = torch.concat([value, repeated], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
-        update_chosen = self._sigmoid(update_chosen)
-        # update_chosen = self._shrink(update_chosen)
+        # update_chosen = self._sigmoid(update_chosen)
+        update_chosen = self._shrink(update_chosen)
         
         # choice sub-network for non-chosen action
         inputs = torch.concat([value, participant_embedding], dim=-1)
-        # inputs = value
         update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
-        update_not_chosen = self._sigmoid(update_not_chosen)
-        # update_not_chosen = self._shrink(update_not_chosen)
+        # update_not_chosen = self._sigmoid(update_not_chosen)
+        update_not_chosen = self._shrink(update_not_chosen)
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)
-        # next_value = self._sigmoid(next_value)
+        next_value = self._sigmoid(next_value)
         
         return next_value.squeeze(-1), next_state.unsqueeze(1)
     
@@ -327,12 +331,14 @@ class RLRNN(BaseRNN):
         reward_state, choice_state, uncertainty_state, reward_value, choice_value, uncertainty_value = state
         
         # get participant embedding
-        # participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
-        # beta_reward = self._beta_reward(participant_embedding[0, :, 0])
-        # beta_choice = self._beta_choice(participant_embedding[0, :, 0])
-        participant_embedding = torch.zeros((*inputs.shape[:-1], 2, 0), device=self.device)
-        beta_reward = self._beta_reward
-        beta_choice = self._beta_choice
+        if self._participant_emb:
+            participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
+            beta_reward = self._beta_reward(participant_embedding[0, :, 0])
+            beta_choice = self._beta_choice(participant_embedding[0, :, 0])
+        else:
+            participant_embedding = torch.zeros((*inputs.shape[:-1], 2, 0), device=self.device)
+            beta_reward = self._beta_reward
+            beta_choice = self._beta_choice
         
         timesteps = torch.arange(inputs.shape[0])
         logits = torch.zeros_like(action, device=self.device)
@@ -352,12 +358,19 @@ class RLRNN(BaseRNN):
             
             if not torch.is_grad_enabled():
                 # append timestep samples for SINDy
-                self.append_timestep_sample('ca', a)
-                self.append_timestep_sample('cr', r)
-                self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1))
-                self.append_timestep_sample('ca_repeat', repeated)
-                self.append_timestep_sample('cQ', old_rv)
+                # control signals
+                self.append_timestep_sample('ca', a)  # action
+                self.append_timestep_sample('cr', r)  # reward
+                self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1))  # penalty (if not reward)
+                # self.append_timestep_sample('cr', r[:, a.argmax(dim=-1)])  # reward chosen
+                # self.append_timestep_sample('cr_cf', r[:, (1-a).argmax(dim=-1)])  # reward not-chosen (aka counterfactual)
+                # self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1)[:, a.argmax(dim=-1)])  # penalty chosen
+                # self.append_timestep_sample('cp_cf', torch.where(r != -1, 1-r, -1)[:, (1-a).argmax(dim=-1)])  # penalty not-chosen (aka counterfactual)
+                self.append_timestep_sample('ca_repeat', repeated)  # action repeated
+                self.append_timestep_sample('cQ', old_rv)  # reward-based values
+                # computed values
                 self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
+                self.append_timestep_sample('xLR_cf', torch.zeros_like(learning_rate), learning_rate)
                 self.append_timestep_sample('xQf', old_rv, reward_value)
                 self.append_timestep_sample('xC', old_cv, choice_value)
                 self.append_timestep_sample('xCf', old_cv, choice_value)

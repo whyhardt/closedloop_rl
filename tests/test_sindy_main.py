@@ -11,11 +11,13 @@ features_list = []
 for i in range(1):
     i = 1
     _, _ , features = sindy_main.main(
-        # model = 'params/benchmarking/sugawara2021_143_3.pkl',
-        # data = 'data/sugawara2021_143_processed.csv',
-        model = 'params/benchmarking/bahrami2020_965_0.pkl',
-        data = 'data/bahrami2020_965_processed.csv',
         
+        model = 'params/benchmarking/rnn_sugawara.pkl',
+        data = 'data/sugawara2021_143_processed.csv',
+        
+        # model = 'params/benchmarking/bahrami2020_965_0.pkl',
+        # data = 'data/bahrami2020_965_processed.csv',
+                
         # sindy parameters
         polynomial_degree=2,
         threshold=0.05,
@@ -32,7 +34,7 @@ for i in range(1):
         # forget_rate=0.2,
         # perseverance_bias=0.25,
         # parameter_variance=0.,
-        n_actions=4,
+        # n_actions=4,
         
         analysis=True,
     )
