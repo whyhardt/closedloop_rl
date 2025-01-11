@@ -24,11 +24,9 @@ def batch_train(
     if n_steps_per_call == -1:
         n_steps_per_call = xs.shape[1]
     
-    # predict y and compute loss
     model.set_initial_state(batch_size=len(xs))
     state = model.get_state(detach=True)
     
-    # compute loss and optimize network w.r.t. rnn-predictions + null-hypothesis penalty
     loss_batch = 0
     iterations = 0
     for t in range(0, xs.shape[1], n_steps_per_call):
@@ -43,16 +41,17 @@ def batch_train(
         loss = loss_fn(
             (y_pred*mask).reshape(-1, model._n_actions), 
             (ys_step*mask).reshape(-1, model._n_actions)
-            ) 
-        # loss = loss_fn(
-        #     (y_pred*mask)[:, -1].reshape(-1, model._n_actions), 
-        #     (ys_step*mask)[:, -1].reshape(-1, model._n_actions)
-        #     )
+            )
         
         loss_batch += loss
         iterations += 1
         
+        # TODO: implement warm-up?
+        
         if torch.is_grad_enabled():
+            
+            # L1 weight decay to encourage sparsification in the network
+            loss += 1e-4*sum(torch.sum(torch.abs(param)) for param in model.parameters())
             
             # backpropagation
             optimizer.zero_grad()

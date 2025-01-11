@@ -388,7 +388,6 @@ class AgentNetwork:
           init_value=model.init_value, 
           list_sindy_signals=list(model.history.keys()), 
           counterfactual=model._counterfactual,
-          participant_emb=model._participant_emb,
           device=model.device
           ).to(model.device)
         self._model.load_state_dict(model.state_dict())
@@ -406,7 +405,7 @@ class AgentNetwork:
       self._xs = torch.zeros((1, self._n_actions*2+1))
       self._xs[0, -1] = session
       
-      if self._model._participant_emb:
+      if self._model._n_participants > 0:
         participant_embedding = self._model.participant_embedding(session)
         self._beta_reward = self._model._beta_reward(participant_embedding).item()
         self._beta_choice = self._model._beta_choice(participant_embedding).item()

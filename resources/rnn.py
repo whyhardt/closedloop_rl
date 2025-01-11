@@ -130,7 +130,7 @@ class BaseRNN(nn.Module):
                 n_subnetworks += 1
         return n_subnetworks
     
-    def call_subnetwork(self, key, inputs, layer_hidden_state=-2):
+    def call_subnetwork(self, key, inputs, layer_hidden_state=2):
         if hasattr(self, key):
             # hidden_state = getattr(self, key)[0](inputs).swapaxes(1, 2)
             # hidden_state = getattr(self, key)[1](hidden_state).swapaxes(1, 2)
@@ -147,12 +147,14 @@ class BaseRNN(nn.Module):
             nn.Linear(input_size, hidden_size),
             nn.Tanh(),
             nn.Dropout(dropout),
+            nn.ReLU(),
             nn.Linear(hidden_size, 1),
             )
         
         for l in seq:
             if isinstance(l, nn.Linear):
-                torch.nn.init.xavier_uniform_(l.weight)
+                torch.nn.init.xavier_normal_(l.weight)
+                # torch.nn.init.kaiming_normal_(l.weight, nonlinearity='relu')
         
         return seq
     
@@ -162,12 +164,11 @@ class RLRNN(BaseRNN):
         self,
         n_actions:int, 
         hidden_size:int,
-        n_participants:int,
+        n_participants:int=0,
         init_value=0.5,
         list_sindy_signals=['xQf', 'xQr', 'xQc', 'xC', 'ca', 'cr'],
         dropout=0.,
         counterfactual=False,
-        participant_emb=False,
         device=torch.device('cpu'),
         ):
         
@@ -180,13 +181,13 @@ class RLRNN(BaseRNN):
         self._prev_action = torch.zeros(self._n_actions)
         self._sigmoid = nn.Sigmoid()
         self._tanh = nn.Tanh()
+        self._relu = nn.ReLU()
         self._shrink = nn.Tanhshrink()
         self._n_participants = n_participants
         self._counterfactual = counterfactual
-        self._participant_emb = participant_emb
         
         # participant-embedding layer
-        if participant_emb:
+        if n_participants > 0:
             emb_size = 8
             self.participant_embedding = nn.Embedding(n_participants, emb_size)
             self._beta_reward = nn.Sequential(nn.Linear(emb_size, 1), nn.ReLU())
@@ -206,8 +207,8 @@ class RLRNN(BaseRNN):
         self.xQf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # learning-rate subnetwork
-        add_action_dim = 1 if counterfactual else 0
-        self.xLR = self.setup_subnetwork(2+add_action_dim+emb_size, hidden_size, dropout)
+        # add_action_dim = 1 if counterfactual else 0
+        self.xLR = self.setup_subnetwork(2+int(counterfactual)+emb_size, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
@@ -258,18 +259,18 @@ class RLRNN(BaseRNN):
             # apply update_chosen for all values and don't apply forgetting since participant sees all rewards at every trial
             next_value += update_chosen
         else:
-            # no counterfactual feedback -> apply forgetting for not-chosen values
+            # no counterfactual feedback -> apply update for not-chosen values
             
             # reward sub-network for non-chosen action
             inputs = torch.concat([value, participant_embedding], dim=-1)
             update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
             # update_not_chosen = self._sigmoid(update_not_chosen)
-            update_not_chosen = self._shrink(update_not_chosen)
+            # update_not_chosen = self._shrink(update_not_chosen)
             
             # apply update_chosen only for chosen option and update_not_chosen for not-chosen option
             # sigmoid applied only to not-chosen action because chosen action is already bounded to range [0, 1]
             # next_value += update_chosen * action + self._sigmoid(value + update_not_chosen) * (1-action)
-            next_value += update_chosen * action + self._sigmoid(value + update_not_chosen) * (1-action)
+            next_value += update_chosen * action + (value + update_not_chosen) * (1-action)
             
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
@@ -287,13 +288,13 @@ class RLRNN(BaseRNN):
         inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
         # update_chosen = self._sigmoid(update_chosen)
-        update_chosen = self._shrink(update_chosen)
+        # update_chosen = self._shrink(update_chosen)
         
         # choice sub-network for non-chosen action
         inputs = torch.concat([value, participant_embedding], dim=-1)
         update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
         # update_not_chosen = self._sigmoid(update_not_chosen)
-        update_not_chosen = self._shrink(update_not_chosen)
+        # update_not_chosen = self._shrink(update_not_chosen)
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)
@@ -331,7 +332,7 @@ class RLRNN(BaseRNN):
         reward_state, choice_state, uncertainty_state, reward_value, choice_value, uncertainty_value = state
         
         # get participant embedding
-        if self._participant_emb:
+        if self._n_participants > 0:
             participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
             beta_reward = self._beta_reward(participant_embedding[0, :, 0])
             beta_choice = self._beta_choice(participant_embedding[0, :, 0])

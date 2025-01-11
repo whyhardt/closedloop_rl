@@ -171,8 +171,7 @@ def main(
       device=device,
       list_sindy_signals=sindy_feature_list,
       dropout=dropout,
-      n_participants=n_participants,
-      participant_emb=participant_emb,
+      n_participants=n_participants if participant_emb else 0,
       counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
       ).to(device)
 

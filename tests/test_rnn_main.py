@@ -5,8 +5,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
 
 _, loss = rnn_main.main(
-    checkpoint=True,
-    epochs=0,
+    checkpoint=False,
+    epochs=1024,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
@@ -19,15 +19,16 @@ _, loss = rnn_main.main(
     
     n_actions=2,
     
-    dropout=0.25,
+    dropout=0.5,
     participant_emb=True,
-    bagging=True,
+    bagging=False,
     # weight_decay=1e-4,
 
-    learning_rate=1e-4,
+    learning_rate=1e-2,
     batch_size=-1,
     sequence_length=None,
     train_test_ratio=0,
+    n_steps_per_call=16,
     
     # n_sessions=512,
     # n_trials_per_session=256,
