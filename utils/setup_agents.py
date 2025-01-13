@@ -19,11 +19,18 @@ def setup_rnn(
     hidden_size=8,
     participant_emb=False,
     counterfactual=False,
-    list_sindy_signals=['xLR', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
+    list_sindy_signals=['x_V_LR', 'x_V_nc', 'x_C', 'x_C_nc', 'c_a', 'c_r', 'c_p', 'c_a_repeat', 'c_V'], 
     device=device('cpu'),
 ) -> RLRNN:
     
-    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=n_participants, list_sindy_signals=list_sindy_signals, device=device, participant_emb=participant_emb, counterfactual=counterfactual)
+    rnn = RLRNN(
+        n_actions=n_actions, 
+        hidden_size=hidden_size, 
+        n_participants=n_participants if participant_emb else 0, 
+        list_sindy_signals=list_sindy_signals, 
+        device=device, 
+        counterfactual=counterfactual,
+        )
     rnn.load_state_dict(load(path_model, map_location=torch.device('cpu'))['model'])
     
     return rnn
@@ -36,7 +43,7 @@ def setup_agent_rnn(
     hidden_size=8,
     participant_emb=False,
     counterfactual=False, 
-    list_sindy_signals=['xLR', 'xLR_cf', 'xQf', 'xC', 'xCf', 'ca', 'cr', 'cp', 'ca_repeat', 'cQ'], 
+    list_sindy_signals=['x_V_LR', 'x_V_LR_cf', 'x_V_nc', 'x_C', 'x_C_nc', 'c_a', 'c_r', 'c_p', 'c_r_cf', 'c_p_cf', 'c_a_repeat', 'c_V'], 
     device=device('cpu'),
     ) -> AgentNetwork:
     
@@ -50,7 +57,6 @@ def setup_agent_sindy(
     model,
     data,
     threshold = 0.03,
-    hidden_size = 8,
     session_id: int = None,
 ) -> List[AgentSindy]:
     
@@ -59,7 +65,6 @@ def setup_agent_sindy(
         data = data,
         threshold = threshold,
         verbose = True,
-        hidden_size = hidden_size,
         analysis=False,
         session_id=session_id,
     )
@@ -82,7 +87,8 @@ def setup_benchmark_q_agent(
         def update(self, a, r, *args):
             # q, c = update_rule(self._q, self._c, a, r)
             ch = np.eye(2)[a]
-
+            r = r[0]
+            
             # Compute prediction errors for each outcome
             rpe = (r - self._q) * ch
             cpe = ch - self._c

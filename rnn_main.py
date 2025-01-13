@@ -37,7 +37,6 @@ def main(
   batch_size = -1,  # -1 for one batch per epoch
   learning_rate = 1e-2,
   convergence_threshold = 1e-6,
-  weight_decay = 0.,
   parameter_variance = 0.,
   
   # ground truth parameters
@@ -59,20 +58,19 @@ def main(
   analysis: bool = False,
   session_id: int = 0
   ):
-
-  session_id_test = session_id
   
   if not os.path.exists('params'):
     os.makedirs('params')
   
   # tracked variables in the RNN
-  x_train_list = ['xQf', 'xLR', 'xLR_cf', 'xC', 'xCf']
-  control_list = ['ca', 'cr', 'cp', 'ca_repeat', 'cQ']
+  x_train_list = ['x_V_LR', 'x_V_LR_cf', 'x_V_nc', 'x_C', 'x_C_nc']
+  control_list = ['c_a', 'c_r', 'c_p', 'c_r_cf', 'c_p_cf', 'c_a_repeat', 'c_V']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   
   dataset_test = None
+  agent = None
   if data is None:
     print('No path to dataset provided.')
     
@@ -116,18 +114,22 @@ def main(
 
     print('Generation of dataset complete.')
   else:
-    dataset, experiment_list, _, _ = convert_dataset.convert_dataset(data, sequence_length=sequence_length)
+    dataset, experiment_list, df, _ = convert_dataset.convert_dataset(data, sequence_length=sequence_length)
     dataset_test = rnn_utils.DatasetRNN(dataset.xs, dataset.ys)
     
-    # # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
-    # if 'mean_beta' in df.columns:
-    #   beta = df['beta'].values[idx_train]
-    #   alpha = df['alpha'].values[idx_train]
-    #   alpha_penalty = df['alpha_penalty'].values[idx_train]
-    #   confirmation_bias = df['confirmation_bias'].values[idx_train]
-    #   forget_rate = df['forget_rate'].values[idx_train]
-    #   perseverance_bias = df['perseverance_bias'].values[idx_train]
-  
+    # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
+    if 'mean_beta_reward' in df.columns:
+      # get parameters from dataset
+      agent = bandits.AgentQ(
+        beta_reward = df['beta_reward'].values[(df['session']==session_id).values][0],
+        alpha_reward = df['alpha_reward'].values[(df['session']==session_id).values][0],
+        alpha_penalty = df['alpha_penalty'].values[(df['session']==session_id).values][0],
+        confirmation_bias = df['confirmation_bias'].values[(df['session']==session_id).values][0],
+        forget_rate = df['forget_rate'].values[(df['session']==session_id).values][0],
+        beta_choice = df['beta_choice'].values[(df['session']==session_id).values][0],
+        alpha_choice = df['alpha_choice'].values[(df['session']==session_id).values][0],
+      )
+      
   n_participants = len(experiment_list)
   
   if train_test_ratio > 0:
@@ -144,12 +146,12 @@ def main(
       dataset_test = dataset
     dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length)
     
-  experiment_test = experiment_list[session_id_test][-dataset_test.xs.shape[1]:]
-    
+  experiment_test = experiment_list[session_id][-dataset_test.xs.shape[1]:]
+
   if model is None:
     params_path = rnn_utils.parameter_file_naming(
       'params/params', 
-      alpha=alpha, 
+      alpha_reward=alpha, 
       beta_reward=beta_reward, 
       alpha_counterfactual=alpha_counterfactual,
       forget_rate=forget_rate, 
@@ -175,7 +177,7 @@ def main(
       counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
       ).to(device)
 
-  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
   print('Setup of the RNN model complete.')
 
@@ -234,7 +236,7 @@ def main(
     agent_rnn = bandits.AgentNetwork(model, n_actions=n_actions, deterministic=True)
     
     # get analysis plot
-    if data is None:
+    if agent is not None:
       agents = {'groundtruth': agent, 'rnn': agent_rnn}
     else:
       agents = {'rnn': agent_rnn}

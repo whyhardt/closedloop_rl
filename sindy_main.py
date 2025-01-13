@@ -4,13 +4,12 @@ import warnings
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from copy import deepcopy
 from typing import Callable
 
 sys.path.append('resources')
 from resources.rnn import RLRNN
-from resources.bandits import AgentQ, AgentSindy, AgentNetwork, EnvironmentBanditsDrift, EnvironmentBanditsSwitch, plot_session, get_update_dynamics, create_dataset as create_dataset_bandits
-from resources.sindy_utils import create_dataset, check_library_setup, bandit_loss
+from resources.bandits import AgentQ, AgentSindy, AgentNetwork, EnvironmentBanditsDrift, EnvironmentBanditsSwitch, plot_session, create_dataset as create_dataset_bandits
+from resources.sindy_utils import create_dataset, check_library_setup
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model
 from utils.convert_dataset import convert_dataset
@@ -33,18 +32,16 @@ def main(
     regularization = 1e-2,
     verbose = True,
     
-    # rnn parameters
-    hidden_size = 8,
-    
     # ground truth parameters
     beta_reward = 3.,
     alpha = 0.25,
     alpha_penalty = -1.,
     alpha_counterfactual = 0.,
     beta_choice = 0.,
-    alpha_choice = 1.,
+    alpha_choice = 0.,
     forget_rate = 0.,
     confirmation_bias = 0.,
+    parameter_variance = 0.,
     reward_prediction_error: Callable = None,
     
     # environment parameters
@@ -55,18 +52,18 @@ def main(
     ):
 
     # tracked variables in the RNN
-    z_train_list = ['xLR', 'xLR_cf', 'xQf', 'xC', 'xCf']
-    control_list = ['ca', 'cr', 'cp', 'cr_cf', 'cp_cf', 'ca_repeat', 'cQ']
-    sindy_feature_list = z_train_list + control_list
+    x_train_list = ['x_V_LR', 'x_V_LR_cf', 'x_V_nc', 'x_C', 'x_C_nc']
+    control_list = ['c_a', 'c_r', 'c_p', 'c_r_cf', 'c_p_cf', 'c_a_repeat', 'c_V']
+    sindy_feature_list = x_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
-        'xLR': ['cQ', 'cr', 'cp'],  # learning rate for chosen action
-        'xLR_cf': ['cQ', 'cr', 'cp'],  # learning rate for not-chosen action in counterfactual setup -> same inputs as for chosen action because inputs are 2D (action_0, action_1) -> difference made in filter setup!
-        'xQf': [],
-        'xC': ['ca_repeat'],
-        'xCf': [],
+        'x_V_LR': ['c_V', 'c_r', 'c_p'],  # learning rate for chosen action
+        'x_V_LR_cf': ['c_V', 'c_r_cf', 'c_p_cf'],  # learning rate for not-chosen action in counterfactual setup -> same inputs as for chosen action because inputs are 2D (action_0, action_1) -> difference made in filter setup!
+        'x_V_nc': [],
+        'x_C': ['c_a_repeat'],
+        'x_C_nc': [],
     }
 
     # data-filter setup aka which samples are allowed as training samples in each SINDy model based on the given filter condition
@@ -76,13 +73,13 @@ def main(
     #   3. bool: remove feature from control inputs
     # Can also be a list of list of triplets for multiple filter conditions
     # Example:
-    # 'xQf': ['ca', 0, True] means that only samples where the feature 'ca' is 0 are used for training the SINDy model 'xQf' and the control parameter 'ca' is removed for training the model
+    # 'x_V_nc': ['c_a', 0, True] means that only samples where the feature 'c_a' is 0 are used for training the SINDy model 'x_V_nc' and the control parameter 'c_a' is removed for training the model
     datafilter_setup = {
-        'xLR': ['ca', 1, True],  # learning rate for chosen action
-        'xLR_cf': ['ca', 0, True],  # learning rate for not-chosen action in counterfactual setup
-        'xQf': ['ca', 0, True],
-        'xC': ['ca', 1, True],
-        'xCf': ['ca', 0, True],
+        'x_V_LR': ['c_a', 1, True],  # learning rate for chosen action
+        'x_V_LR_cf': ['c_a', 0, True],  # learning rate for not-chosen action in counterfactual setup
+        'x_V_nc': ['c_a', 0, True],
+        'x_C': ['c_a', 1, True],
+        'x_C_nc': ['c_a', 0, True],
     }
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
@@ -97,22 +94,32 @@ def main(
             agent.set_reward_prediction_error(reward_prediction_error)
         _, experiment_list_test, _ = create_dataset_bandits(agent, environment, 100, 1)
         _, experiment_list_train, _ = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
+        index_test = 0
     else:
         # get data from experiments
         _, experiment_list_train, _, _ = convert_dataset(data)
-        index_test = len(experiment_list_train)-1
+        index_test = len(experiment_list_train)-1 if session_id is None else session_id
         experiment_list_test = [experiment_list_train[index_test]]
         # experiment_list_train = experiment_list_train[:-1]
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
-        params_path = parameter_file_naming('params/params', beta_reward=beta_reward, alpha=alpha, alpha_penalty=alpha_penalty, beta_choice=beta_choice, alpha_choice=alpha_choice, forget_rate=forget_rate, confirmation_bias=confirmation_bias, alpha_counterfactual=alpha_counterfactual, variance=parameter_variance, verbose=True)
+        params_path = parameter_file_naming('params/params', beta_reward=beta_reward, alpha_reward=alpha, alpha_penalty=alpha_penalty, beta_choice=beta_choice, alpha_choice=alpha_choice, forget_rate=forget_rate, confirmation_bias=confirmation_bias, alpha_counterfactual=alpha_counterfactual, variance=parameter_variance, verbose=True)
     else:
         params_path = model
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))['model']
     counterfactual = np.mean(experiment_list_train[0].rewards[:, -1]) != -1
-    participant_emb = 'participant_embedding.weight' in state_dict.keys()
-    rnn = RLRNN(n_actions=n_actions, hidden_size=hidden_size, n_participants=len(experiment_list_train), init_value=0.5, list_sindy_signals=sindy_feature_list, participant_emb=participant_emb, counterfactual=counterfactual)
+    participant_embedding = 'participant_embedding.weight' in state_dict.keys()
+    key_hidden_size = [key for key in state_dict if 'x' in key.lower()][0]  # first key that contains the hidden_size
+    hidden_size = state_dict[key_hidden_size].shape[0]
+    rnn = RLRNN(
+        n_actions=n_actions, 
+        hidden_size=hidden_size,
+        n_participants=len(experiment_list_train) if participant_embedding else 0, 
+        init_value=0.5, 
+        list_sindy_signals=sindy_feature_list, 
+        counterfactual=counterfactual,
+        )
     print('Loaded model ' + params_path)
     rnn.load_state_dict(state_dict)
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)            
@@ -120,13 +127,46 @@ def main(
     # create dataset for sindy training, fit sindy, set up sindy agent
     if session_id is not None:
         experiment_list_train = [experiment_list_train[session_id]]
-        index_test = 0
+
     agent_sindy = []
     for i in range(len(experiment_list_train)):
-        z_train, control, feature_names = create_dataset(agent_rnn, [experiment_list_train[i]], n_trials_per_session, n_sessions, clear_offset=False, shuffle=False, trimming=True)
-        sindy_models = fit_model(z_train, control, feature_names, polynomial_degree, library_setup, datafilter_setup, verbose, False, threshold, regularization)
+        # get SINDy-formatted data with exposed latent variables computed by RNN-Agent
+        x_train, control, feature_names = create_dataset(
+            agent=agent_rnn, 
+            data=[experiment_list_train[i]],
+            n_trials_per_session=n_trials_per_session, 
+            n_sessions=n_sessions, 
+            shuffle=False,
+            trimming=True,
+            clear_offset=True,
+            )
+        
+        # fit SINDy models -> One model per x_train feature
+        sindy_models = fit_model(
+            x_train=x_train, 
+            control=control, 
+            feature_names=feature_names, 
+            polynomial_degree=polynomial_degree, 
+            library_setup=library_setup, 
+            filter_setup=datafilter_setup, 
+            verbose=verbose, 
+            get_loss=False, 
+            optimizer_threshold=threshold, 
+            optimizer_alpha=regularization,
+            )
+        
+        # set up SINDy-Agent -> One SINDy-Agent per session if participant embedding is activated
         agent_rnn.new_sess(experiment_list_train[i].session[0])
-        agent_sindy.append(AgentSindy(sindy_models, n_actions, (agent_rnn._beta_reward, agent_rnn._beta_choice), True, agent_rnn._model._counterfactual))
+        agent_sindy.append(
+            AgentSindy(
+                sindy_models=sindy_models, 
+                n_actions=n_actions, 
+                beta_reward=agent_rnn._beta_reward,
+                beta_choice=agent_rnn._beta_choice, 
+                deterministic=True, 
+                counterfactual=agent_rnn._model._counterfactual,
+                )
+            )
     
     # if verbose:
     #     print(f'SINDy Beta: {agent_rnn._model._beta_reward.item():.2f} and {agent_rnn._model._beta_choice.item():.2f}')
@@ -144,8 +184,12 @@ def main(
         
         # print sindy equations from tested sindy agent
         agent_sindy[index_test].new_sess()
+        print('\nDiscovered SINDy models:')
         for model in agent_sindy[index_test]._models:
             agent_sindy[index_test]._models[model].print()
+        print(f'(x_beta_r) = {agent_sindy[index_test]._beta_reward:.3f}')
+        print(f'(x_beta_c) = {agent_sindy[index_test]._beta_choice:.3f}')
+        print('\n')
         
         # get analysis plot
         if data is None:
@@ -154,7 +198,7 @@ def main(
             agents = {'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
         experiment_analysis = experiment_list_test[0]
         fig, axs = plot_session(agents, experiment_analysis)
-        fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
+        fig.suptitle('$beta_r=$'+str(np.round(agent_sindy[index_test]._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_sindy[index_test]._beta_choice, 2)))
         plt.show()
         
     # save a dictionary of trained features per model
@@ -194,10 +238,7 @@ if __name__=='__main__':
         polynomial_degree=2,
         threshold=0.05,
         regularization=0,
-        
-        # rnn parameters
-        hidden_size = 8,
-        
+
         # generated training dataset parameters
         # n_trials_per_session = 200,
         # n_sessions = 100,

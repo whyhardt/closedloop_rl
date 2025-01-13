@@ -11,7 +11,7 @@ class BaseRNN(nn.Module):
         hidden_size, 
         init_value=0.5, 
         device=torch.device('cpu'),
-        list_sindy_signals=['xQr', 'ca', 'cr'],
+        list_sindy_signals=['x_V', 'c_a', 'c_r'],
         ):
         super(BaseRNN, self).__init__()
         
@@ -83,7 +83,7 @@ class BaseRNN(nn.Module):
             state = [s.detach() for s in state]
 
         if return_dict:
-            keys = ['hidden_value', 'hidden_habit', 'hidden_uncertainty', 'value', 'habit', 'uncertainty']
+            keys = ['x_V_state', 'x_C_state', 'x_U_state', 'x_V', 'x_C', 'x_U']
             state = {keys[i]: state[i] for i in range(len(state))}
         
         return state
@@ -163,7 +163,7 @@ class RLRNN(BaseRNN):
         hidden_size:int,
         n_participants:int=0,
         init_value=0.5,
-        list_sindy_signals=['xQf', 'xQr', 'xQc', 'xC', 'ca', 'cr'],
+        list_sindy_signals=['x_V', 'x_V_nc', 'x_C', 'x_C_nc', 'c_a', 'c_r'],
         dropout=0.,
         counterfactual=False,
         device=torch.device('cpu'),
@@ -193,17 +193,17 @@ class RLRNN(BaseRNN):
             self._beta_choice = nn.Parameter(torch.tensor(1.))
         
         # action-based subnetwork
-        self.xC = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
+        self.x_C = self.setup_subnetwork(2+emb_size, hidden_size, dropout)
         
         # action-based subnetwork for non-repeated action
-        self.xCf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
+        self.x_C_nc = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
-        # reward-blind subnetwork
-        self.xQf = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
-        
-        # learning-rate subnetwork
+        # reward-based learning-rate subnetwork for chosen action (and counterfactual if applies)
         # add_action_dim = 1 if counterfactual else 0
-        self.xLR = self.setup_subnetwork(2+int(counterfactual)+emb_size, hidden_size, dropout)
+        self.x_V_LR = self.setup_subnetwork(2+int(counterfactual)+emb_size, hidden_size, dropout)
+        
+        # reward-based subnetwork for not-chosen action
+        self.x_V_nc = self.setup_subnetwork(1+emb_size, hidden_size, dropout)
         
         # self.n_subnetworks = self.count_subnetworks()
         
@@ -234,18 +234,18 @@ class RLRNN(BaseRNN):
 
         # get back previous states (same order as in return statement)
         state_chosen, learning_state, state_not_chosen = state[:, 0], state[:, 1], state[:, 2]
-        next_value = torch.zeros_like(value)# + value
+        next_value = torch.zeros_like(value) + value
         
         # learning rate sub-network for chosen and not-chosen action
-        if self.xLR[0].in_features-participant_embedding.shape[-1]-2 > 0:
+        if self.x_V_LR[0].in_features-participant_embedding.shape[-1]-2 > 0:
             inputs = torch.concat([value, reward, action, participant_embedding], dim=-1)
         else:
             inputs = torch.concat([value, reward, participant_embedding], dim=-1)
-        learning_rate, _ = self.call_subnetwork('xLR', inputs)
+        learning_rate, _ = self.call_subnetwork('x_V_LR', inputs)
         learning_rate = self._sigmoid(learning_rate)
         rpe = reward - value
         update_chosen = learning_rate * rpe
-        update_chosen += value
+        # update_chosen += value
         
         if counterfactual:
             # counterfactual feedback
@@ -258,12 +258,12 @@ class RLRNN(BaseRNN):
             
             # reward sub-network for non-chosen action
             inputs = torch.concat([value, participant_embedding], dim=-1)
-            update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
+            update_not_chosen, _ = self.call_subnetwork('x_V_nc', inputs)
             
             # apply update_chosen only for chosen option and update_not_chosen for not-chosen option
             # sigmoid applied only to not-chosen action because chosen action is already bounded to range [0, 1]
             # next_value += update_chosen * action + self._sigmoid(value + update_not_chosen) * (1-action)
-            next_value += update_chosen * action + (value + update_not_chosen) * (1-action)
+            next_value += update_chosen * action + update_not_chosen * (1-action)
             
         return next_value.squeeze(-1), learning_rate.squeeze(-1), torch.stack([state_chosen, learning_state, state_not_chosen], dim=1)
     
@@ -279,11 +279,11 @@ class RLRNN(BaseRNN):
         
         # choice sub-network for chosen action
         inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
-        update_chosen, _ = self.call_subnetwork('xC', inputs)
+        update_chosen, _ = self.call_subnetwork('x_C', inputs)
         
         # choice sub-network for non-chosen action
         inputs = torch.concat([value, participant_embedding], dim=-1)
-        update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
+        update_not_chosen, _ = self.call_subnetwork('x_C_nc', inputs)
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)
@@ -307,9 +307,9 @@ class RLRNN(BaseRNN):
         if batch_first:
             inputs = inputs.permute(1, 0, 2)
         
-        action = inputs[:, :, :self._n_actions].float()
-        reward = inputs[:, :, self._n_actions:-1].float()
-        participant_id = inputs[:, :, -1].unsqueeze(-1).int()
+        action_array = inputs[:, :, :self._n_actions].float()
+        reward_array = inputs[:, :, self._n_actions:-1].float()
+        participant_id_array = inputs[:, :, -1].unsqueeze(-1).int()
            
         if prev_state is not None:
             self.set_state(prev_state[0], prev_state[1], prev_state[2], prev_state[3], prev_state[4], prev_state[5])
@@ -322,56 +322,58 @@ class RLRNN(BaseRNN):
         
         # get participant embedding
         if self._n_participants > 0:
-            participant_embedding = self.participant_embedding(participant_id).repeat(1, 1, self._n_actions, 1)
-            beta_reward = self._beta_reward(participant_embedding[0, :, 0])
-            beta_choice = self._beta_choice(participant_embedding[0, :, 0])
+            participant_embedding_array = self.participant_embedding(participant_id_array).repeat(1, 1, self._n_actions, 1)
+            beta_reward = self._beta_reward(participant_embedding_array[0, :, 0])
+            beta_choice = self._beta_choice(participant_embedding_array[0, :, 0])
         else:
-            participant_embedding = torch.zeros((*inputs.shape[:-1], 2, 0), device=self.device)
+            participant_embedding_array = torch.zeros((*inputs.shape[:-1], 2, 0), device=self.device)
             beta_reward = self._beta_reward
             beta_choice = self._beta_choice
         
-        timesteps = torch.arange(inputs.shape[0])
-        logits = torch.zeros_like(action, device=self.device)
-        for t, a, r, p in zip(timesteps, action, reward, participant_embedding):         
+        timestep_array = torch.arange(inputs.shape[0])
+        logits_array = torch.zeros_like(action_array, device=self.device)
+        for timestep, action, reward, participant in zip(timestep_array, action_array, reward_array, participant_embedding_array):         
             # compute additional variables
             # compute whether action was repeated---across all batch samples
-            repeated = 1*(torch.sum(torch.abs(a-self._prev_action), dim=-1) == 0).view(-1, 1)
+            repeated = 1*(torch.sum(torch.abs(action-self._prev_action), dim=-1) == 0).view(-1, 1)
             
             # compute the updates
-            old_rv, old_cv, old_uv = reward_value.clone(), choice_value.clone(), uncertainty_value.clone() 
-            reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, a, r, p)
-            choice_value, choice_state = self.choice_network(choice_state, choice_value, a, repeated, p)
+            reward_value_prev, choice_value_prev, uncertainty_value_prev = reward_value.clone(), choice_value.clone(), uncertainty_value.clone() 
+            reward_value, learning_rate, reward_state = self.value_network(reward_state, reward_value, action, reward, participant)
+            choice_value, choice_state = self.choice_network(choice_state, choice_value, action, repeated, participant)
             
-            logits[t, :, :] += reward_value * beta_reward + choice_value * beta_choice
+            logits_array[timestep, :, :] += reward_value * beta_reward + choice_value * beta_choice
             
-            self._prev_action = a.clone()
+            self._prev_action = action.clone()
             
+            # signal tracking to collect training samples for SINDy
             if not torch.is_grad_enabled():
-                # append timestep samples for SINDy
                 # control signals
-                self.append_timestep_sample('ca', a)  # action
-                self.append_timestep_sample('cr', r)  # reward
-                self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1))  # penalty (if not reward)
-                # self.append_timestep_sample('cr', r[:, a.argmax(dim=-1)])  # reward chosen
-                # self.append_timestep_sample('cr_cf', r[:, (1-a).argmax(dim=-1)])  # reward not-chosen (aka counterfactual)
-                # self.append_timestep_sample('cp', torch.where(r != -1, 1-r, -1)[:, a.argmax(dim=-1)])  # penalty chosen
-                # self.append_timestep_sample('cp_cf', torch.where(r != -1, 1-r, -1)[:, (1-a).argmax(dim=-1)])  # penalty not-chosen (aka counterfactual)
-                self.append_timestep_sample('ca_repeat', repeated)  # action repeated
-                self.append_timestep_sample('cQ', old_rv)  # reward-based values
-                # computed values
-                self.append_timestep_sample('xLR', torch.zeros_like(learning_rate), learning_rate)
-                self.append_timestep_sample('xLR_cf', torch.zeros_like(learning_rate), learning_rate)
-                self.append_timestep_sample('xQf', old_rv, reward_value)
-                self.append_timestep_sample('xC', old_cv, choice_value)
-                self.append_timestep_sample('xCf', old_cv, choice_value)
+                penalty = torch.where(reward != -1, 1-reward, -1)  # penalty signal --> neglected reward signal
+                self.append_timestep_sample('c_a', action)  # action
+                # self.append_timestep_sample('c_r', r)  # reward
+                # self.append_timestep_sample('c_p', torch.where(r != -1, 1-r, -1))  # penalty (if not reward)
+                self.append_timestep_sample('c_r', reward[:, :1] if not self._counterfactual else reward[:, action.argmax(dim=-1)])  # reward chosen
+                self.append_timestep_sample('c_r_cf', reward[:, 1:] if not self._counterfactual else reward[:, (1-action).argmax(dim=-1)])  # reward not-chosen (aka counterfactual)
+                self.append_timestep_sample('c_p', penalty[:, :1] if not self._counterfactual else penalty[:, action.argmax(dim=-1)])  # penalty chosen
+                self.append_timestep_sample('c_p_cf', penalty[:, 1:] if not self._counterfactual else penalty[:, (1-action).argmax(dim=-1)])  # penalty not-chosen (aka counterfactual)
+                self.append_timestep_sample('c_a_repeat', repeated)  # action repeated
+                self.append_timestep_sample('c_V', reward_value_prev)  # reward-based values
+                
+                # dynamical variabels
+                self.append_timestep_sample('x_V_LR', torch.zeros_like(learning_rate), learning_rate)
+                self.append_timestep_sample('x_V_LR_cf', torch.zeros_like(learning_rate), learning_rate)
+                self.append_timestep_sample('x_V_nc', reward_value_prev, reward_value)
+                self.append_timestep_sample('x_C', choice_value_prev, choice_value)
+                self.append_timestep_sample('x_C_nc', choice_value_prev, choice_value)
 
         # add model dim again and set state
         self.set_state(reward_state.unsqueeze(1), choice_state.unsqueeze(1), uncertainty_state.unsqueeze(1), reward_value.unsqueeze(1), choice_value.unsqueeze(1), uncertainty_value.unsqueeze(1))
         
         if batch_first:
-            logits = logits.permute(1, 0, 2)
+            logits_array = logits_array.permute(1, 0, 2)
             
-        return logits, self.get_state()
+        return logits_array, self.get_state()
 
     def set_initial_state(self, batch_size: int=1, return_dict=False):
         self._prev_action = torch.zeros(batch_size, self._n_actions, device=self.device)

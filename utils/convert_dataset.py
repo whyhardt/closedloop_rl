@@ -31,10 +31,11 @@ def convert_dataset(file: str, device = None, sequence_length: int = None):
     n_actions = int(df['choice'].max() + 1)
     
     # get all columns with rewards
-    reward_cols = []
-    for c in df.columns:
-        if 'reward' in c:
-            reward_cols.append(c)
+    # reward_cols = []
+    # for c in df.columns:
+    #     if 'reward' in c:
+    #         reward_cols.append(c)
+    reward_cols = ['reward']
     
     # normalize rewards
     r_min, r_max = [], []

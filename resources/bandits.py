@@ -141,14 +141,14 @@ class AgentQ:
       sanity = False
       while not sanity:
         # sample new parameters until all sanity checks are passed
-        self._beta_reward = np.clip(np.random.normal(self._mean_beta_reward, self._mean_beta_reward/2 if self._parameter_variance['beta'] == -1 else self._parameter_variance['beta']), 0, 2*self._mean_beta_reward)
-        self._alpha_reward = np.clip(np.random.normal(self._mean_alpha_reward, self._mean_alpha_reward/2 if self._parameter_variance['alpha'] == -1 else self._parameter_variance['alpha']), 0 , 1)
+        self._beta_reward = np.clip(np.random.normal(self._mean_beta_reward, self._mean_beta_reward/2 if self._parameter_variance['beta_reward'] == -1 else self._parameter_variance['beta_reward']), 0, 2*self._mean_beta_reward)
+        self._alpha_reward = np.clip(np.random.normal(self._mean_alpha_reward, self._mean_alpha_reward/2 if self._parameter_variance['alpha_reward'] == -1 else self._parameter_variance['alpha_reward']), 0 , 1)
         self._alpha_penalty = np.clip(np.random.normal(self._mean_alpha_penalty, self._mean_alpha_penalty/2 if self._parameter_variance['alpha_penalty'] == -1 else self._parameter_variance['alpha_penalty']), 0, 1)
+        self._beta_choice = np.clip(np.random.normal(self._mean_beta_choice, self._mean_beta_choice/2 if self._parameter_variance['beta_choice'] == -1 else self._parameter_variance['beta_choice']), 0, 1)
+        self._alpha_choice = np.clip(np.random.normal(self._mean_alpha_choice, self._mean_alpha_choice/2 if self._parameter_variance['alpha_choice'] == -1 else self._parameter_variance['alpha_choice']), 0, 1)
         self._alpha_counterfactual = np.clip(np.random.normal(self._mean_alpha_counterfactual, self._mean_alpha_counterfactual/2 if self._parameter_variance['alpha_counterfactual'] == -1 else self._parameter_variance['alpha_counterfactual']), 0, 1)
         self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias/2 if self._parameter_variance['confirmation_bias'] == -1 else self._parameter_variance['confirmation_bias']), 0, 1)
         self._forget_rate = np.clip(np.random.normal(self._mean_forget_rate, self._mean_forget_rate/2 if self._parameter_variance['forget_rate'] == -1 else self._parameter_variance['forget_rate']), 0, 1)
-        self._beta_choice = np.clip(np.random.normal(self._mean_beta_choice, self._mean_beta_choice/2 if self._parameter_variance['perseverance_bias'] == -1 else self._parameter_variance['perseverance_bias']), 0, 1)
-        self._alpha_choice = np.clip(np.random.normal(self._mean_alpha_choice, self._mean_alpha_choice/2 if self._parameter_variance['alpha_perseverance'] == -1 else self._parameter_variance['alpha_perseverance']), 0, 1)
 
         # sanity checks
         # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
@@ -190,8 +190,8 @@ class AgentQ:
     
     # adjust learning rates for every received reward
     alpha = np.zeros_like(reward)
-    for i in range(len(reward)):
-      if i == choice:
+    for action in range(self._n_actions):
+      if action == choice:
         # factual case
         alpha_r = self._alpha_reward
         alpha_p = self._alpha_penalty
@@ -203,15 +203,15 @@ class AgentQ:
         alpha_p = 0
         
       # asymmetric learning rates
-      alpha[i] = alpha_r if new_reward[i] > 0.5 else alpha_p
+      alpha[action] = alpha_r if new_reward[action] > 0.5 else alpha_p
       
-      if i == choice:
+      if action == choice:
         # add confirmation bias to learning rate
         # Rollwage et al (2020): https://www.nature.com/articles/s41467-020-16278-6.pdf
         # if self._confirmation_bias:  
         # when any input to a cognitive mechanism is differentiable --> cognitive mechanism must be differentiable as well!
         # differentiable confirmation bias:
-        alpha[i] += self._confirmation_bias * (self._q[i]-self._q_init)*(new_reward[i] - 0.5)
+        alpha[action] += self._confirmation_bias * (self._q[action]-self._q_init)*(new_reward[action] - 0.5)
     
     # Reward-prediction-error
     rpe = self._reward_prediction_error(self._q, new_reward)
@@ -253,7 +253,8 @@ class AgentSindy:
       self,
       sindy_models: Dict[str, ps.SINDy],
       n_actions: int=2,
-      beta: Tuple[float]=(1., 1.),
+      beta_reward: float=1.,
+      beta_choice: float=1.,
       deterministic: bool=False,
       counterfactual: bool=False,
       ):
@@ -261,12 +262,11 @@ class AgentSindy:
     self._models = sindy_models
     self._q_init = 0.5
     self._deterministic = deterministic
-    self._beta_reward = beta[0]
-    self._beta_choice = beta[1]
+    self._beta_reward = beta_reward
+    self._beta_choice = beta_choice
     self._n_actions = n_actions
-    self._prev_choice = None
     self._counterfactual = counterfactual
-    
+    self._prev_choice = None    
     self._n_parameters = self._count_sindy_parameters()
     
     self.new_sess()
@@ -275,31 +275,30 @@ class AgentSindy:
 
       choice_repeat = np.max((0, 1 - np.abs(choice-self._prev_choice)))
       self._prev_choice = 0
-      
+
       for action in range(self._n_actions):
-        chosen = np.abs(choice - action) == 0
-        reward_action = reward[action]
+        reward_action = reward[action] if self._counterfactual else reward[0]
         
         # reward network
-        if chosen:
+        if choice == action:
           # current action was chosen
-          if 'xLR' in self._models:
-            learning_rate = self._models['xLR'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+          if 'x_V_LR' in self._models:
+            learning_rate = self._models['x_V_LR'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
             reward_prediction_error = reward_action - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
-          if 'xC' in self._models:
-            self._c[action] = self._models['xC'].predict(np.array([self._c[action]]), u=np.array([choice_repeat]).reshape(1, -1))[-1]
+          if 'x_C' in self._models:
+            self._c[action] = self._models['x_C'].predict(np.array([self._c[action]]), u=np.array([choice_repeat]).reshape(1, -1))[-1]
         else:
           # current action was not chosen
-          if self._counterfactual and 'xLR_cf' in self._models:
-            learning_rate = self._models['xLR_cf'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+          if self._counterfactual and 'x_V_LR_cf' in self._models:
+            learning_rate = self._models['x_V_LR_cf'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
             reward_prediction_error = reward_action - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
-          elif not self._counterfactual and 'xQf' in self._models:
-            self._q[action] = self._models['xQf'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
-          if 'xCf' in self._models:
-            self._c[action] = self._models['xCf'].predict(np.array([self._c[action]]), u=np.array([0]).reshape(1, -1))[-1]
-        
+          elif not self._counterfactual and 'x_V_nc' in self._models:
+            self._q[action] = self._models['x_V_nc'].predict(np.array([self._q[action]]), u=np.array([0]).reshape(1, -1))[-1]
+          if 'x_C_nc' in self._models:
+            self._c[action] = self._models['x_C_nc'].predict(np.array([self._c[action]]), u=np.array([0]).reshape(1, -1))[-1]
+      
       self._prev_choice += choice
       
   def new_sess(self, **kwargs):
@@ -417,7 +416,7 @@ class AgentNetwork:
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._q * self._beta_reward + self._c * self._beta_choice # + self._u #* self._directed_exploration_bias
+      logit = self._q * self._beta_reward + self._c * self._beta_choice
       return logit
     
     def get_choice_probs(self) -> np.ndarray:
@@ -827,12 +826,13 @@ def create_dataset(
       # add current parameters to list
       parameter_list.append(
         {
-          'beta': copy(agent._beta_reward),
-          'alpha': copy(agent._alpha_reward),
+          'beta_reward': copy(agent._beta_reward),
+          'alpha_reward': copy(agent._alpha_reward),
           'alpha_penalty': copy(agent._alpha_penalty),
+          'beta_choice': copy(agent._beta_choice),
+          'alpha_choice': copy(agent._alpha_choice),
           'confirmation_bias': copy(agent._confirmation_bias),
           'forget_rate': copy(agent._forget_rate),
-          'perseverance_bias': copy(agent._beta_choice),
         }
       )
 
@@ -870,8 +870,8 @@ def get_update_dynamics(experiment: BanditSession, agent: Union[AgentQ, AgentNet
   for trial in range(experiment.choices.shape[0]):
     # track all states
     Qs[trial] = agent.q
-    qs[trial] = agent._q * agent._beta_reward
-    cs[trial] = agent._c * agent._beta_choice
+    qs[trial] = agent._q# * agent._beta_reward
+    cs[trial] = agent._c# * agent._beta_choice
     
     choice_probs[trial] = agent.get_choice_probs()
     agent.update(int(choices[trial]), rewards[trial], int(experiment.session[0]))

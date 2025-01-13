@@ -14,7 +14,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     # valid keys in agent dictionary
     valid_keys_color_pairs = {'groundtruth': 'tab:blue', 'rnn': 'tab:orange', 'sindy': 'tab:pink', 'benchmark':'tab:grey'}    
     
-    choices = np.eye(agents[list(agents.keys())[0]]._n_actions)[experiment.choices][:, 0]
+    choices = np.eye(agents[list(agents.keys())[0]]._n_actions)[experiment.choices.astype(int)][:, 0]
     rewards = experiment.rewards[:, 0]
 
     # get beta values
@@ -22,7 +22,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     list_probs = []
     list_Qs = []
     list_qs = []
-    list_hs = []
+    list_cs = []
 
     colors = []
     if labels is None:
@@ -31,11 +31,11 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     for valid_key in valid_keys_color_pairs:        
         # get q-values from agent
         if valid_key in [key.lower() for key in agents]:
-            qs_test, probs_test, _ = get_update_dynamics(experiment, agents[valid_key])
-            list_probs.append(np.expand_dims(probs_test, 0))
-            list_Qs.append(np.expand_dims(qs_test[0], 0))
-            list_qs.append(np.expand_dims(qs_test[1], 0))
-            list_hs.append(np.expand_dims(qs_test[2], 0))
+            qs, probs, _ = get_update_dynamics(experiment, agents[valid_key])
+            list_probs.append(np.expand_dims(probs, 0))
+            list_Qs.append(np.expand_dims(qs[0], 0))
+            list_qs.append(np.expand_dims(qs[1], 0))
+            list_cs.append(np.expand_dims(qs[2], 0))
             
             # get color from current agent
             colors.append(valid_keys_color_pairs[valid_key])
@@ -48,7 +48,7 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
     probs = np.concatenate(list_probs, axis=0)
     Qs = np.concatenate(list_Qs, axis=0)
     qs = np.concatenate(list_qs, axis=0)
-    hs = np.concatenate(list_hs, axis=0)
+    cs = np.concatenate(list_cs, axis=0)
 
     # normalize q-values
     # def normalize(qs):
@@ -99,12 +99,12 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
         y_axis_info=True,
         )
     axs_row += 1
-
+    
     plt_session(
         compare=True,
         choices=choices,
         rewards=rewards,
-        timeseries=hs[:, :, 0],
+        timeseries=cs[:, :, 0],
         timeseries_name='$q_{choice}$',
         color=colors,
         fig_ax=(fig, axs[axs_row, fig_col]) if fig_col is not None else (fig, axs[axs_row]),

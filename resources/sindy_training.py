@@ -4,7 +4,6 @@ import numpy as np
 import pysindy as ps
 
 from resources.sindy_utils import remove_control_features, conditional_filtering
-from resources.bandits import AgentNetwork, AgentSindy, BanditSession
 
 
 def fit_model(
@@ -26,18 +25,16 @@ def fit_model(
         if len(filter_setup) > 0:
             raise ValueError('If datafilter_setup is provided, feature_names must be provided as well.')
         feature_names = [f'x{i}' for i in range(x_train[0].shape[-1])]
+    
     # get all x-features
-    x_features = [feature for feature in feature_names if feature.startswith('x')]
+    x_features = [feature for feature in feature_names if feature.startswith('x_')]
     # get all control features
-    c_features = [feature for feature in feature_names if feature.startswith('c')]
+    c_features = [feature for feature in feature_names if feature.startswith('c_')]
     
     # make sure that all x_features are in the library_setup
     for feature in x_features:
         if feature not in library_setup:
             library_setup[feature] = []
-            
-    x_train = np.stack(x_train, axis=0)
-    control = np.stack(control, axis=0)
     
     # train one sindy model per x_train variable instead of one sindy model for all
     sindy_models = {feature: None for feature in x_features}
@@ -82,9 +79,9 @@ def fit_model(
         
         # setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
-            optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=5, verbose=verbose, fit_intercept=True),
+            # optimizer=ps.STLSQ(threshold=optimizer_threshold, alpha=0.1, verbose=verbose, fit_intercept=False),
             # optimizer=ps.SR3(thresholder="L1", threshold=optimizer_threshold, verbose=verbose),
-            # optimizer=ps.SR3(thresholder="weighted_l1", thresholds=thresholds, verbose=verbose, fit_intercept=True),
+            optimizer=ps.SR3(thresholder="weighted_l1", thresholds=thresholds, verbose=verbose),
             # optimizer=ps.SSR(kappa=10, verbose=verbose),
             # optimizer=ps.FROLS(),
             feature_library=ps.PolynomialLibrary(polynomial_degree),

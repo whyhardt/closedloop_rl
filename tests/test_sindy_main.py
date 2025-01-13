@@ -17,45 +17,52 @@ for i in range(1):
         
         # model = 'params/benchmarking/bahrami2020_965_0.pkl',
         # data = 'data/bahrami2020_965_processed.csv',
-                
+        
+        # general recovery parameters
+        session_id=0,
+        n_sessions=512,
+        n_trials_per_session=256,
+        
         # sindy parameters
         polynomial_degree=2,
         threshold=0.05,
         verbose=True,
         
         # generated training dataset parameters
-        n_trials_per_session = 1024,
-        n_sessions = 16,
-        
-        # beta=3.,
+        # n_actions=2,
+        # sigma=0.2,
+        # beta_reward=3.,
         # alpha=0.25,
         # alpha_penalty=0.5,
-        # confirmation_bias=0.5,
+        # beta_choice=3.,
+        # alpha_choice=1.,
         # forget_rate=0.2,
-        # perseverance_bias=0.25,
+        # confirmation_bias=0.5,
+        # counterfactual=True,
+        # alpha_counterfactual=0.5,
         # parameter_variance=0.,
-        # n_actions=4,
         
         analysis=True,
     )
 
-    features_list.append(np.concatenate([np.array(features[key][1]).reshape(1, -1) for key in features], axis=-1))
+    # features_list.append(np.concatenate([np.array(features[key][1]).reshape(1, -1) for key in features], axis=-1))
 
-features_list = np.concatenate(features_list, axis=0)
-print(features_list)
-mean = np.mean(features_list, axis=0).reshape(1, -1)
-std = np.std(features_list, axis=0).reshape(1, -1)
-features = list(np.concatenate([np.array(features[key][0]).reshape(1, -1) for key in features], axis=-1).reshape(-1))
+# features_list = np.concatenate(features_list, axis=0)
+# print(features_list)
 
-import pandas as pd
-columns = []
-data = []
-for i, key in enumerate(features):
-    # print(f'{key}: {mean[i]:.2f} +- {std[i]:.2f}')
-    if key == '1':
-        key += '_'+str(i)
-    columns.append(key)
-    data.append(f'{mean[0, i]:.2f}+-{std[0, i]:.2f}')
-df = pd.DataFrame(data=np.round(np.concatenate((mean, std)), 2), columns=columns, index=['Recovered mean', 'Recovered std'])
-print(df)
-print(df.to_latex(float_format="%.2f"))
+# mean = np.mean(features_list, axis=0).reshape(1, -1)
+# std = np.std(features_list, axis=0).reshape(1, -1)
+# features = list(np.concatenate([np.array(features[key][0]).reshape(1, -1) for key in features], axis=-1).reshape(-1))
+
+# import pandas as pd
+# columns = []
+# data = []
+# for i, key in enumerate(features):
+#     # print(f'{key}: {mean[i]:.2f} +- {std[i]:.2f}')
+#     if key == '1':
+#         key += '_'+str(i)
+#     columns.append(key)
+#     data.append(f'{mean[0, i]:.2f}+-{std[0, i]:.2f}')
+# df = pd.DataFrame(data=np.round(np.concatenate((mean, std)), 2), columns=columns, index=['Recovered mean', 'Recovered std'])
+# print(df)
+# print(df.to_latex(float_format="%.2f"))

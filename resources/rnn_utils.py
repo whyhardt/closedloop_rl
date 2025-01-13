@@ -96,15 +96,15 @@ def load_checkpoint(params_path, model, optimizer):
     return model, optimizer
 
 
-def parameter_file_naming(params_path, alpha, alpha_penalty, alpha_counterfactual, confirmation_bias, forget_rate, beta_reward, alpha_choice, beta_choice, variance, verbose=False):
+def parameter_file_naming(params_path, alpha_reward, alpha_penalty, alpha_counterfactual, confirmation_bias, forget_rate, beta_reward, alpha_choice, beta_choice, variance, verbose=False):
     # create name for corresponding rnn
   
     params_path += '_rnn'
     
     params_path += '_br' + str(beta_reward).replace('.', '')
     
-    if alpha > 0:
-        params_path += '_a' + str(alpha).replace('.', '')
+    if alpha_reward > 0:
+        params_path += '_a' + str(alpha_reward).replace('.', '')
     
     if alpha_penalty >= 0:
         params_path += '_ap' + str(alpha_penalty).replace('.', '')

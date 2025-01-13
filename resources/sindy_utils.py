@@ -72,12 +72,13 @@ def create_dataset(
   data: Union[Environment, DatasetRNN, List[BanditSession], np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
   n_trials_per_session: int,
   n_sessions: int,
-  normalize: bool = False,
-  clear_offset: bool = False,
   shuffle: bool = False,
   verbose: bool = False,
   trimming: bool = False,
+  clear_offset: bool = False,
   ):
+  
+  highpass_threshold = 5e-2
   
   if not isinstance(data, Environment):
     if isinstance(data, (np.ndarray, torch.Tensor)) and data.ndim == 2:
@@ -97,22 +98,14 @@ def create_dataset(
           if n_trials_per_session > data[0].shape[0]: 
             n_trials_per_session = data[0].shape[0]
           
-  keys_x = [key for key in agent._model.history.keys() if key.startswith('x')]
-  keys_c = [key for key in agent._model.history.keys() if key.startswith('c')]
-  
-  trimming = int(n_trials_per_session*0.1) if trimming else 0
-  
-  # x_train = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_x)))
-  # control = np.zeros((n_sessions*agent._n_actions*(n_trials_per_session-1), 2, len(keys_c)))
+  keys_x = [key for key in agent._model.history.keys() if key.startswith('x_')]
+  keys_c = [key for key in agent._model.history.keys() if key.startswith('c_')]
+    
   x_train = {key: [] for key in keys_x}
   control = {key: [] for key in keys_c}
   
-  # the maximum encountered difference between the Q-Values of the single options should (theoretically) be the beta value
-  # requirement: enough samples that a pre-beta difference of abs(q[0]-q[1]) is reached at some point by chance 
-  # --> More secure coverability through active learning possible  
-  # dq_darms_max = 0  #np.zeros(n_sessions)
-  
   for session in range(n_sessions):
+    # perform agent updates to record values over trials
     if isinstance(data, Environment):
       agent.new_sess()
       for trial in range(n_trials_per_session):
@@ -120,80 +113,53 @@ def create_dataset(
         choice = agent.get_choice()
         reward = data.step(choice)
         agent.update(choice, reward)
-    
-    elif isinstance(data[0], BanditSession):# and not isinstance(agent, AgentNetwork):
+    elif isinstance(data[0], BanditSession):
       # fill up history of rnn-agent
       _, _, agent = get_update_dynamics(data[session], agent)
     
-    # elif isinstance(data[0], BanditSession) and isinstance(agent, AgentNetwork):
-    #   qs = data[session].q
-    
-    # dq_darms_max = max(dq_darms_max, max(np.abs(np.diff(qs[trimming:], axis=-1))))
+    trimming = int(0.25*n_trials_per_session) if trimming else 0
     
     # sort the data of one session into the corresponding signals
     for key in agent._model.history.keys():
       if len(agent._model.history[key]) > 1:
-        # TODO: resolve ugly workaround with class distinction
+        # get all recorded values for the current session of one specific key 
         history = agent._model.history[key]
+        # create tensor from list of tensors 
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
-        # high-pass: check if dv/dt > threshold; otherwise set v(t=1) = v(t=0)
+        if clear_offset and key in keys_x:
+          values -= np.min(values)
+        # remove insignificant updates with high-pass: check if dv/dt > threshold; otherwise set v(t=1) = v(t=0)
         dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
         for i_action in range(values.shape[-1]):
-          values[:, 1, i_action] = np.where(dvdt[:, i_action] > 1e-3, values[:, 1, i_action], values[:, 0, i_action])
+          values[:, 1, i_action] = np.where(dvdt[:, i_action] > highpass_threshold, values[:, 1, i_action], values[:, 0, i_action])
+        # remove noise by simply rounding the values
         values = np.round(values, 2)
+        # in the case of 1D values along actions dim: Create 2D values by repeating along the actions dim (e.g. reward in non-counterfactual experiments) 
         if values.shape[-1] == 1:
             values = np.repeat(values, agent._n_actions, -1)
-        if key in keys_x:
-          # add values of interest of one session as trajectory
-          for i_action in range(agent._n_actions):
+        # add values of interest of one session as trajectory
+        for i_action in range(agent._n_actions):
+          if key in keys_x:
             x_train[key] += [v for v in values[:, :, i_action]]
-        elif key in keys_c:
-          # add control signals of one session as corresponding trajectory
-          for i_action in range(agent._n_actions):
+          elif key in keys_c:
             control[key] += [v for v in values[:, :, i_action]]
-              
-  # get all keys of x_train and control that have no values and remove them
-  keys_x = [key for key in keys_x if len(x_train[key]) > 0]
-  keys_c = [key for key in keys_c if len(control[key]) > 0]
-  x_train = {key: x_train[key] for key in keys_x}
-  control = {key: control[key] for key in keys_c}
+  
   feature_names = keys_x + keys_c
   
-  # make x_train and control List[np.ndarray] with shape (n_trials_per_session-1, len(keys)) instead of dictionaries
-  x_train_list = []
-  control_list = []
-  for i in range(len(control[keys_c[0]])):
-    x_train_list.append(np.stack([x_train[key][i] for key in keys_x], axis=-1))
-    control_list.append(np.stack([control[key][i] for key in keys_c], axis=-1))
-  
-  if clear_offset:
-    x_min = np.min(np.min(np.stack(x_train_list), axis=0), axis=0)
-    for i in range(len(x_train_list)):
-      # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
-      x_train_list[i] = x_train_list[i] - x_min
-      
-  # if normalize:
-  #   index_cQr = keys_c.index('cQr') if 'cQr' in keys_c else None
-  #   # compute scaling parameters
-  #   x_max, x_min = np.max(np.stack(x_train_list), axis=-1), np.min(np.stack(x_train_list), axis=-1)
-  #   # beta = x_max - x_min
-  #   beta = dq_darms_max[0]
-  #   # beta = 3
-  #   # normalize data (TODO: find better solution for cQr)
-  #   for i in range(len(x_train_list)):
-  #     # loop through all samples in multi-trajectory list to normalize with computed x_min and beta
-  #     x_train_list[i] = (x_train_list[i] - x_min) / beta
-  #     if 'cQr' in keys_c:
-  #       control_list[i][:, index_cQr] = control_list[i][:, index_cQr] / beta
-  # else:
-  #   beta = 1
+  # make arrays from dictionaries
+  x_train_array = np.zeros((len(x_train[keys_x[0]]), 2, len(keys_x)))
+  control_array = np.zeros((len(x_train[keys_x[0]]), 2, len(keys_c)))
+  for i, key in enumerate(x_train):
+    x_train_array[:, :, i] = np.stack(x_train[key])
+  for i, key in enumerate(control):
+    control_array[:, :, i] = np.stack(control[key])
   
   if shuffle:
-    shuffle_idx = np.random.permutation(len(x_train_list))
-    x_train_list = [x_train_list[i] for i in shuffle_idx]
-    control_list = [control_list[i] for i in shuffle_idx]
+    shuffle_idx = np.random.permutation(len(x_train_array))
+    x_train_array = x_train_array[shuffle_idx]
+    control_array = control_array[shuffle_idx]
   
-  return x_train_list, control_list, feature_names
+  return x_train_array, control_array, feature_names
 
 
 def check_library_setup(library_setup: Dict[str, List[str]], feature_names: List[str], verbose=False) -> bool:
