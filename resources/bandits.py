@@ -895,7 +895,6 @@ def plot_session(
   fig_ax = None,
   compare=False,
   color=None,
-  binary=False,
   x_axis_info=True,
   y_axis_info=True,
   ):
@@ -904,8 +903,8 @@ def plot_session(
   Args:
     choices: The choices made by the agent
     rewards: The rewards received by the agent
-    timeseries: The reward probabilities on each arm
-    timeseries_name: The name of the reward probabilities
+    timeseries: The dynamical value of interest on each arm
+    timeseries_name: The name of the timeseries
     labels: The labels for the lines in the plot
     fig_ax: A tuple of a matplotlib figure and axis to plot on
     compare: If True, plot multiple timeseries on the same plot
@@ -954,22 +953,28 @@ def plot_session(
       ax.plot(timeseries[i], color=color[i])
   
   # Plot ticks relating to whether the option was chosen (factual) or not (counterfactual) and whether it was rewarded
+  min_y, max_y = np.min(timeseries), np.max(timeseries)
+  # diff_min_max = np.max((5e-2, max_y - min_y))  # make sure the difference is not <= 0
+  diff_min_max = np.max((1e-1, max_y - min_y))
+  
   x = np.arange(len(choices))
-  chosen_y = -0.1  # Lower position for chosen (bigger tick)
-  not_chosen_y = -0.2  # Slightly lower for not chosen (smaller tick)
+  chosen_y = min_y - 1e-1  # Lower position for chosen (bigger tick)
+  not_chosen_y = chosen_y - 1e-1 * diff_min_max  # Slightly lower for not chosen (smaller tick)
 
   # Plot ticks for chosen options
   ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='black', s=100, marker='|')  # Large green tick for chosen reward
   ax.scatter(x[(choices == 1) & (rewards == 0)], np.full(sum((choices == 1) & (rewards == 0)), chosen_y), color='lightgrey', s=100, marker='|')  # Large red tick for chosen penalty
 
   # Plot ticks for not chosen options
-  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='black', s=50, marker='|')  # Small green tick
-  ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='lightgrey', s=50, marker='|')  # Small red tick
+  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='black', s=80, marker='|')  # Small green tick
+  ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='lightgrey', s=80, marker='|')  # Small red tick
 
+  ax.set_ylim(not_chosen_y, np.max((-not_chosen_y, np.max(timeseries + 1e-1 * diff_min_max))))
+  
   if x_axis_info:
     ax.set_xlabel(x_label)
   else:
-    ax.set_xticks(np.linspace(1, len(timeseries), 5))
+    # ax.set_xticks(np.linspace(1, len(timeseries), 5))
     ax.set_xticklabels(['']*5)
     
   if y_axis_info:

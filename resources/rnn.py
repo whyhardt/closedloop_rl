@@ -20,9 +20,6 @@ class BaseRNN(nn.Module):
         self.init_value = init_value
         self._n_actions = n_actions
         self._hidden_size = hidden_size
-               
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
 
         self._beta_init = 1
         
@@ -179,10 +176,8 @@ class RLRNN(BaseRNN):
         self._n_actions = n_actions
         self._hidden_size = hidden_size
         self._prev_action = torch.zeros(self._n_actions)
-        self._sigmoid = nn.Sigmoid()
-        self._tanh = nn.Tanh()
         self._relu = nn.ReLU()
-        self._shrink = nn.Tanhshrink()
+        self._sigmoid = nn.Sigmoid()
         self._n_participants = n_participants
         self._counterfactual = counterfactual
         
@@ -264,8 +259,6 @@ class RLRNN(BaseRNN):
             # reward sub-network for non-chosen action
             inputs = torch.concat([value, participant_embedding], dim=-1)
             update_not_chosen, _ = self.call_subnetwork('xQf', inputs)
-            # update_not_chosen = self._sigmoid(update_not_chosen)
-            # update_not_chosen = self._shrink(update_not_chosen)
             
             # apply update_chosen only for chosen option and update_not_chosen for not-chosen option
             # sigmoid applied only to not-chosen action because chosen action is already bounded to range [0, 1]
@@ -287,14 +280,10 @@ class RLRNN(BaseRNN):
         # choice sub-network for chosen action
         inputs = torch.concat([value, repeated, participant_embedding], dim=-1)
         update_chosen, _ = self.call_subnetwork('xC', inputs)
-        # update_chosen = self._sigmoid(update_chosen)
-        # update_chosen = self._shrink(update_chosen)
         
         # choice sub-network for non-chosen action
         inputs = torch.concat([value, participant_embedding], dim=-1)
         update_not_chosen, _ = self.call_subnetwork('xCf', inputs)
-        # update_not_chosen = self._sigmoid(update_not_chosen)
-        # update_not_chosen = self._shrink(update_not_chosen)
         
         # next_state += state_update_chosen * action + state_update_not_chosen * (1-action)
         next_value += update_chosen * action + update_not_chosen * (1-action)

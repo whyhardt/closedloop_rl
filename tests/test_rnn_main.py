@@ -5,8 +5,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import rnn_main
 
 _, loss = rnn_main.main(
-    checkpoint=False,
-    epochs=1024,
+    checkpoint=True,
+    epochs=0,
     
     # data='data/data_rnn_a025_b30_f02_p025_ap05_cb05_varMean.csv',
     # model='params/params_rnn_a025_b30_f02_p025_ap05_cb05_varMean_1.pkl',
@@ -14,8 +14,8 @@ _, loss = rnn_main.main(
     # model=f'params/benchmarking/rnn_eckstein.pkl',
     # data = 'data/2arm/eckstein2022_291_processed.csv',
     
-    model = f'params/benchmarking/rnn_sugawara.pkl',
-    data = 'data/2arm/sugawara2021_143_processed.csv',
+    # model = f'params/benchmarking/rnn_sugawara.pkl',
+    # data = 'data/2arm/sugawara2021_143_processed.csv',
     
     n_actions=2,
     
@@ -30,11 +30,11 @@ _, loss = rnn_main.main(
     train_test_ratio=0,
     n_steps_per_call=16,
     
-    # n_sessions=512,
-    # n_trials_per_session=256,
-    # sigma=0.2,
-    # beta_reward=3.,
-    # alpha=0.25,
+    n_sessions=512,
+    n_trials_per_session=256,
+    sigma=0.2,
+    beta_reward=3.,
+    alpha=0.25,
     # alpha_penalty=0.5,
     # beta_choice=3.,
     # alpha_choice=1.,
@@ -45,5 +45,5 @@ _, loss = rnn_main.main(
     # parameter_variance=0.,
     
     analysis=True,
-    session_id=0,
+    session_id=1,
 )
