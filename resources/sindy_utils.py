@@ -88,6 +88,8 @@ def create_dataset(
     if isinstance(data, DatasetRNN):
       if n_trials_per_session > data.xs.shape[1] or n_trials_per_session == -1 or n_trials_per_session == None:
         n_trials_per_session = data.xs.shape[1]
+      if n_sessions > data.xs.shape[0] or n_sessions == -1 or n_sessions == None:
+        n_trials_per_session = data.xs.shape[0]
     else:
         if isinstance(data[0], BanditSession):
           if n_trials_per_session == None or n_trials_per_session == -1 or n_trials_per_session > data[0].choices.shape[0]:

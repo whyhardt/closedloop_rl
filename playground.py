@@ -1,28 +1,20 @@
-import matplotlib.pyplot as plt
-import numpy as np
+import torch
+
+from theorist import rl_sindy_theorist
+from utils.convert_dataset import convert_dataset
 
 
-losses = np.array([
-    [0.39082735776901245, 0.31722989678382874, 0.3740248382091522, 0.33675479888916016, 0.35817837715148926, 0.31585705280303955, 0.35508570075035095, 0.255614697933197], 
-    [0.33193790912628174, 0.35106348991394043, 0.35264724493026733, 0.29018256068229675, 0.37644752860069275, 0.2934693992137909, 0.30888041853904724, 0.2750886082649231], 
-    [0.3404029309749603, 0.367558091878891, 0.34408247470855713, 0.3672593832015991, 0.3333452641963959, 0.3672817349433899, 0.33100852370262146, 0.3659507930278778], 
-    [0.3546679615974426, 0.33403581380844116, 0.36332887411117554, 0.35237616300582886, 0.36455783247947693, 0.45700669288635254, 0.34796667098999023, 0.3414272964000702], 
-    [0.3631184995174408, 0.29626816511154175, 0.3327341079711914, 0.35090455412864685, 0.3371438980102539, 0.27430999279022217, 0.34821391105651855, 0.37646397948265076], 
-    [0.32253995537757874, 0.28580713272094727, 0.34150099754333496, 0.3476356267929077, 0.2338501513004303, 0.33911991119384766, 0.32406216859817505, 0.4096951484680176],
-    ])
+path_data = 'data/2arm/sugawara2021_143_processed.csv'
+dataset = convert_dataset(path_data)[0]
 
-std = np.std(losses, axis=-1)
-mu = np.mean(losses, axis=-1)
-x = np.arange(0, len(mu))
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-plt.errorbar(x, mu, yerr=std, fmt='o', capsize=5, label='Data points')
+rl_sindy = rl_sindy_theorist(
+    n_participants=0,#dataset.xs.shape[0],
+    device=device,
+    verbose=True,
+    epochs=16,
+    )
 
-# Add labels, title, and legend
-plt.xlabel('X-axis label')
-plt.ylabel('Y-axis label')
-plt.title('Scatter Plot with Error Bars')
-# plt.ylim((0, np.max(mu+std*2)))
-plt.legend()
-
-# Show the plot
-plt.show()
+rl_sindy.fit(dataset.xs.numpy(), dataset.ys.numpy())
+rl_sindy.predict(dataset.xs.numpy())

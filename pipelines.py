@@ -17,6 +17,8 @@ from resources.sindy_training import fit_model
 from resources.rnn_utils import DatasetRNN, load_checkpoint
 from utils.convert_dataset import convert_dataset
 
+from theorist import rl_sindy_theorist
+
 warnings.filterwarnings("ignore")
 
 
@@ -95,7 +97,7 @@ def pipeline_rnn(
 
     #Fit the RNN
     if verbose:
-        print('Training the ..')
+        print('Training the RNN...')
     model_rnn, optimizer_rnn, loss_train = fit_model(
         model=model_rnn,
         dataset_train=dataset_train,
@@ -246,8 +248,8 @@ def pipeline_sindy(
     
             # save a dictionary of trained features per model
             features_id = {
-                'beta_reward': (('beta_reward'), (agent_sindy[session_id[0]]._beta_reward)),
-                'beta_choice': (('beta_choice'), (agent_sindy[session_id[0]]._beta_choice)),
+                'beta_reward': (('beta_reward'), (agent_sindy[id]._beta_reward)),
+                'beta_choice': (('beta_choice'), (agent_sindy[id]._beta_choice)),
                 }
             
             for m in sindy_models:
