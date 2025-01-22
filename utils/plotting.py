@@ -8,7 +8,7 @@ from sklearn.decomposition import PCA
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.bandits import AgentQ, AgentNetwork, AgentSindy, BanditSession, get_update_dynamics, plot_session as plt_session
 
-def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiment: BanditSession, labels: List[str] = None, save: str = None):    
+def session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiment: BanditSession, labels: List[str] = None, save: str = None):    
     # plot the dynamcis associated with the first arm
     
     # valid keys in agent dictionary
@@ -117,8 +117,8 @@ def plot_session(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], exp
         plt.savefig(save, dpi=300)
     
     return fig, axs
-
-def plot_pca(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiments: List[BanditSession], labels=None, save=None):
+    
+def pca(agents: Dict[str, Union[AgentSindy, AgentNetwork, AgentQ]], experiments: List[BanditSession], labels=None, save=None):
     
     # valid keys in agent dictionary
     valid_keys_color_pairs = {'groundtruth': 'tab:blue', 'rnn': 'tab:orange', 'sindy': 'tab:pink', 'benchmark':'tab:grey'}    

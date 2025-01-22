@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.setup_agents import setup_agent_rnn, setup_agent_sindy, setup_benchmark_q_agent
 from utils.convert_dataset import convert_dataset
 from benchmarking.hierarchical_bayes_numpyro import rl_model
-from utils.plotting import plot_session
+from utils.plotting import session
 
 def main(data, model_mcmc, model_rnn, session_id):
     
@@ -58,7 +58,7 @@ def main(data, model_mcmc, model_rnn, session_id):
     
     agent_mcmc = setup_benchmark_q_agent(parameters)
     
-    fig, axs = plot_session(
+    fig, axs = session(
         {
             # 'benchmark': agent_mcmc, 
             'rnn': agent_rnn, 

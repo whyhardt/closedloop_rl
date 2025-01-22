@@ -9,8 +9,11 @@ import sindy_main
 
 features_list = []
 for i in range(1):
-    i = 1
+    # i = 1
     _, _ , features = sindy_main.main(
+        
+        # data='data/rldm2025/data_rldm_512p_7.csv',
+        # model='params/rldm2025/params_rldm_512p_7.pkl',
         
         model = 'params/benchmarking/rnn_sugawara.pkl',
         data = 'data/sugawara2021_143_processed.csv',
@@ -19,12 +22,13 @@ for i in range(1):
         # data = 'data/bahrami2020_965_processed.csv',
         
         # general recovery parameters
-        session_id=0,
+        session_id=142,
         n_sessions=512,
         n_trials_per_session=256,
         
         # sindy parameters
         polynomial_degree=2,
+        regularization=1e-1,
         threshold=0.05,
         verbose=True,
         

@@ -78,7 +78,7 @@ def create_dataset(
   clear_offset: bool = False,
   ):
   
-  highpass_threshold = 5e-2
+  highpass_threshold = 1e-2
   
   if not isinstance(data, Environment):
     if isinstance(data, (np.ndarray, torch.Tensor)) and data.ndim == 2:
@@ -108,7 +108,7 @@ def create_dataset(
     # perform agent updates to record values over trials
     if isinstance(data, Environment):
       agent.new_sess()
-      for trial in range(n_trials_per_session):
+      for _ in range(n_trials_per_session):
         # generate trial data
         choice = agent.get_choice()
         reward = data.step(choice)
@@ -132,8 +132,6 @@ def create_dataset(
         dvdt = np.abs(np.diff(values, axis=1).reshape(values.shape[0], values.shape[2]))
         for i_action in range(values.shape[-1]):
           values[:, 1, i_action] = np.where(dvdt[:, i_action] > highpass_threshold, values[:, 1, i_action], values[:, 0, i_action])
-        # remove noise by simply rounding the values
-        values = np.round(values, 2)
         # in the case of 1D values along actions dim: Create 2D values by repeating along the actions dim (e.g. reward in non-counterfactual experiments) 
         if values.shape[-1] == 1:
             values = np.repeat(values, agent._n_actions, -1)

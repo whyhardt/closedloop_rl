@@ -8,14 +8,14 @@ _, loss = rnn_main.main(
     checkpoint=True,
     epochs=0,
     
-    data='data/2arm/data_rnn_br30_a025_ap05_bch30_ach05_varDict.csv',
-    model='params/params_rnn_br30_a025_ap05_bch30_ach05_varDict.pkl',
+    # data='data/rldm2025/data_rldm_128p_5.csv',
+    # model='params/rldm2025/params_rldm_128p_5.pkl',
     
     # model=f'params/benchmarking/rnn_eckstein.pkl',
     # data = 'data/2arm/eckstein2022_291_processed.csv',
     
-    # model = f'params/benchmarking/rnn_sugawara.pkl',
-    # data = 'data/2arm/sugawara2021_143_processed.csv',
+    model = f'params/benchmarking/rnn_sugawara.pkl',
+    data = 'data/2arm/sugawara2021_143_processed.csv',
     
     n_actions=2,
     
@@ -44,5 +44,5 @@ _, loss = rnn_main.main(
     # parameter_variance=0.,
     
     analysis=True,
-    session_id=1,
+    session_id=0,
 )

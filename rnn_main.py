@@ -29,8 +29,8 @@ def main(
   # data and training parameters
   epochs = 128,
   train_test_ratio = 0.7,
-  n_trials_per_session = 64,
-  n_sessions = 4096,
+  n_trials_per_session = 256,
+  n_sessions = 256,
   bagging = False,
   sequence_length = 32,
   n_steps_per_call = 16,  # -1 for full sequence
@@ -45,7 +45,7 @@ def main(
   alpha_penalty = -1.,
   alpha_counterfactual = 0.,
   beta_choice = 0.,
-  alpha_choice = 1.,
+  alpha_choice = 0.,
   forget_rate = 0.,
   confirmation_bias = 0.,
   reward_prediction_error: Callable = None,
@@ -64,7 +64,7 @@ def main(
   
   # tracked variables in the RNN
   x_train_list = ['x_V_LR', 'x_V_LR_cf', 'x_V_nc', 'x_C', 'x_C_nc']
-  control_list = ['c_a', 'c_r', 'c_p', 'c_r_cf', 'c_p_cf', 'c_a_repeat', 'c_V']
+  control_list = ['c_a', 'c_r', 'c_r_cf', 'c_a_repeat', 'c_V']
   sindy_feature_list = x_train_list + control_list
 
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -241,7 +241,7 @@ def main(
     else:
       agents = {'rnn': agent_rnn}
 
-    fig, axs = plotting.plot_session(agents, experiment_test)
+    fig, axs = plotting.session(agents, experiment_test)
     
     fig.suptitle('$beta_r=$'+str(np.round(agent_rnn._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_rnn._beta_choice, 2)))
     plt.show()

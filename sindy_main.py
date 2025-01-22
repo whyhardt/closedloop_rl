@@ -13,7 +13,7 @@ from resources.sindy_utils import create_dataset, check_library_setup
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_model
 from utils.convert_dataset import convert_dataset
-from utils.plotting import plot_session
+from utils.plotting import session
 
 warnings.filterwarnings("ignore")
 
@@ -48,19 +48,19 @@ def main(
     n_actions = 2,
     sigma = .1,
     
-    analysis: bool = False,
+    analysis: bool = False, 
     ):
 
     # tracked variables in the RNN
     x_train_list = ['x_V_LR', 'x_V_LR_cf', 'x_V_nc', 'x_C', 'x_C_nc']
-    control_list = ['c_a', 'c_r', 'c_p', 'c_r_cf', 'c_p_cf', 'c_a_repeat', 'c_V']
+    control_list = ['c_a', 'c_r', 'c_r_cf', 'c_a_repeat', 'c_V']
     sindy_feature_list = x_train_list + control_list
 
     # library setup aka which terms are allowed as control inputs in each SINDy model
     # key is the SINDy submodel name, value is a list of allowed control inputs
     library_setup = {
-        'x_V_LR': ['c_V', 'c_r', 'c_p'],  # learning rate for chosen action
-        'x_V_LR_cf': ['c_V', 'c_r_cf', 'c_p_cf'],  # learning rate for not-chosen action in counterfactual setup -> same inputs as for chosen action because inputs are 2D (action_0, action_1) -> difference made in filter setup!
+        'x_V_LR': ['c_V', 'c_r'],  # learning rate for chosen action
+        'x_V_LR_cf': ['c_V', 'c_r_cf'],  # learning rate for not-chosen action in counterfactual setup -> same inputs as for chosen action because inputs are 2D (action_0, action_1) -> difference made in filter setup!
         'x_V_nc': [],
         'x_C': ['c_a_repeat'],
         'x_C_nc': [],
@@ -84,7 +84,8 @@ def main(
 
     if not check_library_setup(library_setup, sindy_feature_list, verbose=True):
         raise ValueError('Library setup does not match feature list.')
-
+    
+    agent = None
     if data is None:
         # set up ground truth agent and environment
         environment = EnvironmentBanditsDrift(sigma, n_actions)
@@ -94,13 +95,27 @@ def main(
             agent.set_reward_prediction_error(reward_prediction_error)
         _, experiment_list_test, _ = create_dataset_bandits(agent, environment, 100, 1)
         _, experiment_list_train, _ = create_dataset_bandits(agent, environment, n_trials_per_session, n_sessions)
-        index_test = 0
     else:
         # get data from experiments
-        _, experiment_list_train, _, _ = convert_dataset(data)
-        index_test = len(experiment_list_train)-1 if session_id is None else session_id
-        experiment_list_test = [experiment_list_train[index_test]]
-        # experiment_list_train = experiment_list_train[:-1]
+        _, experiment_list_train, df, _ = convert_dataset(data)
+        experiment_list_test = None
+        
+        if session_id is None:
+            session_id = np.arange(len(experiment_list_train))
+        else:
+            session_id = [session_id]
+        
+        if analysis and 'mean_beta_reward' in df.columns:
+            # get parameters from dataset
+            agent = AgentQ(
+                beta_reward = df['beta_reward'].values[(df['session']==session_id[0]).values][0],
+                alpha_reward = df['alpha_reward'].values[(df['session']==session_id[0]).values][0],
+                alpha_penalty = df['alpha_penalty'].values[(df['session']==session_id[0]).values][0],
+                confirmation_bias = df['confirmation_bias'].values[(df['session']==session_id[0]).values][0],
+                forget_rate = df['forget_rate'].values[(df['session']==session_id[0]).values][0],
+                beta_choice = df['beta_choice'].values[(df['session']==session_id[0]).values][0],
+                alpha_choice = df['alpha_choice'].values[(df['session']==session_id[0]).values][0],
+            )
 
     # set up rnn agent and expose q-values to train sindy
     if model is None:
@@ -124,16 +139,12 @@ def main(
     rnn.load_state_dict(state_dict)
     agent_rnn = AgentNetwork(rnn, n_actions, deterministic=True)            
 
-    # create dataset for sindy training, fit sindy, set up sindy agent
-    if session_id is not None:
-        experiment_list_train = [experiment_list_train[session_id]]
-
-    agent_sindy = []
-    for i in range(len(experiment_list_train)):
+    agent_sindy = {}
+    for id in session_id:
         # get SINDy-formatted data with exposed latent variables computed by RNN-Agent
         x_train, control, feature_names = create_dataset(
             agent=agent_rnn, 
-            data=[experiment_list_train[i]],
+            data=[experiment_list_train[id]],
             n_trials_per_session=n_trials_per_session, 
             n_sessions=n_sessions, 
             shuffle=False,
@@ -156,16 +167,14 @@ def main(
             )
         
         # set up SINDy-Agent -> One SINDy-Agent per session if participant embedding is activated
-        agent_rnn.new_sess(experiment_list_train[i].session[0])
-        agent_sindy.append(
-            AgentSindy(
-                sindy_models=sindy_models, 
-                n_actions=n_actions, 
-                beta_reward=agent_rnn._beta_reward,
-                beta_choice=agent_rnn._beta_choice, 
-                deterministic=True, 
-                counterfactual=agent_rnn._model._counterfactual,
-                )
+        agent_rnn.new_sess(experiment_list_train[id].session[0])
+        agent_sindy[id] = AgentSindy(
+            sindy_models=sindy_models, 
+            n_actions=n_actions, 
+            beta_reward=agent_rnn._beta_reward,
+            beta_choice=agent_rnn._beta_choice, 
+            deterministic=True, 
+            counterfactual=agent_rnn._model._counterfactual,
             )
     
     # if verbose:
@@ -182,29 +191,37 @@ def main(
 
     if analysis:
         
+        if experiment_list_test is None:
+            experiment_list_test = [experiment_list_train[session_id[0]]]
+        
         # print sindy equations from tested sindy agent
-        agent_sindy[index_test].new_sess()
+        agent_sindy[session_id[0]].new_sess()
         print('\nDiscovered SINDy models:')
-        for model in agent_sindy[index_test]._models:
-            agent_sindy[index_test]._models[model].print()
-        print(f'(x_beta_r) = {agent_sindy[index_test]._beta_reward:.3f}')
-        print(f'(x_beta_c) = {agent_sindy[index_test]._beta_choice:.3f}')
+        for model in agent_sindy[session_id[0]]._models:
+            agent_sindy[session_id[0]]._models[model].print()
+        print(f'(x_beta_r) = {agent_sindy[session_id[0]]._beta_reward:.3f}')
+        print(f'(x_beta_c) = {agent_sindy[session_id[0]]._beta_choice:.3f}')
         print('\n')
         
         # get analysis plot
-        if data is None:
-            agents = {'groundtruth': agent, 'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
+        if agent is not None:
+            agents = {'groundtruth': agent, 'rnn': agent_rnn, 'sindy': agent_sindy[session_id[0]]}
+            plt_title = '$True:\\beta_r=$'+str(np.round(agent._beta_reward, 2)) + '; $\\beta_c=$'+str(np.round(agent._beta_choice, 2))+'\n'
         else:
-            agents = {'rnn': agent_rnn, 'sindy': agent_sindy[index_test]}
+            agents = {'rnn': agent_rnn, 'sindy': agent_sindy[session_id[0]]}
+            plt_title = ''
+            
         experiment_analysis = experiment_list_test[0]
-        fig, axs = plot_session(agents, experiment_analysis)
-        fig.suptitle('$beta_r=$'+str(np.round(agent_sindy[index_test]._beta_reward, 2)) + '; $beta_c=$'+str(np.round(agent_sindy[index_test]._beta_choice, 2)))
+        fig, axs = session(agents, experiment_analysis)
+        plt_title += '$Sim:\\beta_r=$'+str(np.round(agent_sindy[session_id[0]]._beta_reward, 2)) + '; $\\beta_c=$'+str(np.round(agent_sindy[session_id[0]]._beta_choice, 2))
+        
+        fig.suptitle(plt_title)
         plt.show()
         
     # save a dictionary of trained features per model
     features = {
-        'beta_reward': (('beta_reward'), (agent_sindy[index_test]._beta_reward)),
-        'beta_choice': (('beta_choice'), (agent_sindy[index_test]._beta_choice)),
+        'beta_reward': (('beta_reward'), (agent_sindy[session_id[0]]._beta_reward)),
+        'beta_choice': (('beta_choice'), (agent_sindy[session_id[0]]._beta_choice)),
         }
     for m in sindy_models:
         features[m] = []
@@ -220,8 +237,8 @@ def main(
         features[m].append(tuple(coeffs_i))
         features[m] = tuple(features[m])
     
-    for i in range(len(agent_sindy)):
-        agent_sindy[i].new_sess()
+    for id in agent_sindy:
+        agent_sindy[id].new_sess()
         
     return agent_sindy, sindy_models, features
 

@@ -33,9 +33,9 @@ results = 'benchmarking/results/results_sugawara.csv'
 # model_benchmark = 'benchmarking/params/traces_test.nc'
 # results = 'benchmarking/results/results_data_rnn_br30_a025_ap05_bch30_ach05_varDict.csv'
 
-models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr']
+# models = ['ApBr', 'ApAnBr', 'ApBcBr', 'ApAcBcBr', 'ApAnBcBr', 'ApAnAcBcBr']
 # models = ['ApAcBcBr']
-# models = []
+models = []
 
 # load data
 experiment = convert_dataset(data)[1]
@@ -55,12 +55,12 @@ n_parameters_rnn = sum(p.numel() for p in agent_rnn._model.parameters() if p.req
 agent_sindy = setup_agent_sindy(
     model=model_rnn, 
     data=data, 
-    session_id=session_id, 
+    session_id=session_id,
     )
-n_parameters_sindy = [agent._count_sindy_parameters(without_self=True) for agent in agent_sindy]
+n_parameters_sindy = [agent_sindy[agent]._count_sindy_parameters(without_self=True) for agent in agent_sindy]
 
 # setup AgentQ model with values from sugawara paper as baseline
-agent_rl = AgentQ(alpha_reward=.45, beta_reward=.19, alpha_choice=0.41, beta_choice=1.10)
+agent_rl = AgentQ(alpha_reward=0.25, beta_reward=1.)#(alpha_reward=.45, beta_reward=.19, alpha_choice=0.41, beta_choice=1.10)
 
 agent_mcmc = {}
 for model in models:
@@ -104,7 +104,7 @@ for model in models:
 data = np.zeros((len(models)+3, 3))
 
 print('Get LL by SINDy...')
-df = get_scores_array(experiment, agent_sindy, n_parameters_sindy)
+df = get_scores_array(experiment, [agent_sindy[id] for id in agent_sindy], n_parameters_sindy)
 df.to_csv(results.replace('.', '_sindy.'), index=False)
 # get sessions where sindy recovered a weird equation leading to exploding values
 index_sindy_valid = (1-df['NLL'].isna()).astype(bool)
@@ -112,7 +112,8 @@ data[-1] = np.array((df['NLL'].values[index_sindy_valid].sum(), df['AIC'].values
 
 print('Get LL by RL-Baseline...')
 df = get_scores_array(experiment, [agent_rl]*len(experiment), [2]*len(experiment))
-data[0] = np.array((df['NLL'].values[index_sindy_valid].sum(), df['AIC'].values[index_sindy_valid].sum(), df['BIC'].values[index_sindy_valid].sum()))
+# data[0] = np.array((df['NLL'].values[index_sindy_valid].sum(), df['AIC'].values[index_sindy_valid].sum(), df['BIC'].values[index_sindy_valid].sum()))
+data[0] = np.array((df['NLL'].values.sum(), df['AIC'].values.sum(), df['BIC'].values.sum()))
 
 print('Get LL by RNN...')
 df = get_scores_array(experiment, [agent_rnn]*len(experiment), [n_parameters_rnn]*len(experiment))

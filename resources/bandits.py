@@ -142,9 +142,9 @@ class AgentQ:
       while not sanity:
         # sample new parameters until all sanity checks are passed
         self._beta_reward = np.clip(np.random.normal(self._mean_beta_reward, self._mean_beta_reward/2 if self._parameter_variance['beta_reward'] == -1 else self._parameter_variance['beta_reward']), 0, 2*self._mean_beta_reward)
+        self._beta_choice = np.clip(np.random.normal(self._mean_beta_choice, self._mean_beta_choice/2 if self._parameter_variance['beta_choice'] == -1 else self._parameter_variance['beta_choice']), 0, 2*self._mean_beta_choice)
         self._alpha_reward = np.clip(np.random.normal(self._mean_alpha_reward, self._mean_alpha_reward/2 if self._parameter_variance['alpha_reward'] == -1 else self._parameter_variance['alpha_reward']), 0 , 1)
         self._alpha_penalty = np.clip(np.random.normal(self._mean_alpha_penalty, self._mean_alpha_penalty/2 if self._parameter_variance['alpha_penalty'] == -1 else self._parameter_variance['alpha_penalty']), 0, 1)
-        self._beta_choice = np.clip(np.random.normal(self._mean_beta_choice, self._mean_beta_choice/2 if self._parameter_variance['beta_choice'] == -1 else self._parameter_variance['beta_choice']), 0, 1)
         self._alpha_choice = np.clip(np.random.normal(self._mean_alpha_choice, self._mean_alpha_choice/2 if self._parameter_variance['alpha_choice'] == -1 else self._parameter_variance['alpha_choice']), 0, 1)
         self._alpha_counterfactual = np.clip(np.random.normal(self._mean_alpha_counterfactual, self._mean_alpha_counterfactual/2 if self._parameter_variance['alpha_counterfactual'] == -1 else self._parameter_variance['alpha_counterfactual']), 0, 1)
         self._confirmation_bias = np.clip(np.random.normal(self._mean_confirmation_bias, self._mean_confirmation_bias/2 if self._parameter_variance['confirmation_bias'] == -1 else self._parameter_variance['confirmation_bias']), 0, 1)
@@ -247,6 +247,80 @@ class AgentQ:
     self._reward_prediction_error = update_rule
 
 
+class AgentQ_SampleBetaDist(AgentQ):
+  """An agent that runs simple Q-learning for the y-maze tasks.
+
+  Attributes:
+    alpha: The agent's learning rate
+    beta: The agent's softmax temperature
+    q: The agent's current estimate of the reward probability on each arm
+  """
+
+  def __init__(
+      self,
+      n_actions: int = 2,
+      beta_reward: float = 3.,
+      alpha_reward: float = 0.2,
+      alpha_penalty: float = -1,
+      alpha_counterfactual: float = 0.,
+      beta_choice: float = 0.,
+      alpha_choice: float = 1.,
+      forget_rate: float = 0.,
+      confirmation_bias: float = 0.,
+      parameter_variance: Union[Dict[str, float], float] = 0.,
+      ):
+    
+    super(AgentQ_SampleBetaDist, self).__init__(
+      n_actions=n_actions,
+      beta_reward=beta_reward,
+      alpha_reward=alpha_reward,
+      alpha_penalty=alpha_penalty,
+      alpha_counterfactual=alpha_counterfactual,
+      beta_choice=beta_choice,
+      alpha_choice=alpha_choice,
+      forget_rate=forget_rate,
+      confirmation_bias=confirmation_bias,
+      parameter_variance=parameter_variance,
+      )
+  
+  def new_sess(self, sample_parameters=False, threshold=1e-1, **kwargs):
+    """Reset the agent for the beginning of a new session."""
+    self._q = np.full(self._n_actions, self._q_init)
+    self._c = np.zeros(self._n_actions)
+    
+    # sample new parameters
+    if sample_parameters:
+      sanity_check = False
+      while not sanity_check:
+        # sample new parameters until all sanity checks are passed
+        self._beta_reward = np.random.beta(0.5, 0.5) * 2 * self._mean_beta_reward
+        self._beta_choice = np.random.beta(0.5, 0.5) * 2 * self._mean_beta_choice
+        self._alpha_reward = np.random.beta(0.5, 0.5)
+        self._alpha_penalty = np.random.beta(0.5, 0.5)
+        self._alpha_choice = np.random.beta(0.5, 0.5)
+        self._alpha_counterfactual = np.random.beta(0.5, 0.5)
+        self._confirmation_bias = np.random.beta(0.5, 0.5)
+        self._forget_rate = np.random.beta(0.5, 0.5)
+        
+        # Apply threshold to set variables to 0
+        self._beta_reward = self._beta_reward if self._beta_reward > threshold else 0
+        self._beta_choice = self._beta_choice if self._beta_choice > threshold else 0
+        self._alpha_reward = self._alpha_reward if self._alpha_reward > threshold else 0
+        self._alpha_penalty = self._alpha_penalty if self._alpha_penalty > threshold else 0
+        self._alpha_choice = self._alpha_choice if self._alpha_choice > threshold else 0
+        self._alpha_counterfactual = self._alpha_counterfactual if self._alpha_counterfactual > threshold else 0
+        self._confirmation_bias = self._confirmation_bias if self._confirmation_bias > threshold else 0
+        self._forget_rate = self._forget_rate if self._forget_rate > threshold else 0
+
+        # sanity checks
+        # 1. (alpha, alpha_penalty) + confirmation_bias*max_confirmation must be in range(0, 1)
+        #     with max_confirmation = (q-q0)(r-q0) = +/- 0.25
+        max_learning_rate = self._alpha_reward + self._confirmation_bias*0.25 <= 1 and self._alpha_penalty + self._confirmation_bias*0.25 <= 1
+        min_learning_rate = self._alpha_reward + self._confirmation_bias*-0.25 >= 0 and self._alpha_penalty + self._confirmation_bias*-0.25 >= 0 
+        sanity_check = max_learning_rate and min_learning_rate
+    
+    
+
 class AgentSindy:
 
   def __init__(
@@ -283,7 +357,7 @@ class AgentSindy:
         if choice == action:
           # current action was chosen
           if 'x_V_LR' in self._models:
-            learning_rate = self._models['x_V_LR'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+            learning_rate = self._models['x_V_LR'].predict(np.array([0]), u=np.array([self._q[action], reward_action]).reshape(1, -1))[-1]
             reward_prediction_error = reward_action - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
           if 'x_C' in self._models:
@@ -291,7 +365,7 @@ class AgentSindy:
         else:
           # current action was not chosen
           if self._counterfactual and 'x_V_LR_cf' in self._models:
-            learning_rate = self._models['x_V_LR_cf'].predict(np.array([0]), u=np.array([self._q[action], reward_action, 1-reward_action]).reshape(1, -1))[-1]
+            learning_rate = self._models['x_V_LR_cf'].predict(np.array([0]), u=np.array([self._q[action], reward_action]).reshape(1, -1))[-1]
             reward_prediction_error = reward_action - self._q[action]
             self._q[action] += learning_rate * reward_prediction_error
           elif not self._counterfactual and 'x_V_nc' in self._models:
@@ -959,17 +1033,18 @@ def plot_session(
   
   x = np.arange(len(choices))
   chosen_y = min_y - 1e-1  # Lower position for chosen (bigger tick)
-  not_chosen_y = chosen_y - 1e-1 * diff_min_max  # Slightly lower for not chosen (smaller tick)
+  not_chosen_y = max_y + 1e-1  # Slightly lower for not chosen (smaller tick)
+  # not_chosen_y = chosen_y - 1e-1 * diff_min_max  # Slightly lower for not chosen (smaller tick)
 
   # Plot ticks for chosen options
-  ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='black', s=100, marker='|')  # Large green tick for chosen reward
-  ax.scatter(x[(choices == 1) & (rewards == 0)], np.full(sum((choices == 1) & (rewards == 0)), chosen_y), color='lightgrey', s=100, marker='|')  # Large red tick for chosen penalty
+  ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='green', s=100, marker='|')  # Large green tick for chosen reward
+  ax.scatter(x[(choices == 1) & (rewards == 0)], np.full(sum((choices == 1) & (rewards == 0)), chosen_y), color='red', s=80, marker='|')  # Large red tick for chosen penalty
 
   # Plot ticks for not chosen options
-  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='black', s=80, marker='|')  # Small green tick
-  ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='lightgrey', s=80, marker='|')  # Small red tick
+  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='green', s=100, marker='|')  # Small green tick
+  ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='red', s=80, marker='|')  # Small red tick
 
-  ax.set_ylim(not_chosen_y, np.max((-not_chosen_y, np.max(timeseries + 1e-1 * diff_min_max))))
+  # ax.set_ylim(not_chosen_y, np.max((-not_chosen_y, np.max(timeseries + 1e-1 * diff_min_max))))
   
   if x_axis_info:
     ax.set_xlabel(x_label)

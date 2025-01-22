@@ -349,20 +349,15 @@ class RLRNN(BaseRNN):
             # signal tracking to collect training samples for SINDy
             if not torch.is_grad_enabled():
                 # control signals
-                penalty = torch.where(reward != -1, 1-reward, -1)  # penalty signal --> neglected reward signal
                 self.append_timestep_sample('c_a', action)  # action
-                # self.append_timestep_sample('c_r', r)  # reward
-                # self.append_timestep_sample('c_p', torch.where(r != -1, 1-r, -1))  # penalty (if not reward)
                 self.append_timestep_sample('c_r', reward[:, :1] if not self._counterfactual else reward[:, action.argmax(dim=-1)])  # reward chosen
                 self.append_timestep_sample('c_r_cf', reward[:, 1:] if not self._counterfactual else reward[:, (1-action).argmax(dim=-1)])  # reward not-chosen (aka counterfactual)
-                self.append_timestep_sample('c_p', penalty[:, :1] if not self._counterfactual else penalty[:, action.argmax(dim=-1)])  # penalty chosen
-                self.append_timestep_sample('c_p_cf', penalty[:, 1:] if not self._counterfactual else penalty[:, (1-action).argmax(dim=-1)])  # penalty not-chosen (aka counterfactual)
                 self.append_timestep_sample('c_a_repeat', repeated)  # action repeated
                 self.append_timestep_sample('c_V', reward_value_prev)  # reward-based values
                 
                 # dynamical variabels
                 self.append_timestep_sample('x_V_LR', torch.zeros_like(learning_rate), learning_rate)
-                self.append_timestep_sample('x_V_LR_cf', torch.zeros_like(learning_rate), learning_rate)
+                self.append_timestep_sample('x_V_LR_cf', torch.zeros_like(learning_rate), learning_rate if reward[:, -1].mean() != -1 else torch.zeros_like(learning_rate))
                 self.append_timestep_sample('x_V_nc', reward_value_prev, reward_value)
                 self.append_timestep_sample('x_C', choice_value_prev, choice_value)
                 self.append_timestep_sample('x_C_nc', choice_value_prev, choice_value)

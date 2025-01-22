@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import numpy as np
-from copy import copy
 
 base_file = 'benchmarking/results/results_sugawara.csv'
 # base_file = 'benchmarking/results/results_eckstein.csv'
