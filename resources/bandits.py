@@ -470,7 +470,7 @@ class AgentNetwork:
     def new_sess(self, session: int = 0):
       """Reset the network for the beginning of a new session."""
       if not isinstance(session, torch.Tensor):
-        session = torch.tensor(session, dtype=int)[None]
+        session = torch.tensor(session, dtype=int, device=self._model.device)[None]
       
       self._model.set_initial_state(batch_size=1)
       
