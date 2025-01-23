@@ -451,9 +451,7 @@ class AgentNetwork:
         self._deterministic = deterministic
         self._q_init = 0.5
         self._n_actions = n_actions
-        
-        if device != model.device:
-          model = model.to(device)
+
         self._model = RLRNN(
           n_actions=model._n_actions, 
           hidden_size=model._hidden_size, 
@@ -461,9 +459,10 @@ class AgentNetwork:
           init_value=model.init_value, 
           list_sindy_signals=list(model.history.keys()), 
           counterfactual=model._counterfactual,
-          device=model.device
-          ).to(model.device)
+          device=device,
+          )
         self._model.load_state_dict(model.state_dict())
+        self._model = self._model.to(device)
         self._model.eval()
         
         self.new_sess()
@@ -480,11 +479,11 @@ class AgentNetwork:
       
       if self._model._n_participants > 0:
         participant_embedding = self._model.participant_embedding(session)
-        self._beta_reward = self._model._beta_reward(participant_embedding).item()
-        self._beta_choice = self._model._beta_choice(participant_embedding).item()
+        self._beta_reward = self._model._beta_reward(participant_embedding).detach().cpu().item()
+        self._beta_choice = self._model._beta_choice(participant_embedding).detach().cpu().item()
       else:
-        self._beta_reward = self._model._beta_reward.item()
-        self._beta_choice = self._model._beta_choice.item()
+        self._beta_reward = self._model._beta_reward.detach().cpu().item()
+        self._beta_choice = self._model._beta_choice.detach().cpu().item()
       
       self.set_state()
 
@@ -515,8 +514,8 @@ class AgentNetwork:
       self.set_state()
     
     def set_state(self):
-      self._q = self._model.get_state()[-3].cpu().numpy()[0, 0]
-      self._c = self._model.get_state()[-2].cpu().numpy()[0, 0]
+      self._q = self._model.get_state()[-3].detach().cpu().numpy()[0, 0]
+      self._c = self._model.get_state()[-2].detach().cpu().numpy()[0, 0]
 
     @property
     def q(self):

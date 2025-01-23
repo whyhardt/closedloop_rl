@@ -191,7 +191,7 @@ class rl_sindy_theorist(BaseEstimator):
         session_id = np.arange(len(experiment_list)) if self.n_participants > 0 else [0]
         
         # set up rnn agent and expose q-values to train sindy
-        agent_rnn = AgentNetwork(model_rnn, self.n_actions, deterministic=True)
+        agent_rnn = AgentNetwork(model_rnn, self.n_actions, deterministic=True, device=self.device)
         
         for id in session_id:
             # get SINDy-formatted data with exposed latent variables computed by RNN-Agent
@@ -262,7 +262,7 @@ class rl_sindy_theorist(BaseEstimator):
                 self.sindy_features[id] = deepcopy(features_id)
     
     def predict(self, conditions: np.ndarray):
-        conditions_rnn = torch.tensor(conditions, dtype=torch.float32)        
+        conditions_rnn = torch.tensor(conditions, dtype=torch.float32, device=self.device)        
         prediction_rnn = self.model_rnn(conditions_rnn, batch_first=True)[0].detach().cpu().numpy()
         
         prediction_sindy = np.zeros_like(prediction_rnn)
