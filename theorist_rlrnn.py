@@ -12,7 +12,7 @@ from resources.rnn import RLRNN
 from resources.bandits import AgentSindy, AgentNetwork, get_update_dynamics, BanditSession
 from resources.sindy_utils import create_dataset, check_library_setup
 from resources.sindy_training import fit_model as fit_sindy
-from resources.rnn_utils import DatasetRNN
+from resources.rnn_utils import DictDataset
 from resources.rnn_training import fit_model as fit_rnn
 
 warnings.filterwarnings("ignore")
@@ -125,7 +125,7 @@ class rl_sindy_theorist(BaseEstimator):
             hidden_size=hidden_size, 
             init_value=0.5,
             device=device,
-            list_sindy_signals=self.sindy_feature_list,
+            signals=self.sindy_feature_list,
             dropout=dropout,
             n_participants=n_participants,
             counterfactual=counterfactual,
@@ -136,7 +136,7 @@ class rl_sindy_theorist(BaseEstimator):
     
     def fit(self, conditions: np.ndarray, targets: np.ndarray):
         
-        dataset = DatasetRNN(conditions, targets)
+        dataset = DictDataset(conditions, targets)
         start_time = time.time()
         
         # -------------------------------------------------------------------

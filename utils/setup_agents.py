@@ -27,7 +27,7 @@ def setup_rnn(
         n_actions=n_actions, 
         hidden_size=hidden_size, 
         n_participants=n_participants if participant_emb else 0, 
-        list_sindy_signals=list_sindy_signals, 
+        signals=list_sindy_signals, 
         device=device, 
         counterfactual=counterfactual,
         )

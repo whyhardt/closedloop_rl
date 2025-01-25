@@ -115,7 +115,7 @@ def main(
     print('Generation of dataset complete.')
   else:
     dataset, experiment_list, df, _ = convert_dataset.convert_dataset(data, sequence_length=sequence_length)
-    dataset_test = rnn_utils.DatasetRNN(dataset.xs, dataset.ys)
+    dataset_test = rnn_utils.DictDataset(dataset.xs, dataset.ys)
     
     # check if groundtruth parameters in data - only applicable to generated data with e.g. utils/create_dataset.py
     if 'mean_beta_reward' in df.columns:
@@ -138,13 +138,13 @@ def main(
     
     xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
     xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
-    dataset_train = bandits.DatasetRNN(xs_train, ys_train, sequence_length=sequence_length)
+    dataset_train = bandits.DictDataset(xs_train, ys_train, sequence_length=sequence_length)
     if dataset_test is None:
-      dataset_test = bandits.DatasetRNN(xs_test, ys_test)  
+      dataset_test = bandits.DictDataset(xs_test, ys_test)  
   else:
     if dataset_test is None:
       dataset_test = dataset
-    dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length)
+    dataset_train = bandits.DictDataset(dataset.xs, dataset.ys, sequence_length=sequence_length)
     
   experiment_test = experiment_list[session_id][-dataset_test.xs.shape[1]:]
 
@@ -171,7 +171,7 @@ def main(
       hidden_size=hidden_size, 
       init_value=0.5,
       device=device,
-      list_sindy_signals=sindy_feature_list,
+      signals=sindy_feature_list,
       dropout=dropout,
       n_participants=n_participants if participant_emb else 0,
       counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,

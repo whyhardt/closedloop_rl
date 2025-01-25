@@ -8,8 +8,8 @@ import torch
 import torch.utils
 import pysindy as ps
 
-from resources.rnn import RLRNN
-from resources.rnn_utils import DatasetRNN
+from resources.rnn import BaseRNN, RLRNN
+from resources.rnn_utils import DictDataset
 
 # Setup so that plots will look nice
 small = 15
@@ -449,17 +449,16 @@ class AgentNetwork:
         """
         
         self._deterministic = deterministic
-        self._q_init = 0.5
         self._n_actions = n_actions
+        self.device = device
 
-        self._model = RLRNN(
+        self._model = BaseRNN(
           n_actions=model._n_actions, 
           hidden_size=model._hidden_size, 
           n_participants=model._n_participants, 
-          init_value=model.init_value, 
-          list_sindy_signals=list(model.history.keys()), 
-          counterfactual=model._counterfactual,
-          device=device,
+          signals=model._signals,
+          module_inputs=model._module_inputs,
+          module_filter=model._module_filter,
           )
         self._model.load_state_dict(model.state_dict())
         self._model = self._model.to(device)
@@ -467,30 +466,27 @@ class AgentNetwork:
         
         self.new_sess()
 
-    def new_sess(self, session: int = 0):
+    def new_sess(self):
+    # def new_sess(self, session: int = 0):
       """Reset the network for the beginning of a new session."""
-      if not isinstance(session, torch.Tensor):
-        session = torch.tensor(session, dtype=int, device=self._model.device)[None]
+      # if not isinstance(session, torch.Tensor):
+      #   session = torch.tensor(session, dtype=int, device=self._model.device)[None]
       
       self._model.set_initial_state(batch_size=1)
       
-      self._xs = torch.zeros((1, self._n_actions*2+1))
-      self._xs[0, -1] = session
+      # if self._model._n_participants > 0:
+      #   participant_embedding = self._model.participant_embedding(session)
+      #   self._beta_reward = self._model._beta_reward(participant_embedding).detach().cpu().item()
+      #   self._beta_choice = self._model._beta_choice(participant_embedding).detach().cpu().item()
+      # else:
+      #   self._beta_reward = self._model._beta_reward.detach().cpu().item()
+      #   self._beta_choice = self._model._beta_choice.detach().cpu().item()
       
-      if self._model._n_participants > 0:
-        participant_embedding = self._model.participant_embedding(session)
-        self._beta_reward = self._model._beta_reward(participant_embedding).detach().cpu().item()
-        self._beta_choice = self._model._beta_choice(participant_embedding).detach().cpu().item()
-      else:
-        self._beta_reward = self._model._beta_reward.detach().cpu().item()
-        self._beta_choice = self._model._beta_choice.detach().cpu().item()
-      
-      self.set_state()
+      # self.set_state()
 
     def get_logit(self):
       """Return the value of the agent's current state."""
-      logit = self._q * self._beta_reward + self._c * self._beta_choice
-      return logit
+      return self._model.logits if isinstance(self._model.logits, np.array) else self._model.logits.detach().cpu().numpy()
     
     def get_choice_probs(self) -> np.ndarray:
       """Predict the choice probabilities as a softmax over output logits."""
@@ -507,16 +503,17 @@ class AgentNetwork:
         return np.random.choice(self._n_actions, p=choice_probs)
 
     def update(self, choice: float, reward: float, session: float):
-      choice = torch.eye(self._n_actions)[int(choice)]
-      self._xs = torch.concat([choice, torch.tensor(reward), torch.tensor(session)[None]])[None, None, :].to(device=self._model.device)
+      reward_array = torch.full(self._n_actions, -1, device=self.device)
+      reward_array[choice] = reward
+      choice = torch.eye(self._n_actions, dtype=torch.float32, device=self.device)[int(choice)]
+      inputs = {
+        'c_Action': choice[None, None, :],
+        'c_Reward': reward_array[None, None, :],
+        'c_ParticipantID': torch.tensor(session, dtype=torch.int32, device=self.device)[None, None, :],
+      }
       with torch.no_grad():
-        self._model(self._xs, self._model.get_state())
-      self.set_state()
+        self._model(inputs, self._model.get_state())
     
-    def set_state(self):
-      self._q = self._model.get_state()[-3].detach().cpu().numpy()[0, 0]
-      self._c = self._model.get_state()[-2].detach().cpu().numpy()[0, 0]
-
     @property
     def q(self):
       return self.get_logit()
@@ -861,7 +858,7 @@ def create_dataset(
   sample_parameters: bool = False,
   device=torch.device('cpu'),
   verbose=False,
-  ) -> tuple[DatasetRNN, list[BanditSession], list[dict[str, float]]]:
+  ) -> tuple[DictDataset, list[BanditSession], list[dict[str, float]]]:
   """Generates a behavioral dataset from a given agent and environment.
 
   Args:
@@ -909,7 +906,7 @@ def create_dataset(
         }
       )
 
-  dataset = DatasetRNN(
+  dataset = DictDataset(
     xs=xs, 
     ys=ys,
     sequence_length=sequence_length,

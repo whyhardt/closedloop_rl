@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pysindy as ps
 
 from resources.bandits import Environment, AgentNetwork, AgentSindy, get_update_dynamics, BanditSession
-from resources.rnn_utils import DatasetRNN
+from resources.rnn_utils import DictDataset
 
 
 def make_sindy_data(
@@ -69,7 +69,7 @@ def make_sindy_data(
 
 def create_dataset(
   agent: AgentNetwork,
-  data: Union[Environment, DatasetRNN, List[BanditSession], np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
+  data: Union[Environment, DictDataset, List[BanditSession], np.ndarray, torch.Tensor, List[np.ndarray], List[torch.Tensor]],
   n_trials_per_session: int,
   n_sessions: int,
   shuffle: bool = False,
@@ -85,7 +85,7 @@ def create_dataset(
       data = [data]
     if verbose:
       Warning('data is not of type Environment. Checking for correct number of sessions and trials per session with respect to the given data object.')
-    if isinstance(data, DatasetRNN):
+    if isinstance(data, DictDataset):
       if n_trials_per_session > data.xs.shape[1] or n_trials_per_session == -1 or n_trials_per_session == None:
         n_trials_per_session = data.xs.shape[1]
       if n_sessions > data.xs.shape[0] or n_sessions == -1 or n_sessions == None:
@@ -100,8 +100,8 @@ def create_dataset(
           if n_trials_per_session > data[0].shape[0]: 
             n_trials_per_session = data[0].shape[0]
           
-  keys_x = [key for key in agent._model.history.keys() if key.startswith('x_')]
-  keys_c = [key for key in agent._model.history.keys() if key.startswith('c_')]
+  keys_x = [key for key in agent._model.recordings.keys() if key.startswith('x_')]
+  keys_c = [key for key in agent._model.recordings.keys() if key.startswith('c_')]
     
   x_train = {key: [] for key in keys_x}
   control = {key: [] for key in keys_c}
@@ -122,10 +122,10 @@ def create_dataset(
     trimming = int(0.25*n_trials_per_session) if trimming else 0
     
     # sort the data of one session into the corresponding signals
-    for key in agent._model.history.keys():
-      if len(agent._model.history[key]) > 1:
+    for key in agent._model.recordings.keys():
+      if len(agent._model.recordings[key]) > 1:
         # get all recorded values for the current session of one specific key 
-        history = agent._model.history[key]
+        history = agent._model.recordings[key]
         # create tensor from list of tensors 
         values = torch.concat(history).detach().cpu().numpy()[trimming:]
         if clear_offset and key in keys_x:

@@ -1,17 +1,19 @@
+import time
+import numpy as np
+from typing import Dict
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler
 
-import time
-import numpy as np
 from resources.rnn import BaseRNN
-from resources.rnn_utils import DatasetRNN
+from resources.rnn_utils import DictDataset
 
 
 def batch_train(
     model: BaseRNN,
-    xs: torch.Tensor,
-    ys: torch.Tensor,
+    xs: Dict[str, torch.Tensor],
+    ys: Dict[str, torch.Tensor],
     optimizer: torch.optim.Optimizer = None,
     n_steps_per_call: int = -1,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
@@ -22,26 +24,28 @@ def batch_train(
     """
     
     if n_steps_per_call == -1:
-        n_steps_per_call = xs.shape[1]
+        n_steps_per_call = xs[tuple(xs.keys())[0]].shape[1]
     
-    model.set_initial_state(batch_size=len(xs))
+    model.set_initial_state(batch_size=len(xs[tuple(xs.keys())[0]]))
     state = model.get_state(detach=True)
     
     loss_batch = 0
     iterations = 0
-    for t in range(0, xs.shape[1], n_steps_per_call):
-        n_steps = min(xs.shape[1]-t, n_steps_per_call)
-        xs_step = xs[:, t:t+n_steps]
-        ys_step = ys[:, t:t+n_steps]
+    for t in range(0, xs[tuple(xs.keys())[0]].shape[1], n_steps_per_call):
+        n_steps = min(xs[tuple(xs.keys())[0]].shape[1]-t, n_steps_per_call)
+        xs_step = {key: xs[key][:, t:t+n_steps] for key in xs.keys()}
+        ys_step = {key: ys[key][:, t:t+n_steps] for key in ys.keys()}
         
         state = model.get_state(detach=True)
-        y_pred = model(xs_step, state, batch_first=True)[0]
+        y_pred = model(xs_step, state, batch_first=True)
         
-        mask = xs_step[:, :, :model._n_actions] > -1
-        loss = loss_fn(
-            (y_pred*mask).reshape(-1, model._n_actions), 
-            (ys_step*mask).reshape(-1, model._n_actions)
-            )
+        mask = xs_step[tuple(xs_step.keys())[0]] > -1
+        loss = 0
+        for key in ys_step.keys():
+            loss += loss_fn(
+                (y_pred[key]*mask).reshape(-1, model._n_actions), 
+                (ys_step[key]*mask).reshape(-1, model._n_actions)
+                )
         
         loss_batch += loss
         iterations += 1
@@ -64,8 +68,8 @@ def batch_train(
 
 def fit_model(
     model: BaseRNN,
-    dataset_train: DatasetRNN,
-    dataset_test: DatasetRNN = None,
+    dataset_train: DictDataset,
+    dataset_test: DictDataset = None,
     optimizer: torch.optim.Optimizer = None,
     convergence_threshold: float = 1e-5,
     epochs: int = 1,
@@ -78,6 +82,7 @@ def fit_model(
     # initialize dataloader
     if batch_size == -1:
         batch_size = len(dataset_train)
+    
     # use random sampling with replacement
     sampler = RandomSampler(dataset_train, replacement=True) if bagging else None
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, shuffle=True if sampler is None else False)
@@ -99,7 +104,7 @@ def fit_model(
     
     loss_train = 0
     loss_test = 0
-    iterations_per_epoch = len(dataset_train) // batch_size
+    iterations_per_epoch = max((1, len(dataset_train) // batch_size))
     
     # start training
     while continue_training:
@@ -109,10 +114,12 @@ def fit_model(
             t_start = time.time()
             n_calls_to_train_model += 1
             for _ in range(iterations_per_epoch):
+                
                 # get next batch
                 xs, ys = next(iter(dataloader_train))
-                xs = xs.to(model.device)
-                ys = ys.to(model.device)
+                xs = {key: xs[key].to(model.device) for key in dataset_train.features_xs}
+                ys = {key: ys[key].to(model.device) for key in dataset_train.features_ys}
+                
                 # train model
                 model, optimizer, loss_i = batch_train(
                     model=model,
@@ -128,8 +135,8 @@ def fit_model(
                 model.eval()
                 with torch.no_grad():
                     xs, ys = next(iter(dataloader_test))
-                    xs = xs.to(model.device)
-                    ys = ys.to(model.device)
+                    xs = {key: xs[key].to(model.device) for key in dataset_train.features_xs}
+                    ys = {key: ys[key].to(model.device) for key in dataset_train.features_ys}
                     # evaluate model
                     _, _, loss_test = batch_train(
                         model=model,

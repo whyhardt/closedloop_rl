@@ -1,16 +1,16 @@
+from typing import Iterable, Dict
 import torch
 from torch.utils.data import Dataset
 
 
-class DatasetRNN(Dataset):
+class DictDataset(Dataset):
     def __init__(
         self, 
-        xs: torch.Tensor, 
-        ys: torch.Tensor,
+        xs: Dict[str, torch.Tensor], 
+        ys: Dict[str, torch.Tensor],
         normalize_features: tuple[int] = None, 
         sequence_length: int = None,
         stride: int = 1,
-        device=None,
         ):
         """Initializes the dataset for training the RNN. Holds information about the previous actions and rewards as well as the next action.
         Actions can be either one-hot encoded or indexes.
@@ -18,30 +18,28 @@ class DatasetRNN(Dataset):
         Args:
             xs (torch.Tensor): Actions and rewards in the shape (n_sessions, n_timesteps, n_features)
             ys (torch.Tensor): Next action
-            batch_size (Optional[int], optional): Sets batch size if desired else uses n_samples as batch size.
-            device (torch.Device, optional): Torch device. If None, uses cuda if available else cpu.
         """
         
-        if device is None:
-            device = torch.device('cpu')
+        self.features_xs = tuple(xs.keys())
+        self.features_ys = tuple(ys.keys())
         
         # check for type of xs and ys
-        if not isinstance(xs, torch.Tensor):
-            xs = torch.tensor(xs, dtype=torch.float32)
-        if not isinstance(ys, torch.Tensor):
-            ys = torch.tensor(ys, dtype=torch.float32)
-        
-        # check dimensions of xs and ys
-        if len(xs.shape) == 2:
-            xs = xs.unsqueeze(0)
-        if len(ys.shape) == 2:
-            ys = ys.unsqueeze(0)
+        for key in xs:
+            if not isinstance(xs[key], torch.Tensor):
+                xs[key] = torch.tensor(xs[key], dtype=torch.float32)
+            if len(xs[key].shape) == 2:
+                xs[key] = xs[key].unsqueeze(0)
+        for key in ys:
+            if not isinstance(ys[key], torch.Tensor):
+                ys[key] = torch.tensor(ys[key], dtype=torch.float32)
+            if len(ys[key].shape) == 2:
+                ys[key] = ys[key].unsqueeze(0)
             
-        if normalize_features is not None:
-            if isinstance(normalize_features, int):
-                normalize_features = tuple(normalize_features)
-            for feature in normalize_features:
-                xs[:, :, feature] = self.normalize(xs[:, :, feature])
+        # if normalize_features is not None:
+        #     if isinstance(normalize_features, int):
+        #         normalize_features = tuple(normalize_features)
+        #     for feature in normalize_features:
+        #         xs[:, :, feature] = self.normalize(xs[:, :, feature])
         
         # normalize data
         # x_std = xs.std(dim=(0, 1))
@@ -49,12 +47,15 @@ class DatasetRNN(Dataset):
         # xs = (xs - x_mean) / x_std
         # ys = (ys - x_mean) / x_std
         
-        self.sequence_length = sequence_length if sequence_length is not None else xs.shape[1]
+        self.sequence_length = sequence_length if sequence_length is not None else ys[key].shape[1]
         self.stride = stride
         
         if sequence_length is not None:
-            xs, ys = self.set_sequences(xs, ys)
-        self.device = device
+            for key in xs:
+                xs[key] = self.set_sequences(xs[key])
+            for key in ys:
+                ys[key] = self.set_sequences(ys[key])
+        
         self.xs = xs
         self.ys = ys
         
@@ -63,27 +64,23 @@ class DatasetRNN(Dataset):
         x_max = torch.max(data)
         return (data - x_min) / (x_max - x_min)
         
-    def set_sequences(self, xs, ys):
+    def set_sequences(self, tensor):
         # sets sequences of length sequence_length with specified stride from the dataset
-        xs_sequences = []
-        ys_sequences = []
-        for i in range(0, max(1, xs.shape[1]-self.sequence_length), self.stride):
-            xs_sequences.append(xs[:, i:i+self.sequence_length, :])
-            ys_sequences.append(ys[:, i:i+self.sequence_length, :])
-        xs = torch.cat(xs_sequences, dim=0)
-        ys = torch.cat(ys_sequences, dim=0)
+        sequences = []
+        for i in range(0, max(1, tensor.shape[1]-self.sequence_length), self.stride):
+            sequences.append(tensor[:, i:i+self.sequence_length, :])
+        tensor = torch.cat(sequences, dim=0)
         
-        if len(xs.shape) == 2:
-            xs = xs.unsqueeze(1)
-            ys = ys.unsqueeze(1)
+        if len(tensor.shape) == 2:
+            tensor = tensor.unsqueeze(1)
             
-        return xs, ys
+        return tensor
     
     def __len__(self):
-        return self.xs.shape[0]
+        return self.xs[self.features_xs[0]].shape[0]
     
     def __getitem__(self, idx):
-        return self.xs[idx, :], self.ys[idx, :]
+        return {key: self.xs[key][idx, :] for key in self.xs}, {key: self.ys[key][idx, :] for key in self.ys}
 
 
 def load_checkpoint(params_path, model, optimizer):

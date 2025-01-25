@@ -132,7 +132,7 @@ def main(
         hidden_size=hidden_size,
         n_participants=len(experiment_list_train) if participant_embedding else 0, 
         init_value=0.5, 
-        list_sindy_signals=sindy_feature_list, 
+        signals=sindy_feature_list, 
         counterfactual=counterfactual,
         )
     print('Loaded model ' + params_path)

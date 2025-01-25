@@ -14,10 +14,10 @@ from resources.rnn import RLRNN
 from resources.bandits import AgentSindy, AgentNetwork, get_update_dynamics
 from resources.sindy_utils import create_dataset, check_library_setup
 from resources.sindy_training import fit_model
-from resources.rnn_utils import DatasetRNN, load_checkpoint
+from resources.rnn_utils import DictDataset, load_checkpoint
 from utils.convert_dataset import convert_dataset
 
-from theorist import rl_sindy_theorist
+from theorist_rlrnn import rl_sindy_theorist
 
 warnings.filterwarnings("ignore")
 
@@ -66,8 +66,8 @@ def pipeline_rnn(
 
     xs_test, ys_test = dataset.xs[:, index_train:], dataset.ys[:, index_train:]
     xs_train, ys_train = dataset.xs[:, :index_train], dataset.ys[:, :index_train]
-    dataset_train = DatasetRNN(xs_train, ys_train, sequence_length=sequence_length)
-    dataset_test = DatasetRNN(xs_test, ys_test)
+    dataset_train = DictDataset(xs_train, ys_train, sequence_length=sequence_length)
+    dataset_test = DictDataset(xs_test, ys_test)
 
     # define model
     model_rnn = RLRNN(
@@ -75,7 +75,7 @@ def pipeline_rnn(
         hidden_size=hidden_size, 
         init_value=0.5,
         device=device,
-        list_sindy_signals=sindy_feature_list,
+        signals=sindy_feature_list,
         dropout=dropout,
         n_participants=n_participants if participant_emb else 0,
         counterfactual=dataset_train.xs[:, :, n_actions+1].mean() != -1,
