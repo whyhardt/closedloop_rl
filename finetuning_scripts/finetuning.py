@@ -9,11 +9,8 @@ import optuna
 import logging
 import glob
 import re
-
-
-# @Daniel, I added the csv files into the data folder. the script looks for  "data_rldm_*.csv" only
-
-
+import json
+from collections import defaultdict
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,7 +110,6 @@ def load_dataset_from_csv(file_path, dataset_index):
     trials_per_participant = df.groupby('session').size().mean()
     logging.info(f"Average trials per participant: {trials_per_participant:.2f}")
     
-    # Prepare data structure for RNN
     session_ids = df['session'].unique()
     
     logging.info(f"Dataset {dataset_index}: Processing {len(session_ids)} sessions")
@@ -122,7 +118,6 @@ def load_dataset_from_csv(file_path, dataset_index):
     all_ys = []
     
     for session_id in session_ids:
-        # Get data for this participant
         session_data = df[df['session'] == session_id]
         
         if len(session_data) == 0:
@@ -216,56 +211,28 @@ def load_dataset_from_csv(file_path, dataset_index):
     return dataset, n_participants
 
 ###############################################################################
-def main():
-    # Config
-    n_actions = 2  # Binary choice task
+# Cross-validation function
+
+def run_fold_tuning(val_fold, data_files, dataset_indices, n_trials=3
+, output_dir=None):
+    """
+    Run hyperparameter tuning for a single fold.
     
-    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    Args:
+        val_fold: The dataset index to use for validation
+        data_files: List of data file paths
+        dataset_indices: List of corresponding dataset indices
+        n_trials: Number of trials for Optuna optimization
+        output_dir: Directory to save results
+        
+    Returns:
+        dict with best hyperparameters and validation loss
+    """
+    # Fixed hyperparameters
+    hidden_size = 8
+    batch_size = 32
+    n_actions = 2
     
-    # data_rldm files only
-    all_data_files = glob.glob(os.path.join(data_dir, "data_rldm_*.csv"))
-    
-    if not all_data_files:
-        raise ValueError(f"No data_rldm*.csv files found in {data_dir}")
-    
-    logging.info(f"Found {len(all_data_files)} dataset files: {[os.path.basename(f) for f in all_data_files]}")
-    
-    dataset_indices = []
-    data_files = []
-    for file_path in all_data_files:
-        match = re.search(r'data_rldm_\d+p_(\d+)\.csv$', os.path.basename(file_path))
-        if match:
-            dataset_indices.append(int(match.group(1)))
-            data_files.append(file_path)
-    
-    if not data_files:
-        raise ValueError(f"No properly formatted data_rldm files found in {data_dir}")
-    
-    # Sort files by index for consistent behavior
-    sorted_data = sorted(zip(dataset_indices, data_files))
-    dataset_indices = [idx for idx, _ in sorted_data]
-    data_files = [file_path for _, file_path in sorted_data]
-    
-    # Get validation fold index from command line argument (default to first available index)
-    default_val_fold = dataset_indices[0] if dataset_indices else 0
-    
-    if len(sys.argv) > 1:
-        try:
-            val_fold = int(sys.argv[1])
-            # Check if requested fold exists
-            if val_fold not in dataset_indices:
-                logging.warning(f"Validation fold {val_fold} not found in available datasets. Using {default_val_fold} instead.")
-                val_fold = default_val_fold
-        except ValueError:
-            logging.warning(f"Invalid validation fold specified. Using {default_val_fold} instead.")
-            val_fold = default_val_fold
-    else:
-        val_fold = default_val_fold
-    
-    logging.info(f"Using dataset index {val_fold} for validation")
-    logging.info(f"All other available datasets will be used for training")
-    
-    # Split files into training and validation
     train_files = []
     val_file = None
     
@@ -276,16 +243,11 @@ def main():
         else:
             train_files.append((file_path, file_index))
     
-    if val_file is None:
-        raise ValueError(f"Validation dataset {val_fold} not found")
-    
     logging.info(f"Validation file: {os.path.basename(val_file)}")
     logging.info(f"Training files: {[os.path.basename(f) for f, _ in train_files]}")
     
-    # Load validation dataset
     val_dataset, n_participants_val = load_dataset_from_csv(val_file, val_fold)
     
-    # Load and combine all training datasets
     train_datasets = []
     max_participants = 0
     
@@ -304,41 +266,28 @@ def main():
         train_dataset = train_datasets[0]
         logging.info(f"Using single training dataset: {len(train_dataset)} sessions")
     
-    # Use the maximum number of participants from both train and validation sets
     n_participants = max(max_participants, n_participants_val)
     logging.info(f"Using {n_participants} as maximum number of participants")
     
-    # Calculate n_data_val for BIC calculation
-    n_trials = train_dataset.xs.shape[1]  # Number of trials per session
-    n_data_val = val_dataset.xs.shape[0] * n_trials
+    n_trials_per_session = train_dataset.xs.shape[1]  
+    n_data_val = val_dataset.xs.shape[0] * n_trials_per_session
     
-    logging.info(f"Each session has {n_trials} trials")
-    logging.info(f"Using cosine annealing LR scheduler - epochs must be powers of 2 for optimal scheduling")
-    
-    ###############################################################################
-    # Optuna
-    ###############################################################################
-
-
-    # Fixed hyperparameters 
-    hidden_size = 8  
-    batch_size = 32  
+    logging.info(f"Each session has {n_trials_per_session} trials")
     
     def objective(trial):
-        logging.info(f"Starting trial {trial.number}")
+        trial_id = f"Fold {val_fold} - Trial {trial.number}"
+        logging.info(f"Starting {trial_id}")
         
         dropout = trial.suggest_float('dropout', 0.1, 0.25)
         lr = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
-        #epochs_value = trial.suggest_categorical('epochs', [256, 512, 1024])
-        epochs_value = trial.suggest_categorical('epochs', [16, 32, 64])
-
+        epochs_value = trial.suggest_categorical('epochs', [8])  # change to1024 
         l1_wd = trial.suggest_float('l1_weight_decay', 1e-6, 1e-3, log=True)
         convergence_threshold = trial.suggest_float('convergence_threshold', 1e-19, 1e-15, log=True)
         
         combo_str = (f"dropout={dropout:.3f}, lr={lr:.5f}, hidden_size={hidden_size}, "
                      f"epochs={epochs_value}, batch_size={batch_size}, l1_wd={l1_wd:.1e}, "
                      f"convergence_threshold={convergence_threshold:.1e}")
-        logging.info(f"Trial {trial.number} hyperparameters: {combo_str}")
+        logging.info(f"{trial_id} hyperparameters: {combo_str}")
         
         model_rnn = RLRNN(
             n_actions=n_actions,
@@ -374,7 +323,7 @@ def main():
         )
         train_time = time.time() - t0
         final_lr = optimizer_rnn.param_groups[0]['lr']
-        logging.info(f"Trial {trial.number} completed training in {train_time:.2f}s, "
+        logging.info(f"{trial_id} completed training in {train_time:.2f}s, "
                      f"final train_loss: {final_train_loss:.7f}, final LR: {final_lr:.5f}")
         
         # Compute validation loss and BIC
@@ -382,47 +331,32 @@ def main():
         n_params = sum(p.numel() for p in model_rnn.parameters())
         val_bic = compute_bic(val_loss, n_data_val, n_params)
         
-        logging.info(f"Trial {trial.number} validation loss: {val_loss:.7f}, BIC: {val_bic:.7f}")
+        logging.info(f"{trial_id} validation loss: {val_loss:.7f}, BIC: {val_bic:.7f}")
         return val_loss
     
-    logging.info("Starting Optuna optimization...")
+    logging.info(f"Starting Optuna optimization for fold {val_fold}...")
     logging.info("Explan: Using powers of 2 (2^n) for epochs to optimize LR scheduler behavior")
     logging.info("Explan: Using much lower convergence threshold (1e-19 to 1e-15) to prevent premature convergence")
     logging.info(f"Using fixed hyperparameters: hidden_size={hidden_size}, batch_size={batch_size}")
-    logging.info(f"Cross-validation: Training on all folds except {val_fold}, validating on fold {val_fold}")
-
+    
+    # Create a study for this fold
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=50)  
+    study.optimize(objective, n_trials=n_trials)  
     
     logging.info("==========================================")
-    logging.info("Bayesian Optimization - Best Hyperparameters")
+    logging.info(f"Fold {val_fold} - Best Hyperparameters")
     logging.info("==========================================")
     logging.info(f"Best hyperparameters: {study.best_params}")
     
     trials_df = study.trials_dataframe()
-    logging.info("\n" + str(trials_df))
     
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        fold_name = f"fold_{val_fold}"
+        csv_filename = os.path.join(output_dir, f"trials_results_{fold_name}.csv")
+        trials_df.to_csv(csv_filename, index=False)
     
-    fold_name = f"fold_{val_fold}"
-    csv_filename = os.path.join(output_dir, f"trials_results_{fold_name}.csv")
-    trials_df.to_csv(csv_filename, index=False)
-    
-    logging.info("Training final model with best hyperparameters:")
-    logging.info(f"Best hyperparameters: {study.best_params}")
-    
-    # Train a final model on all data (including validation data)
-    # Combine all datasets first
-    all_datasets = train_datasets + [val_dataset]
-    if len(all_datasets) > 1:
-        all_xs = torch.cat([ds.xs for ds in all_datasets], dim=0)
-        all_ys = torch.cat([ds.ys for ds in all_datasets], dim=0)
-        full_dataset = DatasetRNN(all_xs, all_ys)
-        logging.info(f"Full dataset for final model: {len(full_dataset)} sessions")
-    else:
-        full_dataset = all_datasets[0]
-    
+    # Train final model for this fold using best parameters
     final_model = RLRNN(
         n_actions=n_actions,
         n_participants=n_participants,
@@ -441,12 +375,22 @@ def main():
     )
     final_optimizer = torch.optim.Adam(final_model.parameters(), lr=study.best_params['learning_rate'])
     
+    # Combine training and validation data for final model
+    all_datasets = train_datasets + [val_dataset]
+    if len(all_datasets) > 1:
+        all_xs = torch.cat([ds.xs for ds in all_datasets], dim=0)
+        all_ys = torch.cat([ds.ys for ds in all_datasets], dim=0)
+        full_dataset = DatasetRNN(all_xs, all_ys)
+        logging.info(f"Full dataset for final model: {len(full_dataset)} sessions")
+    else:
+        full_dataset = all_datasets[0]
+    
     n_params = sum(p.numel() for p in final_model.parameters())
     logging.info(f"Final model has {n_params} trainable parameters")
     
     final_model, _, final_loss = fit_model(
         model=final_model,
-        dataset_train=full_dataset,  # Train on full dataset for final model
+        dataset_train=full_dataset,
         dataset_test=None,
         optimizer=final_optimizer,
         epochs=study.best_params['epochs'],
@@ -458,9 +402,178 @@ def main():
         scheduler=True
     )
     
-    logging.info(f"Final model training completed with loss: {final_loss:.7f}")
+    logging.info(f"Final model for fold {val_fold} completed with loss: {final_loss:.7f}")
     
-    model_filename = os.path.join(output_dir, f"rnn_model_{fold_name}.pt")
+    if output_dir:
+        model_filename = os.path.join(output_dir, f"rnn_model_{fold_name}.pt")
+        torch.save(final_model.state_dict(), model_filename)
+        logging.info(f"Final model saved to {model_filename}")
+    
+    return {
+        'fold': val_fold,
+        'best_params': study.best_params,
+        'best_val_loss': study.best_value,
+        'n_params': n_params,
+        'final_loss': final_loss
+    }
+
+###############################################################################
+def main():
+    # default to 3, change to 50+
+    n_trials = 3
+    if len(sys.argv) > 1:
+        try:
+            n_trials = int(sys.argv[1])
+        except ValueError:
+            logging.warning(f"Invalid number of trials specified. Using {n_trials} instead.")
+    
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    
+    all_data_files = glob.glob(os.path.join(data_dir, "data_rldm_*.csv"))
+    
+    if not all_data_files:
+        raise ValueError(f"No data_rldm*.csv files found in {data_dir}")
+    
+    logging.info(f"Found {len(all_data_files)} dataset files: {[os.path.basename(f) for f in all_data_files]}")
+    
+    dataset_indices = []
+    data_files = []
+    for file_path in all_data_files:
+        match = re.search(r'data_rldm_\d+p_(\d+)\.csv$', os.path.basename(file_path))
+        if match:
+            dataset_indices.append(int(match.group(1)))
+            data_files.append(file_path)
+    
+    if not data_files:
+        raise ValueError(f"No properly formatted data_rldm files found in {data_dir}")
+    
+    # Sort files by index for consistent behavior
+    sorted_data = sorted(zip(dataset_indices, data_files))
+    dataset_indices = [idx for idx, _ in sorted_data]
+    data_files = [file_path for _, file_path in sorted_data]
+    
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    logging.info(f"Starting {len(dataset_indices)}-fold cross-validation with {n_trials} trials per fold")
+    
+    all_results = []
+    fold_params = {}
+    
+    for fold_idx in dataset_indices:
+        logging.info(f"==== Starting fold {fold_idx} ====")
+        result = run_fold_tuning(
+            val_fold=fold_idx,
+            data_files=data_files,
+            dataset_indices=dataset_indices,
+            n_trials=n_trials,
+            output_dir=output_dir
+        )
+        all_results.append(result)
+        fold_params[str(fold_idx)] = result['best_params']
+    
+    avg_params = defaultdict(float)
+    param_counts = defaultdict(lambda: defaultdict(int))
+    
+    for result in all_results:
+        for param, value in result['best_params'].items():
+            avg_params[param] += value / len(all_results)
+            
+            # For categorical parameters, count occurrences
+            if param == 'epochs':
+                param_counts[param][value] += 1
+    
+    # For categorical params, use most common value instead of average
+    for param, counts in param_counts.items():
+        if counts:  # If we have counts for this parameter
+            most_common_value = max(counts.items(), key=lambda x: x[1])[0]
+            avg_params[param] = most_common_value
+    
+    logging.info("==========================================")
+    logging.info("Cross-Validation Summary")
+    logging.info("==========================================")
+    
+    # Print individual fold results
+    for i, result in enumerate(all_results):
+        logging.info(f"Fold {result['fold']} - Val Loss: {result['best_val_loss']:.7f}")
+        
+    # Calculate average validation loss
+    avg_val_loss = sum(r['best_val_loss'] for r in all_results) / len(all_results)
+    logging.info(f"Average validation loss across folds: {avg_val_loss:.7f}")
+    
+    logging.info("Average best hyperparameters across folds:")
+    logging.info(avg_params)
+    
+    summary = {
+        'fold_results': all_results,
+        'average_val_loss': avg_val_loss,
+        'average_params': dict(avg_params),
+        'fold_params': fold_params
+    }
+    
+    with open(os.path.join(output_dir, 'cross_validation_summary.json'), 'w') as f:
+        json.dump(summary, f, indent=2, default=str)
+    
+    logging.info(f"Cross-validation summary saved to {os.path.join(output_dir, 'cross_validation_summary.json')}")
+    
+    logging.info("==========================================")
+    logging.info("Training Final Model with Average Parameters")
+    logging.info("==========================================")
+    logging.info(f"Parameters: {avg_params}")
+    
+    all_datasets = []
+    max_participants = 0
+    
+    for file_path, file_index in zip(data_files, dataset_indices):
+        dataset, n_participants = load_dataset_from_csv(file_path, file_index)
+        all_datasets.append(dataset)
+        max_participants = max(max_participants, n_participants)
+    
+    # Combine all datasets for final model
+    all_xs = torch.cat([ds.xs for ds in all_datasets], dim=0)
+    all_ys = torch.cat([ds.ys for ds in all_datasets], dim=0)
+    full_dataset = DatasetRNN(all_xs, all_ys)
+    logging.info(f"Final model dataset: {len(full_dataset)} sessions with {max_participants} max participants")
+    
+    # Create final model with averaged best parameters
+    final_model = RLRNN(
+        n_actions=2,
+        n_participants=max_participants,
+        hidden_size=8,  # Fixed
+        dropout=avg_params['dropout'],
+        list_signals=[
+            'x_learning_rate_reward',
+            'x_value_reward_not_chosen',
+            'x_value_choice_chosen',
+            'x_value_choice_not_chosen',
+            'c_action',
+            'c_reward',
+            'c_value_reward'
+        ],
+        device=torch.device('cpu')
+    )
+    final_optimizer = torch.optim.Adam(final_model.parameters(), lr=avg_params['learning_rate'])
+    
+    n_params = sum(p.numel() for p in final_model.parameters())
+    logging.info(f"Final model has {n_params} trainable parameters")
+    
+    final_model, _, final_loss = fit_model(
+        model=final_model,
+        dataset_train=full_dataset,
+        dataset_test=None,
+        optimizer=final_optimizer,
+        epochs=int(avg_params['epochs']),
+        batch_size=32,  # Fixed
+        n_steps=16,
+        l1_weight_decay=avg_params['l1_weight_decay'],
+        convergence_threshold=avg_params['convergence_threshold'],
+        verbose=True, 
+        scheduler=True
+    )
+    
+    logging.info(f"Final combined model training completed with loss: {final_loss:.7f}")
+    
+    model_filename = os.path.join(output_dir, "rnn_model_final.pt")
     torch.save(final_model.state_dict(), model_filename)
     logging.info(f"Final model saved to {model_filename}")
 
