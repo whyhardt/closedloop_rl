@@ -4,7 +4,7 @@ import warnings
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Callable
+from typing import Callable, Optional
 
 sys.path.append('resources')
 from resources.rnn import RLRNN
@@ -12,6 +12,7 @@ from resources.bandits import AgentQ, AgentNetwork, BanditsDrift, BanditsSwitch,
 from resources.sindy_utils import check_library_setup
 from resources.rnn_utils import parameter_file_naming
 from resources.sindy_training import fit_spice
+from sindy_optimizer import fit_spice_optimized  # Importing  the optimized version
 from utils.convert_dataset import convert_dataset
 from utils.plotting import plot_session as plot_session
 from utils.setup_agents import setup_agent_rnn
@@ -29,6 +30,9 @@ def main(
     optimizer_threshold = 0.05,
     polynomial_degree = 2,
     optimizer_alpha = 1,
+    optimizer_type: str = "SR3_weighted_l1",  # New parameter for optimizer type
+    optuna_trials: int = 20,                  # New parameter for Optuna trials
+    optuna_timeout: Optional[int] = None,     # New parameter for Optuna timeout
     n_trials_off_policy = 1024,
     n_sessions_off_policy = 0,
     verbose = True,
@@ -177,31 +181,75 @@ def main(
     # SINDy training
     # ---------------------------------------------------------------------------------------------------
     
-    # setup the SINDy-agent
-    agent_spice, loss_spice = fit_spice(
-        rnn_modules=list_rnn_modules,
-        control_parameters=list_control_parameters,
-        agent=agent_rnn,
-        data=dataset_test,
-        n_sessions_off_policy=n_sessions_off_policy,
-        n_trials_off_policy=n_trials_off_policy,
-        polynomial_degree=polynomial_degree,
-        library_setup=library_setup,
-        filter_setup=filter_setup,
-        dataprocessing=dataprocessing_setup,
-        optimizer_threshold=optimizer_threshold,
-        optimizer_alpha=optimizer_alpha,
-        get_loss=get_loss,
-        participant_id=participant_id,
-        shuffle=True,
-        verbose=verbose,
-    )
+    # Setup optimizer parameters if not using "auto" mode
+    optimizer_params = None
+    if optimizer_type != "auto":
+        optimizer_params = {
+            "optimizer_alpha": optimizer_alpha,
+            "optimizer_threshold": optimizer_threshold
+        }
+    
+    # setup the SINDy-agent using the optimized version
+    agent_spice = None
+    loss_spice = None
+    
+    if optimizer_type == "auto" or optimizer_type in ["STLSQ", "SR3_L1", "SR3_weighted_l1"]:
+        if verbose:
+            if optimizer_type == "auto":
+                print(f"Using automatic optimizer selection with {optuna_trials} trials")
+            else:
+                print(f"Using {optimizer_type} optimizer with alpha={optimizer_alpha}, threshold={optimizer_threshold}")
+                
+        # Use the optimized version with automatic optimizer selection or specific type
+        agent_spice, loss_spice = fit_spice_optimized(
+            rnn_modules=list_rnn_modules,
+            control_parameters=list_control_parameters,
+            agent=agent_rnn,
+            data=dataset_test,
+            n_sessions_off_policy=n_sessions_off_policy,
+            n_trials_off_policy=n_trials_off_policy,
+            polynomial_degree=polynomial_degree,
+            library_setup=library_setup,
+            filter_setup=filter_setup,
+            dataprocessing=dataprocessing_setup,
+            optimizer_type=optimizer_type,
+            optimizer_params=optimizer_params,
+            optuna_trials=optuna_trials,
+            optuna_timeout=optuna_timeout,
+            get_loss=get_loss,
+            participant_id=participant_id,
+            shuffle=True,
+            verbose=verbose,
+        )
+    else:
+        # important :!!! Fallback to original implementation for backward compatibility
+        if verbose:
+            print(f"Using original implementation with SR3(weighted_l1), alpha={optimizer_alpha}, threshold={optimizer_threshold}")
+            
+        agent_spice, loss_spice = fit_spice(
+            rnn_modules=list_rnn_modules,
+            control_parameters=list_control_parameters,
+            agent=agent_rnn,
+            data=dataset_test,
+            n_sessions_off_policy=n_sessions_off_policy,
+            n_trials_off_policy=n_trials_off_policy,
+            polynomial_degree=polynomial_degree,
+            library_setup=library_setup,
+            filter_setup=filter_setup,
+            dataprocessing=dataprocessing_setup,
+            optimizer_threshold=optimizer_threshold,
+            optimizer_alpha=optimizer_alpha,
+            get_loss=get_loss,
+            participant_id=participant_id,
+            shuffle=True,
+            verbose=verbose,
+        )
 
     # ---------------------------------------------------------------------------------------------------
     # Analysis
     # ---------------------------------------------------------------------------------------------------
     
-    if analysis:
+    if analysis and agent_spice is not None:
         
         participant_id_test = participant_id if participant_id is not None else participant_ids[0]
         
@@ -240,6 +288,11 @@ def main(
         
         fig.suptitle(plt_title)
         plt.show()
+    
+    # If agent_spice is None, we couldn't fit the model, so return early
+    if agent_spice is None:
+        print("ERROR: Failed to fit SPICE model. Returning None.")
+        return None, None, None
         
     features = {}
     for model in agent_spice._model.submodules_sindy:
@@ -266,33 +319,57 @@ def main(
 
 
 if __name__=='__main__':
-    main(
-        model = 'params/benchmarking/rnn_sugawara.pkl',
-        data = 'data/2arm/sugawara2021_143_processed.csv',
-        n_trials=None,
-        n_sessions=None,
-        verbose=False,
-        
-        # sindy parameters
-        polynomial_degree=2,
-        optimizer_threshold=0.05,
-        optimizer_alpha=0,
-
-        # generated training dataset parameters
-        # n_trials_per_session = 200,
-        # n_sessions = 100,
-        
-        # ground truth parameters
-        # alpha = 0.25,
-        # beta = 3,
-        # forget_rate = 0.,
-        # perseverance_bias = 0.25,
-        # alpha_penalty = 0.5,
-        # confirmation_bias = 0.5,
-        # reward_update_rule = lambda q, reward: reward-q,
-        
-        # environment parameters
-        # sigma = 0.1,
-        
-        analysis=True,
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run SINDy pipeline with optimizer selection")
+    parser.add_argument("--model", type=str, default='params/benchmarking/rnn_sugawara.pkl',
+                        help="Path to model file")
+    parser.add_argument("--data", type=str, default='data/2arm/sugawara2021_143_processed.csv',
+                        help="Path to data file")
+    parser.add_argument("--participant_id", type=int, default=None, 
+                        help="Participant ID")
+    parser.add_argument("--polynomial_degree", type=int, default=2, 
+                        help="Polynomial degree")
+    parser.add_argument("--optimizer_type", type=str, default="SR3_weighted_l1", 
+                        choices=["auto", "STLSQ", "SR3_L1", "SR3_weighted_l1", "original"],
+                        help="Optimizer type (auto will use Optuna to find best)")
+    parser.add_argument("--optimizer_alpha", type=float, default=0.1, 
+                        help="Optimizer alpha")
+    parser.add_argument("--optimizer_threshold", type=float, default=0.05, 
+                        help="Optimizer threshold")
+    parser.add_argument("--optuna_trials", type=int, default=20, 
+                        help="Number of Optuna trials for optimizer selection")
+    parser.add_argument("--optuna_timeout", type=int, default=None, 
+                        help="Timeout in seconds for Optuna")
+    parser.add_argument("--n_trials_off_policy", type=int, default=1024, 
+                        help="Number of trials for off-policy data")
+    parser.add_argument("--n_sessions_off_policy", type=int, default=0, 
+                        help="Number of sessions for off-policy data")
+    parser.add_argument("--verbose", action="store_true", 
+                        help="Enable verbose output")
+    parser.add_argument("--analysis", action="store_true", 
+                        help="Perform analysis")
+    parser.add_argument("--get_loss", action="store_true", 
+                        help="Compute loss")
+    
+    args = parser.parse_args()
+    
+    agent_spice, features, loss = main(
+        model=args.model,
+        data=args.data,
+        participant_id=args.participant_id,
+        polynomial_degree=args.polynomial_degree,
+        optimizer_type=args.optimizer_type,
+        optimizer_alpha=args.optimizer_alpha,
+        optimizer_threshold=args.optimizer_threshold,
+        optuna_trials=args.optuna_trials,
+        optuna_timeout=args.optuna_timeout,
+        n_trials_off_policy=args.n_trials_off_policy,
+        n_sessions_off_policy=args.n_sessions_off_policy,
+        verbose=args.verbose,
+        analysis=args.analysis,
+        get_loss=args.get_loss,
     )
+    
+    if loss is not None:
+        print(f"Loss: {loss}")

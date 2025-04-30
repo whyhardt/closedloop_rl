@@ -53,7 +53,7 @@ def fit_sindy(
         # sort signals into corresponding arrays    
         x_i = [x.reshape(-1, 1) for x in variables[:, :, i]]  # get current x-feature as target variable
         x_to_control = variables[:, :, i != np.arange(variables.shape[-1])]  # get all other x-features as control variables
-        control_i = [c for c in np.concatenate([x_to_control, control], axis=-1)]  # concatenate control variables with control features
+        control_i = [c for c in np.concatenate([x_to_control, control], axis=-1)] if control is not None and len(control) > 0 else []  # concatenate control variables with control features
         feature_names_i = [x_feature] + np.array(x_features)[i != np.arange(variables.shape[-1])].tolist() + c_features
         
         # filter target variable and control features according to filter conditions
@@ -114,8 +114,8 @@ def fit_sindy(
     
     
 def fit_spice(
-    rnn_modules: List[np.ndarray],
-    control_parameters: List[np.ndarray], 
+    rnn_modules: List[str],
+    control_parameters: List[str], 
     agent: AgentNetwork,
     data: DatasetRNN = None,
     polynomial_degree: int = 2, 
@@ -135,8 +135,8 @@ def fit_spice(
     """_summary_
 
     Args:
-        rnn_modules (List[np.ndarray]): _description_
-        control_parameters (List[np.ndarray]): _description_
+        rnn_modules (List[str]): _description_
+        control_parameters (List[str]): _description_
         agent (AgentNetwork): _description_
         data (DatasetRNN, optional): _description_. Defaults to None.
         off_policy (bool, optional): _description_. Defaults to True.
@@ -190,7 +190,7 @@ def fit_spice(
     for pid in tqdm(participant_ids):
         # extract all necessary data from the RNN (memory state) and align with the control inputs (action, reward)
         mask_participant_id = dataset_fit.xs[:, 0, -1] == pid
-        variables, control_parameters, feature_names, _ = create_dataset(
+        variables, control_parameters_data, feature_names, _ = create_dataset(
             agent=agent,
             data=DatasetRNN(*dataset_fit[mask_participant_id]),
             participant_id=pid,
@@ -201,7 +201,7 @@ def fit_spice(
         # fit one SINDy-model per RNN-module
         sindy_models_id = fit_sindy(
             variables=variables,
-            control=control_parameters,
+            control=control_parameters_data,
             feature_names=feature_names,
             polynomial_degree=polynomial_degree,
             library_setup=library_setup,
