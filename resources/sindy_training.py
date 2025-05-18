@@ -166,9 +166,10 @@ def fit_spice(
         get_loss (bool, optional): Whether to compute loss. Defaults to False.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
         use_optuna (bool, optional): Whether to use Optuna for optimizer selection. Defaults to False.
+        filter_bad_participants (bool, optional): Whether to filter out badly fitted participants. Defaults to False.
 
     Returns:
-        Tuple[AgentSpice, float]: The SPICE agent and its loss
+        Tuple[AgentSpice, List[int], float]: The SPICE agent, list of well-fitted participant IDs, and loss
     """
     
     if participant_id is not None:
@@ -286,16 +287,19 @@ def fit_spice(
     # set up a SINDy-based agent by replacing the RNN-modules with the respective SINDy-model
     agent_spice = AgentSpice(model_rnn=deepcopy(agent._model), sindy_modules=sindy_models, n_actions=agent._n_actions, deterministic=deterministic)
     
-    # remove badly fitted participants
-    if filter_bad_participants:
-        agent_spice, participant_ids = remove_bad_participants(
+    # Initialize filtered_ids with all participant_ids
+    filtered_ids = np.array(participant_ids)
+    
+    # Filter badly fitted participants if requested
+    if filter_bad_participants and data is not None:
+        agent_spice, filtered_ids = remove_bad_participants(
             agent_spice=agent_spice,
             agent_rnn=agent,
             dataset=data,
             participant_ids=participant_ids,
             verbose=verbose,
         )
-    
+
     # compute loss
     loss = None
     if get_loss and data is None:
@@ -305,10 +309,28 @@ def fit_spice(
         n_trials_total = 0
         mapping_modules_values = {module: 'x_value_choice' if 'choice' in module else 'x_value_reward' for module in agent_spice._model.submodules_sindy}
         n_parameters = agent_spice.count_parameters(mapping_modules_values=mapping_modules_values)
-        for pid in participant_ids:
-            xs, ys = data.xs.cpu().numpy(), data.ys.cpu().numpy()
-            probs = get_update_dynamics(experiment=xs[pid], agent=agent_spice)[1]
-            loss += loss_metric(data=ys[pid, :len(probs)], probs=probs, n_parameters=n_parameters[pid])
+        
+        # Use filtered_ids for loss calculation if filtering was applied
+        ids_to_use = filtered_ids if filter_bad_participants else participant_ids
+        
+        for pid in ids_to_use:
+            if pid not in agent_spice._model.submodules_sindy[list(agent_spice._model.submodules_sindy.keys())[0]]:
+                continue
+                
+            mask_participant_id = data.xs[:, 0, -1] == pid
+            if not mask_participant_id.any():
+                continue
+                
+            participant_data = DatasetRNN(*data[mask_participant_id])
+            xs, ys = participant_data.xs.cpu().numpy(), participant_data.ys.cpu().numpy()
+            
+            probs = get_update_dynamics(experiment=xs, agent=agent_spice)[1]
+            loss += loss_metric(data=ys[0, :len(probs)], probs=probs, n_parameters=n_parameters[pid])
             n_trials_total += len(probs)
-        loss = loss/n_trials_total
-    return agent_spice, loss
+            
+        if n_trials_total > 0:
+            loss = loss / n_trials_total
+        else:
+            loss = float('inf')  # If no valid trials, set loss to infinity
+
+    return agent_spice, filtered_ids, loss

@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 def main(
     model: str = None,
     data: str = None,
-    save: bool = False,
+    save: bool = False, #just change and save the parameters to not rerun it 
     
     # generated dataset parameters
     participant_id: int = None,
@@ -164,8 +164,8 @@ def main(
     if use_optuna and verbose:
         print("\nUsing Optuna to find optimal optimizer configuration for each participant")
     
-    # setup the SINDy-agent
-    agent_spice, loss_spice = fit_spice(
+    # Setup the SINDy-agent
+    agent_spice, filtered_participant_ids, loss_spice = fit_spice(
         rnn_modules=list_rnn_modules,
         control_signals=list_control_parameters,
         agent=agent_rnn,
@@ -185,12 +185,16 @@ def main(
         verbose=verbose,
         use_optuna=use_optuna,
         filter_bad_participants=filter_bad_participants,
-        )
+    )
+    
+    # Update participant_ids with the filtered ones if filtering was applied
+    if filter_bad_participants:
+        participant_ids = filtered_participant_ids
     
     # If agent_spice is None, we couldn't fit the model, so return early
     if len(participant_ids) == 0:
         print("ERROR: Failed to fit SPICE model. Returning None.")
-        return None, None, None
+        return None, None, None, []
     
     # save spice modules
     if save:
@@ -202,6 +206,11 @@ def main(
         file_spice = os.path.join(*file_spice)
         save_spice(agent_spice=agent_spice, file=file_spice)
         print("Saved SPICE parameters to file " + file_spice)
+
+        # save the filtered participant IDs ----
+        ids_file = file_spice.replace('.pkl', '_participant_ids.npy')
+        np.save(ids_file, np.array(participant_ids, dtype=int))
+        print("Saved filtered participant IDs to file " + ids_file)
     
     # ---------------------------------------------------------------------------------------------------
     # Analysis
@@ -271,7 +280,7 @@ def main(
             features['beta_reward'][pid] = betas['x_value_reward']
             features['beta_choice'][pid] = betas['x_value_choice']
         
-    return agent_spice, features, loss_spice
+    return agent_spice, features, loss_spice, participant_ids
 
 
 if __name__=='__main__':
@@ -296,7 +305,7 @@ if __name__=='__main__':
     
     args = parser.parse_args()
     
-    agent_spice, features, loss = main(
+    agent_spice, features, loss, participant_ids = main(
         model=args.model,
         data=args.data,
         save=args.save,

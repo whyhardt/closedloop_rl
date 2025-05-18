@@ -4,17 +4,10 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_sindy
 
-
-agent_spice, features, loss = pipeline_sindy.main(
-    
-    # data='data/parameter_recovery/data_32p_0.csv',
-    # model='params/parameter_recovery/params_32p_0.pkl',
-    
-    model = 'params/eckstein2022/rnn_eckstein2022_l1_0_0001_l2_0_0001.pkl',
-    data = 'data/eckstein2022/eckstein2022.csv',
-    save = True,
-    
-    # general recovery parameters
+agent_spice, features, loss, participant_ids = pipeline_sindy.main(
+    model='params/eckstein2022/rnn_eckstein2022_l1_0_0001_l2_0_0001.pkl',
+    data='data/eckstein2022/eckstein2022.csv',
+    save=True,
     participant_id=None,
     filter_bad_participants=True,
     use_optuna=False,
@@ -39,9 +32,9 @@ agent_spice, features, loss = pipeline_sindy.main(
     alpha_choice=1.,
     counterfactual=False,
     alpha_counterfactual=0.,
-    
     analysis=True,
     get_loss=True,
 )
 
-print(loss)
+print(f"Final loss: {loss:.4f}")
+print("Kept participant IDs:", participant_ids)

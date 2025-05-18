@@ -289,25 +289,24 @@ def remove_bad_participants(agent_spice: AgentSpice, agent_rnn: AgentNetwork, da
   """Check for badly fitted participants in the SPICE models w.r.t. the SPICE-RNN and return only the IDs of the well-fitted participants.
 
   Args:
-      agent_spice (AgentSpice): _description_
-      agent_rnn (AgentNetwork): _description_
-      dataset_test (DatasetRNN): _description_
-      participant_ids (Iterable[int]): _description_
-      verbose (bool, optional): _description_. Defaults to False.
+      agent_spice (AgentSpice): SPICE agent to filter
+      agent_rnn (AgentNetwork): Reference RNN agent
+      dataset (DatasetRNN): Dataset to evaluate on
+      participant_ids (Iterable[int]): Participant IDs to check
+      trial_likelihood_difference_threshold (float, optional): Threshold for filtering. Defaults to 0.05.
+      verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
   Returns:
       AgentSpice: SPICE agent without badly fitted participants
       Iterable[int]: List of well-fitted participants
   """
-  # if verbose:
   print("\nFiltering badly fitted SPICE models...")
   
-  filtered_participant_ids = []
+  # Convert participant_ids to a list of integers
+  participant_ids = list(map(int, participant_ids))
+  removed_participants = []
+  good_participants = []
   
-  # Create a copy of the valid participant IDs
-  valid_participant_ids = list(participant_ids)
-  
-  removed_pids = []
   for pid in tqdm(participant_ids):
       # Skip if participant is not in the SPICE model
       if pid not in agent_spice._model.submodules_sindy[list(agent_spice._model.submodules_sindy.keys())[0]]:
@@ -337,32 +336,28 @@ def remove_bad_participants(agent_spice: AgentSpice, agent_rnn: AgentNetwork, da
       spice_per_action_likelihood = np.exp(ll_spice/(n_trials_test*agent_rnn._n_actions))
       rnn_per_action_likelihood = np.exp(ll_rnn/(n_trials_test*agent_rnn._n_actions))
       
-      # Idea for filter criteria:
-      # If accuracy is very low for SPICE (near chance) but not so low for RNN then bad SPICE fitting (at least a bit higher than chance)
-      # TODO: Check for better filter criteria
+      # Filter out participants where SPICE performs much worse than RNN
       if rnn_per_action_likelihood - spice_per_action_likelihood > trial_likelihood_difference_threshold:
-          if verbose:
-              print(f'SPICE trial likelihood ({spice_per_action_likelihood:.2f}) is unplausibly low compared to RNN trial likelihood ({rnn_per_action_likelihood:.2f}).')
-              print(f'SPICE optimizer may be badly parameterized. Skipping participant {pid}.')
+          print(f'SPICE trial likelihood ({spice_per_action_likelihood:.2f}) is unplausibly low compared to RNN trial likelihood ({rnn_per_action_likelihood:.2f}).')
+          print(f'SPICE optimizer may be badly parameterized. Skipping participant {pid}.')
           
           # Remove this participant from the SPICE model
           for module in agent_spice._model.submodules_sindy:
               if pid in agent_spice._model.submodules_sindy[module]:
                   del agent_spice._model.submodules_sindy[module][pid]
           
-          # Remove from valid participant IDs
-          if pid in valid_participant_ids:
-              valid_participant_ids.remove(pid)
-              removed_pids.append(pid)
+          removed_participants.append(np.int32(pid))
       else:
-          # Keep track of filtered (good) participants
-          filtered_participant_ids.append(pid)
+          good_participants.append(np.int32(pid))
   
-  if verbose:
-      print(f"\nAfter filtering: {len(valid_participant_ids)} of {len(participant_ids)} participants have well-fitted SPICE models.")
-      print(f"Removed participants: {removed_pids}")
+  # Convert to numpy arrays for consistency
+  good_participants = np.array(good_participants)
+  removed_participants = np.array(removed_participants)
   
-  return agent_spice, np.array(valid_participant_ids)
+  print(f"After filtering: {len(good_participants)} of {len(participant_ids)} participants have well-fitted SPICE models.")
+  print(f"Removed participants: {removed_participants}")
+  
+  return agent_spice, good_participants
 
 
 def save_spice(agent_spice: AgentSpice, file: str):
