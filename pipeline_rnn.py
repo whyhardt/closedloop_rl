@@ -17,7 +17,7 @@ from resources import rnn, rnn_training, bandits, rnn_utils
 from utils import convert_dataset, plotting
 
 def main(
-  checkpoint = False,
+  checkpoint = False, # maybe change to str and = None later
   model: str = None,
   data: str = None,
 
@@ -182,9 +182,15 @@ def main(
 
   print('Setup of the RNN model complete.')
 
+  ### Added learning rate scheduler and epochs
   if checkpoint:
-      model, optimizer_rnn = rnn_utils.load_checkpoint(params_path, model, optimizer_rnn)
+    # checkpoint should be a path to the checkpoint file ?
+      model, optimizer_rnn, scheduler, epoch = rnn_utils.load_checkpoint(checkpoint, model, optimizer_rnn, scheduler=scheduler)
+      start_epoch = epoch
       print('Loaded model parameters.')
+
+  ### Checkpoint path for saving
+  checkpoint_path = params_path.replace('.pkl', '_checkpoint') # add .pkl later
 
   loss_test = None
   if epochs > 0:
@@ -207,6 +213,8 @@ def main(
         scheduler=scheduler,
         l1_weight_decay=l1_weight_decay,
         l2_weight_decay=l2_weight_decay,
+        checkpoint_path=checkpoint_path,
+        start_epoch=epoch if checkpoint else 0, # Start from last epoch if checkpoint is loaded
     )
     
     # save trained parameters
