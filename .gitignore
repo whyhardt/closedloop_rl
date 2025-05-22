@@ -7,3 +7,4 @@ benchmarking/params/*
 benchmarking/__pycache__/*
 benchmarking/results/*
 data/*
+.venv/*
