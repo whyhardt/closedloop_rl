@@ -87,14 +87,19 @@ class DatasetRNN(Dataset):
         return self.xs[idx, :], self.ys[idx, :]
 
 
-def load_checkpoint(params_path, model, optimizer):
+def load_checkpoint(checkpoint_path, model, optimizer, scheduler=None):
     # load trained parameters
-    state_dict = torch.load(params_path, map_location=torch.device('cpu'))
+    state_dict = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     state_dict_model = state_dict['model']
     state_dict_optimizer = state_dict['optimizer']
+    if isinstance(scheduler, torch.optim.lr_scheduler._LRScheduler) and 'scheduler' in state_dict: # explicitly check if scheduler is pytorch scheduler
+        state_dict_scheduler = state_dict['scheduler']
+        scheduler.load_state_dict(state_dict_scheduler)
+
     model.load_state_dict(state_dict_model)
     optimizer.load_state_dict(state_dict_optimizer)
-    return model, optimizer
+    epoch = state_dict.get('epoch', 0) # get epoch from state_dict if available
+    return model, optimizer, scheduler, epoch
 
 
 def parameter_file_naming(params_path, alpha_reward, alpha_penalty, alpha_counterfactual, confirmation_bias, forget_rate, beta_reward, alpha_choice, beta_choice, variance, verbose=False):
