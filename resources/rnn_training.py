@@ -210,11 +210,13 @@ def fit_model(
     epochs: int = 1,
     batch_size: int = -1,
     bagging: bool = False,
-    scheduler: bool = False,
+    scheduler = None, # to accept bool or scheduler from dict
     n_steps: int = -1,
     l1_weight_decay: float = 1e-4,
     l2_weight_decay: float = 1e-4,
     verbose: bool = True,
+    checkpoint_path: str = None, # For checkpointing (saving)
+    start_epoch: int = 0, # For checkpointing
     ):
     """_summary_
 
@@ -250,23 +252,28 @@ def fit_model(
     if dataset_test is not None:
         dataloader_test = DataLoader(dataset_test, batch_size=len(dataset_test))
     
-    # set up learning rate scheduler
-    if scheduler and optimizer is not None:
-        warmup_steps = 64 if epochs > 64 else 0 #int(epochs * 0.125/16)
-        # Define the LambdaLR scheduler for warm-up
-        def warmup_lr_lambda(current_step):
-            if current_step < warmup_steps:
-                return float(current_step) / float(max(1, warmup_steps)) * 10
-            return 1.0  # No change after warm-up phase
+    # Check if a scheduler is passed
+    if isinstance(scheduler, bool): 
+        # if not set up learning rate scheduler
+        if scheduler and optimizer is not None:
+            warmup_steps = 64 if epochs > 64 else 0 #int(epochs * 0.125/16)
+            # Define the LambdaLR scheduler for warm-up
+            def warmup_lr_lambda(current_step):
+                if current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps)) * 10
+                return 1.0  # No change after warm-up phase
 
-        # Create the scheduler with the Lambda function
-        scheduler_warmup = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lr_lambda)
-        
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=warmup_steps, T_mult=2)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, factor=0.1, patience=10, threshold=0, cooldown=64, min_lr=1e-6)
-        # scheduler = ReduceOnPlateauWithRestarts(optimizer=optimizer, min_lr=1e-6, factor=0.1, patience=8)
+            # Create the scheduler with the Lambda function
+            scheduler_warmup = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lr_lambda)
+            
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=warmup_steps, T_mult=2)
+            # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, factor=0.1, patience=10, threshold=0, cooldown=64, min_lr=1e-6)
+            # scheduler = ReduceOnPlateauWithRestarts(optimizer=optimizer, min_lr=1e-6, factor=0.1, patience=8)
+        else:
+            scheduler_warmup, scheduler = None, None
     else:
-        scheduler_warmup, scheduler = None, None
+        # No warmup needed? // May cause issues when loading a checkpoint after only <64 epochs
+        scheduler_warmup = None
         
     if epochs == 0:
         continue_training = False
@@ -276,7 +283,7 @@ def fit_model(
     else:
         continue_training = True
         converged = False
-        n_calls_to_train_model = 0
+        n_calls_to_train_model = start_epoch # Changed for checkpointing
         convergence_value = 1
         last_loss = 1
         recency_factor = 0.5
@@ -362,7 +369,31 @@ def fit_model(
                     #     scheduler.step(epoch=n_calls_to_train_model)
                     else:
                         scheduler.step()
-                    
+
+            ### CHECKPOINTING SAVING ###
+            if checkpoint_path is not None:
+                base_checkpoint_path = checkpoint_path.replace(".pkl", "")
+
+            if (checkpoint_path is not None and
+            scheduler is not None and
+            isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingWarmRestarts)): # Specify scheduler type
+                current_lr = scheduler.get_last_lr()[0] # 0 or -1?
+                base_lr = scheduler.base_lrs[0] # Starting learning rate
+                eta_min = 0.0 # Not specified in call
+                lr_range = base_lr - eta_min # so base_lr
+                # Define threshold
+                if lr_range > 0 and current_lr / lr_range < 0.001: # 0.1% of the range
+                    state = {
+                        "epoch": n_calls_to_train_model,
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                    }
+                    save_checkpoint_path = f"{base_checkpoint_path}_epoch_{n_calls_to_train_model}.pkl" # Add pkl here
+                    torch.save(state, save_checkpoint_path)
+                    if verbose:
+                        print(f"Checkpoint saved at epoch {n_calls_to_train_model} to {save_checkpoint_path}")
+            ### CHECKPOINTING SAVING END ###                 
         except KeyboardInterrupt:
             continue_training = False
             msg = 'Training interrupted. Continuing with further operations...'
