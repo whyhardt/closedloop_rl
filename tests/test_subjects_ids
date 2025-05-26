@@ -1,0 +1,12 @@
+import numpy as np
+
+# path to your .npy file
+path = '/Users/martynaplomecka/closedloop_rl/params/eckstein2022/spice_eckstein2022_l1_0_0001_l2_0_0001_participant_ids.npy'
+
+# load the array
+participant_ids = np.load(path)
+
+# view it
+print(participant_ids)
+# or, if you want a Python list:
+print(participant_ids.tolist())

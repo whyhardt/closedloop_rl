@@ -71,6 +71,8 @@ for pid in tqdm(unique_sessions):
         for key, value in slcn_info.items():
             if key == 'age - years':
                 participant_data[f'slcn_{key}'] = value
+            elif key == 'age_category':
+                participant_data['age_category'] = value
     
     behavior_metrics.append(participant_data)
 
@@ -256,9 +258,13 @@ print(f"Number of participants with metrics: {len(metrics_df)}")
 final_df = pd.merge(final_df, metrics_df, on='participant_id', how='left')
 print(f"Number of participants in final merged df with metrics: {len(final_df)}")
 
-missing_metrics = set(sindy_df['participant_id']) - set(metrics_df['participant_id'])
-if missing_metrics:
-    print(f"Warning: {len(missing_metrics)} participants have no metrics data")
+# Filter out participants older than 45 and younger than 8
+age_filter = (final_df['slcn_age - years'] >= 8) & (final_df['slcn_age - years'] <= 45)
+final_df = final_df[age_filter]
+
+print(f"Number of participants after age filtering (8-45 years): {len(final_df)}")
+
+
 
 final_df.to_csv('AAAAsindy_analysis_with_metrics.csv', index=False)
 behavior_df.to_csv('behavior_metrics_with_filter_status.csv', index=False)

@@ -10,7 +10,7 @@ agent_spice, features, loss, participant_ids = pipeline_sindy.main(
     save=True,
     participant_id=None,
     filter_bad_participants=True,
-    use_optuna=False,
+    use_optuna=True,
     
     # sindy parameters
     polynomial_degree=1,

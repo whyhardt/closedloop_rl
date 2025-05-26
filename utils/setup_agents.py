@@ -78,7 +78,7 @@ def setup_agent_spice(
     sindy_library_setup: Dict[str, List],
     sindy_filter_setup: Dict[str, List],
     sindy_dataprocessing: Dict[str, List],
-    path_spice: str = None,
+    path_spice: str = None, #we can change to the path saved before/
     threshold: float = 0.05,
     regularization: float = 0.1,
     participant_id: int = None,

@@ -10,23 +10,29 @@ from scipy.stats import pearsonr, spearmanr, f_oneway, kruskal
 import os
 from matplotlib.colors import Normalize
 from scipy.cluster.hierarchy import dendrogram, linkage
+import warnings
+warnings.filterwarnings('ignore')
 
-os.makedirs('analysis/plots', exist_ok=True)
+output_dir = '/Users/martynaplomecka/closedloop_rl/analysis/plots/clustering_plots'
+os.makedirs(output_dir, exist_ok=True)
 
 df = pd.read_csv('AAAAsindy_analysis_with_metrics.csv')
 df = df.rename(columns={'slcn_age - years': 'age'})
 
-# Step 1: Extract embedding features
-embedding_cols = [col for col in df.columns if col.startswith('embedding_')]
+df = df[df['age'] <= 45].copy()
+print(f"Number of participants after age filtering (≤45): {len(df)}")
 
-# 
+# embedding features
+embedding_cols = [col for col in df.columns if col.startswith('embedding_')]
+print(f"Found {len(embedding_cols)} embedding dimensions")
+
+# Define behavioral metrics
 behavioral_metrics = ['switch_rate', 'stay_after_reward', 'perseveration', 'avg_reward', 'n_trials']
 
-# Filter to only include rows with embedding data, behavioral metrics, and age
 complete_data = df.dropna(subset=embedding_cols + ['age'] + behavioral_metrics)
 print(f"Number of participants with complete data: {len(complete_data)}")
 
-# Step 2: Dimensionality reduction for visualization
+
 # PCA for general structure visualization
 pca = PCA(n_components=2)
 pca_result = pca.fit_transform(complete_data[embedding_cols])
@@ -37,7 +43,7 @@ print(f"PCA total explained variance: {sum(pca.explained_variance_ratio_):.2f}")
 tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(complete_data)-1))
 tsne_result = tsne.fit_transform(complete_data[embedding_cols])
 
-# Step 3: Determine optimal number of clusters
+# optimal number of clusters
 max_clusters = min(10, len(complete_data) - 1)
 silhouette_scores = []
 db_scores = []
@@ -58,133 +64,138 @@ for n_clusters in range(2, max_clusters + 1):
     
     print(f"Clusters: {n_clusters}, Silhouette: {silhouette:.3f}, Davies-Bouldin: {db:.3f}, Calinski-Harabasz: {ch:.3f}")
 
+# Plot clustering metrics
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
+axes[0].plot(range(2, max_clusters + 1), silhouette_scores, 'o-')
+axes[0].set_xlabel('Number of Clusters')
+axes[0].set_ylabel('Silhouette Score')
+axes[0].set_title('Silhouette Score (higher is better)')
+axes[0].grid(True)
 
+axes[1].plot(range(2, max_clusters + 1), db_scores, 'o-')
+axes[1].set_xlabel('Number of Clusters')
+axes[1].set_ylabel('Davies-Bouldin Score')
+axes[1].set_title('Davies-Bouldin Score (lower is better)')
+axes[1].grid(True)
 
-plt.figure(figsize=(15, 5))
-
-plt.subplot(1, 3, 1)
-plt.plot(range(2, max_clusters + 1), silhouette_scores, 'o-')
-plt.xlabel('Number of Clusters')
-plt.ylabel('Silhouette Score')
-plt.title('Silhouette Score (higher is better)')
-plt.grid(True)
-
-plt.subplot(1, 3, 2)
-plt.plot(range(2, max_clusters + 1), db_scores, 'o-')
-plt.xlabel('Number of Clusters')
-plt.ylabel('Davies-Bouldin Score')
-plt.title('Davies-Bouldin Score (lower is better)')
-plt.grid(True)
-
-plt.subplot(1, 3, 3)
-plt.plot(range(2, max_clusters + 1), ch_scores, 'o-')
-plt.xlabel('Number of Clusters')
-plt.ylabel('Calinski-Harabasz Score')
-plt.title('Calinski-Harabasz Score (higher is better)')
-plt.grid(True)
+axes[2].plot(range(2, max_clusters + 1), ch_scores, 'o-')
+axes[2].set_xlabel('Number of Clusters')
+axes[2].set_ylabel('Calinski-Harabasz Score')
+axes[2].set_title('Calinski-Harabasz Score (higher is better)')
+axes[2].grid(True)
 
 plt.tight_layout()
-plt.savefig('analysis/plots/cluster_metrics.png', dpi=300)
+plt.savefig(f'{output_dir}/cluster_metrics.png', dpi=300, bbox_inches='tight')
 plt.close()
 
-
-
-# Step 4: Choose optimal number of clusters based on metrics
-# Silhouette score (higher is better)
-optimal_n_silhouette = np.argmax(silhouette_scores) + 2  # +2 because we start from 2 clusters
-
-# Davies-Bouldin (lower is better)
+# optimal number of clusters based on metrics
+optimal_n_silhouette = np.argmax(silhouette_scores) + 2
 optimal_n_db = np.argmin(db_scores) + 2
-
-# Calinski-Harabasz (higher is better)
 optimal_n_ch = np.argmax(ch_scores) + 2
 
 print(f"Optimal number of clusters (Silhouette): {optimal_n_silhouette}")
 print(f"Optimal number of clusters (Davies-Bouldin): {optimal_n_db}")
 print(f"Optimal number of clusters (Calinski-Harabasz): {optimal_n_ch}")
 
-# Choose the optimal number based on majority voting or pick one of the metrics
+# Choose the optimal number based on majority voting
 optimal_n_clusters = int(np.median([optimal_n_silhouette, optimal_n_db, optimal_n_ch]))
 print(f"Selected optimal number of clusters: {optimal_n_clusters}")
 
 # Apply KMeans with optimal number of clusters
 kmeans = KMeans(n_clusters=optimal_n_clusters, random_state=42, n_init=10)
 cluster_labels = kmeans.fit_predict(complete_data[embedding_cols])
+complete_data = complete_data.copy()
 complete_data['cluster'] = cluster_labels
 
-# Step 5: Create visualizations of the embeddings with clusters
-plt.figure(figsize=(20, 10))
+
+
+
+
+
+
+#PLOTS
+fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
 # PCA Plot
-plt.subplot(1, 2, 1)
-scatter = plt.scatter(pca_result[:, 0], pca_result[:, 1], c=cluster_labels, cmap='viridis', s=80, alpha=0.8)
-plt.xlabel(f'PCA Component 1 ({pca.explained_variance_ratio_[0]:.2%} variance)')
-plt.ylabel(f'PCA Component 2 ({pca.explained_variance_ratio_[1]:.2%} variance)')
-plt.title(f'PCA Projection with {optimal_n_clusters} Clusters')
-plt.colorbar(scatter, label='Cluster')
-plt.grid(True, alpha=0.3)
+scatter1 = axes[0].scatter(pca_result[:, 0], pca_result[:, 1], c=cluster_labels, cmap='viridis', s=80, alpha=0.8)
+axes[0].set_xlabel(f'PCA Component 1 ({pca.explained_variance_ratio_[0]:.2%} variance)')
+axes[0].set_ylabel(f'PCA Component 2 ({pca.explained_variance_ratio_[1]:.2%} variance)')
+axes[0].set_title(f'PCA Projection with {optimal_n_clusters} Clusters')
+axes[0].grid(True, alpha=0.3)
 
 # t-SNE Plot
-plt.subplot(1, 2, 2)
-scatter = plt.scatter(tsne_result[:, 0], tsne_result[:, 1], c=cluster_labels, cmap='viridis', s=80, alpha=0.8)
-plt.xlabel('t-SNE Component 1')
-plt.ylabel('t-SNE Component 2')
-plt.title(f't-SNE Projection with {optimal_n_clusters} Clusters')
-plt.colorbar(scatter, label='Cluster')
-plt.grid(True, alpha=0.3)
+scatter2 = axes[1].scatter(tsne_result[:, 0], tsne_result[:, 1], c=cluster_labels, cmap='viridis', s=80, alpha=0.8)
+axes[1].set_xlabel('t-SNE Component 1')
+axes[1].set_ylabel('t-SNE Component 2')
+axes[1].set_title(f't-SNE Projection with {optimal_n_clusters} Clusters')
+axes[1].grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.savefig('analysis/plots/embedding_clusters.png', dpi=300)
+# Add colorbar
+plt.subplots_adjust(right=0.85)
+cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
+cbar = fig.colorbar(scatter1, cax=cbar_ax)
+cbar.set_label('Cluster', rotation=270, labelpad=15)
+
+plt.savefig(f'{output_dir}/embedding_clusters.png', dpi=300, bbox_inches='tight')
 plt.close()
 
-# relationship between clusters and behavioral metrics
-fig = plt.figure(figsize=(20, 15))
-fig.suptitle(f'Behavioral Measures by Cluster', fontsize=16)
-
+# Step 6: Behavioral measures by cluster
 n_metrics = len(behavioral_metrics) + 1  # +1 for age
 n_cols = 3
-n_rows = (n_metrics + n_cols - 1) // n_cols  # Ceiling division
+n_rows = (n_metrics + n_cols - 1) // n_cols
 
-# Behavioral metrics + age
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 12))
+fig.suptitle(f'Behavioral Measures by Cluster (Age ≤ 45)', fontsize=16)
+
+# Flatten axes for easier indexing
+if n_rows == 1:
+    axes = [axes]
+else:
+    axes = axes.flatten()
+
+# Plot behavioral metrics + age
 for i, metric in enumerate(behavioral_metrics + ['age']):
-    ax = plt.subplot(n_rows, n_cols, i + 1)
-    sns.boxplot(x='cluster', y=metric, data=complete_data, palette='viridis')
-    plt.title(f'{metric} by Cluster')
-    plt.xlabel('Cluster')
-    plt.ylabel(metric)
-    
-    # Statistical test for differences between clusters
-    groups = [complete_data[complete_data['cluster'] == c][metric].dropna() for c in range(optimal_n_clusters)]
-    groups = [g for g in groups if len(g) > 0]  #
-    
-    if len(groups) > 1:  # Need at least 2 groups for comparison
-        try:
-            f_stat, p_value = f_oneway(*groups)
-            test_name = "ANOVA"
-        except:
-            # If ANOVA fails, try non-parametric Kruskal-Wallis?
-            try:
-                h_stat, p_value = kruskal(*groups)
-                test_name = "Kruskal-Wallis"
-            except:
-                test_name = "Test failed"
-                p_value = 1.0
+    if i < len(axes):
+        ax = axes[i]
+        sns.boxplot(x='cluster', y=metric, data=complete_data, palette='viridis', ax=ax)
+        ax.set_title(f'{metric.replace("_", " ").title()} by Cluster')
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel(metric.replace("_", " ").title())
         
-        if p_value < 0.001:
-            p_text = f"{test_name}: p < 0.001"
-        elif p_value < 0.01:
-            p_text = f"{test_name}: p < 0.01"
-        elif p_value < 0.05:
-            p_text = f"{test_name}: p < 0.05"
-        else:
-            p_text = f"{test_name}: p = {p_value:.3f}"
+        # Statistical test for differences between clusters
+        groups = [complete_data[complete_data['cluster'] == c][metric].dropna() for c in range(optimal_n_clusters)]
+        groups = [g for g in groups if len(g) > 0]
+        
+        if len(groups) > 1:
+            try:
+                f_stat, p_value = f_oneway(*groups)
+                test_name = "ANOVA"
+            except:
+                try:
+                    h_stat, p_value = kruskal(*groups)
+                    test_name = "Kruskal-Wallis"
+                except:
+                    test_name = "Test failed"
+                    p_value = 1.0
             
-        plt.text(0.05, 0.95, p_text, transform=ax.transAxes, fontsize=9, 
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+            if p_value < 0.001:
+                p_text = f"{test_name}: p < 0.001"
+            elif p_value < 0.01:
+                p_text = f"{test_name}: p < 0.01"
+            elif p_value < 0.05:
+                p_text = f"{test_name}: p < 0.05"
+            else:
+                p_text = f"{test_name}: p = {p_value:.3f}"
+                
+            ax.text(0.05, 0.95, p_text, transform=ax.transAxes, fontsize=9, 
+                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
-plt.tight_layout(rect=[0, 0.03, 1, 0.97])  
-plt.savefig('analysis/plots/behavioral_by_cluster.png', dpi=300)
+for i in range(n_metrics, len(axes)):
+    axes[i].set_visible(False)
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+plt.savefig(f'{output_dir}/behavioral_by_cluster.png', dpi=300, bbox_inches='tight')
 plt.close()
 
 cluster_summary = complete_data.groupby('cluster').agg({
@@ -196,14 +207,13 @@ cluster_summary = complete_data.groupby('cluster').agg({
     'n_trials': ['mean', 'std']
 })
 
-cluster_summary.to_csv('analysis/plots/cluster_summary_statistics.csv')
+cluster_summary.to_csv(f'{output_dir}/cluster_summary_statistics.csv')
 
+# : Feature correlation analysis
 corr_data = []
 
-# Check which features are most correlated with cluster labels
 for feature in behavioral_metrics + ['age']:
     if feature in complete_data.columns:
-        # Use Spearman correlation for ordinal data like clusters
         try:
             rho, p = spearmanr(complete_data['cluster'], complete_data[feature])
             corr_data.append({
@@ -212,168 +222,164 @@ for feature in behavioral_metrics + ['age']:
                 'p-value': p
             })
         except:
-            print(f"fail for {feature}")
+            print(f"Correlation calculation failed for {feature}")
 
-corr_df = pd.DataFrame(corr_data)
-corr_df = corr_df.sort_values('Correlation', key=abs, ascending=False)
+if corr_data:
+    corr_df = pd.DataFrame(corr_data)
+    corr_df = corr_df.sort_values('Correlation', key=abs, ascending=False)
+    
+    # Create correlation barplot
+    plt.figure(figsize=(12, 8))
+    colors = ['blue' if x >= 0 else 'red' for x in corr_df['Correlation']]
+    bars = plt.barh(corr_df['Feature'], corr_df['Correlation'], color=colors)
+    
+    # Add significance stars
+    for i, p in enumerate(corr_df['p-value']):
+        if p < 0.05:
+            x_pos = corr_df['Correlation'].iloc[i] + (0.05 if corr_df['Correlation'].iloc[i] >= 0 else -0.05)
+            plt.text(x_pos, i, '*', ha='center', va='center', fontsize=12)
+    
+    plt.axvline(x=0, color='gray', linestyle='-', alpha=0.7)
+    plt.xlabel('Spearman Correlation with Cluster')
+    plt.title('Feature Importance for Cluster Differentiation')
+    plt.grid(True, axis='x', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/cluster_feature_importance.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    corr_df.to_csv(f'{output_dir}/cluster_feature_correlations.csv', index=False)
 
-# correlation barplot
-plt.figure(figsize=(12, 8))
-colors = ['blue' if x >= 0 else 'red' for x in corr_df['Correlation']]
-bars = plt.barh(corr_df['Feature'], corr_df['Correlation'], color=colors)
-for i, p in enumerate(corr_df['p-value']):
-    if p < 0.05:
-        plt.text(corr_df['Correlation'].iloc[i] + (0.05 if corr_df['Correlation'].iloc[i] >= 0 else -0.05), 
-                i, '*', ha='center', va='center', fontsize=12)
-
-plt.axvline(x=0, color='gray', linestyle='-', alpha=0.7)
-plt.xlabel('Spearman Correlation with Cluster')
-plt.title('Feature Importance for Cluster Differentiation')
-plt.grid(True, axis='x', alpha=0.3)
-plt.tight_layout()
-plt.savefig('analysis/plots/cluster_feature_importance.png', dpi=300)
-plt.close()
-
-corr_df.to_csv('analysis/plots/cluster_feature_correlations.csv', index=False)
-
-
-
-# Step 9: Create radar chart to visualize cluster profiles
-plt.figure(figsize=(12, 10))
+# Radar chart for cluster profiles
+radar_metrics = behavioral_metrics + ['age']
 cluster_radar_data = []
 
-# Select the metrics to compare (all behavioral metrics + age)
-radar_metrics = behavioral_metrics + ['age']
-
-# Get the mean values for each cluster and metric
 for cluster_id in range(optimal_n_clusters):
     cluster_data = complete_data[complete_data['cluster'] == cluster_id]
     if len(cluster_data) > 0:
-        # Get mean values and normalize 
         cluster_values = []
         for metric in radar_metrics:
             if metric in cluster_data.columns:
-                # Calculate z-score for this metric within this cluster
                 metric_mean = cluster_data[metric].mean()
-                metric_std = complete_data[metric].std()  # Use overall std for normalization
-                metric_mean_overall = complete_data[metric].mean()  # Use overall mean as reference
+                metric_std = complete_data[metric].std()
+                metric_mean_overall = complete_data[metric].mean()
                 
-                if metric_std > 0:  # Avoid division by zero
+                if metric_std > 0:
                     z_score = (metric_mean - metric_mean_overall) / metric_std
                 else:
                     z_score = 0
                     
                 cluster_values.append(z_score)
             else:
-                cluster_values.append(0)  # Default if metric not available
+                cluster_values.append(0)
                 
         cluster_radar_data.append(cluster_values)
 
-# Spider plot for cluster profiles
-angles = np.linspace(0, 2*np.pi, len(radar_metrics), endpoint=False).tolist()
-angles += angles[:1]  # Close the loop
+# Create radar chart
+if cluster_radar_data:
+    angles = np.linspace(0, 2*np.pi, len(radar_metrics), endpoint=False).tolist()
+    angles += angles[:1]
+    
+    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
+    
+    for i, values in enumerate(cluster_radar_data):
+        values = values + values[:1]
+        ax.plot(angles, values, linewidth=2, label=f'Cluster {i} (n={len(complete_data[complete_data["cluster"] == i])})')
+        ax.fill(angles, values, alpha=0.1)
+    
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels([m.replace('_', ' ').title() for m in radar_metrics])
+    ax.set_title('Cluster Profiles (Z-scores relative to population mean)', size=15, pad=20)
+    ax.grid(True)
+    plt.legend(loc='upper right', bbox_to_anchor=(1.2, 1.0))
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/cluster_profiles_radar.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
-fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
-
-for i, values in enumerate(cluster_radar_data):
-    values = values + values[:1]  # Close the loop
-    ax.plot(angles, values, linewidth=2, label=f'Cluster {i} (n={len(complete_data[complete_data["cluster"] == i])})')
-    ax.fill(angles, values, alpha=0.1)
-
-# Add metric labels
-ax.set_xticks(angles[:-1])
-ax.set_xticklabels(radar_metrics)
-ax.set_title('Cluster Profiles (Z-scores relative to population mean)', size=15)
-ax.grid(True)
-plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
-
-plt.tight_layout()
-plt.savefig('analysis/plots/cluster_profiles_radar.png', dpi=300)
-plt.close()
-
-#  overlay plots showing how behavioral metrics map onto embedding space
-plt.figure(figsize=(18, 15))
-plt.suptitle('Behavioral Metrics Mapped onto RNN Embedding Space', fontsize=16)
-
-# subplot for each behavioral metric + age
-n_metrics = len(behavioral_metrics) + 1  # +1 for age
+# : PCA overlay plots with behavioral metrics
+n_metrics = len(behavioral_metrics) + 1
 n_cols = 3
-n_rows = (n_metrics + n_cols - 1) // n_cols  # Ceiling division
+n_rows = (n_metrics + n_cols - 1) // n_cols
+
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 15))
+fig.suptitle('Behavioral Metrics Mapped onto RNN Embedding Space (Age ≤ 45)', fontsize=16)
+
+if n_rows == 1:
+    axes = [axes]
+else:
+    axes = axes.flatten()
 
 for i, metric in enumerate(behavioral_metrics + ['age']):
-    if metric in complete_data.columns:
-        ax = plt.subplot(n_rows, n_cols, i + 1)
+    if i < len(axes) and metric in complete_data.columns:
+        ax = axes[i]
         
-        # scatter plot of embeddings colored by the metric
-        scatter = plt.scatter(pca_result[:, 0], pca_result[:, 1], 
-                            c=complete_data[metric], cmap='coolwarm', s=80, alpha=0.8)
+        scatter = ax.scatter(pca_result[:, 0], pca_result[:, 1], 
+                           c=complete_data[metric], cmap='coolwarm', s=80, alpha=0.8)
         
-        # cluster boundaries or centers
+        # Add cluster centers
         for cluster_idx in range(optimal_n_clusters):
             cluster_points = pca_result[complete_data['cluster'] == cluster_idx]
             if len(cluster_points) > 0:
                 center = cluster_points.mean(axis=0)
-                plt.text(center[0], center[1], str(cluster_idx), 
-                        fontsize=16, ha='center', va='center',
-                        bbox=dict(boxstyle='circle', facecolor='white', alpha=0.7))
+                ax.text(center[0], center[1], str(cluster_idx), 
+                       fontsize=16, ha='center', va='center',
+                       bbox=dict(boxstyle='circle', facecolor='white', alpha=0.7))
         
-        plt.xlabel(f'PCA Component 1 ({pca.explained_variance_ratio_[0]:.2%} variance)')
-        plt.ylabel(f'PCA Component 2 ({pca.explained_variance_ratio_[1]:.2%} variance)')
-        plt.title(f'PCA Projection Colored by {metric}')
-        plt.colorbar(scatter, label=metric)
-        plt.grid(True, alpha=0.3)
+        ax.set_xlabel(f'PCA Component 1 ({pca.explained_variance_ratio_[0]:.2%} variance)')
+        ax.set_ylabel(f'PCA Component 2 ({pca.explained_variance_ratio_[1]:.2%} variance)')
+        ax.set_title(f'PCA Projection Colored by {metric.replace("_", " ").title()}')
+        
+        # Add colorbar for each subplot
+        plt.colorbar(scatter, ax=ax, label=metric.replace("_", " ").title(), shrink=0.8)
+        ax.grid(True, alpha=0.3)
 
-plt.tight_layout(rect=[0, 0.03, 1, 0.97])  # Adjust layout to make room for suptitle
-plt.savefig('analysis/plots/pca_with_metrics_overlay.png', dpi=300)
+# Hide unused subplots
+for i in range(n_metrics, len(axes)):
+    axes[i].set_visible(False)
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+plt.savefig(f'{output_dir}/pca_with_metrics_overlay.png', dpi=300, bbox_inches='tight')
 plt.close()
 
-
-
-
-# cluster centers across embedding dimensions to understand what each dimension encodes
-plt.figure(figsize=(14, 8))
+#  Cluster centers analysis
 cluster_centers = kmeans.cluster_centers_
 cluster_centers_df = pd.DataFrame(cluster_centers, columns=embedding_cols)
-
 cluster_centers_df['cluster'] = range(optimal_n_clusters)
 
 cluster_centers_melted = pd.melt(cluster_centers_df, id_vars=['cluster'], 
                                 value_vars=embedding_cols, 
-                                var_name='Embedding Dimension', 
+                                var_name='Embedding_Dimension', 
                                 value_name='Value')
 
-# Plot cluster centers by dimension
-sns.lineplot(x='Embedding Dimension', y='Value', hue='cluster', data=cluster_centers_melted, 
+plt.figure(figsize=(14, 8))
+sns.lineplot(x='Embedding_Dimension', y='Value', hue='cluster', data=cluster_centers_melted, 
             palette='viridis', marker='o')
 plt.title('Cluster Centers across Embedding Dimensions')
 plt.xticks(rotation=90)
 plt.legend(title='Cluster')
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig('analysis/plots/cluster_centers_by_dimension.png', dpi=300)
+plt.savefig(f'{output_dir}/cluster_centers_by_dimension.png', dpi=300, bbox_inches='tight')
 plt.close()
 
+# Hierarchical clustering dendrogram
+if len(complete_data) > 1:
+    Z = linkage(complete_data[embedding_cols], method='ward')
+    
+    plt.figure(figsize=(15, 8))
+    dendrogram(
+        Z,
+        truncate_mode='lastp',
+        p=optimal_n_clusters * 2,
+        leaf_rotation=90.,
+        leaf_font_size=12.,
+        show_contracted=True,
+        color_threshold=0.7 * max(Z[:, 2]) if len(Z) > 0 else None
+    )
+    plt.title('Hierarchical Clustering Dendrogram')
+    plt.xlabel('Sample Index or (Cluster Size)')
+    plt.ylabel('Distance')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/hierarchical_clustering.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
-
-Z = linkage(complete_data[embedding_cols], method='ward')
-
-# dendrogram
-plt.figure(figsize=(15, 8))
-dendrogram(
-    Z,
-    truncate_mode='lastp',  # Show only the last p merged clusters
-    p=optimal_n_clusters * 2,  # Show twice the optimal number for context
-    leaf_rotation=90.,
-    leaf_font_size=12.,
-    show_contracted=True,
-    color_threshold=0.7 * max(Z[:, 2])  # Color threshold
-)
-plt.title('Hierarchical Clustering Dendrogram')
-plt.xlabel('Sample Index or (Cluster Size)')
-plt.ylabel('Distance')
-plt.tight_layout()
-plt.savefig('analysis/plots/hierarchical_clustering.png', dpi=300)
-plt.close()
-
-print(f"Analysis complete. Used {optimal_n_clusters} clusters based on mathematical criteria.")
-print("All outputs saved to analysis/plots/ directory.")

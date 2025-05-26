@@ -19,7 +19,7 @@ def test_optuna_optimization():
             get_loss=True,
             use_optuna=True,  # Enable Optuna optimization
             filter_bad_participants=True,  # filter out 
-            show_plots=True,  # show plots
+            #show_plots=True,  # show plots
         )
         
         if agent_spice is None:

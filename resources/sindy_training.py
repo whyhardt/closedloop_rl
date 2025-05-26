@@ -114,7 +114,7 @@ def fit_sindy(
         )
 
         # fit sindy model
-        sindy_models[x_feature].fit(x_i, u=control_i, t=1, multiple_trajectories=True, ensemble=False)
+        sindy_models[x_feature].fit(x_i, u=control_i, t=1, multiple_trajectories=True, ensemble = True)
         
         if verbose:
             sindy_models[x_feature].print()

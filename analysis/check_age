@@ -1,0 +1,42 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+file_path = '/Users/martynaplomecka/closedloop_rl/data/eckstein2022/SLCNinfo_Share.csv'
+df = pd.read_csv(file_path)
+
+conditions = [
+    (df['ID'] >= 17) & (df['ID'] <= 221),
+    (df['ID'] >= 265) & (df['ID'] <= 300)
+]
+choices = ['CATEGORY 1', 'CATEGORY 2']
+df['Category'] = np.select(conditions, choices, default='CATEGORY 3')
+
+print("\nCategory counts:")
+print(df['Category'].value_counts())
+
+output_path = file_path.replace('.csv', '_with_categories.csv')
+df.to_csv(output_path, index=False)
+print(f"Updated file saved: {output_path}")
+
+# ID vs Age (years)
+plt.figure(figsize=(12, 8))
+
+colors = {'CATEGORY 1': 'red', 'CATEGORY 2': 'blue', 'CATEGORY 3': 'green'}
+for category in ['CATEGORY 1', 'CATEGORY 2', 'CATEGORY 3']:
+    mask = df['Category'] == category
+    if mask.any():
+        plt.scatter(df[mask]['ID'], df[mask]['age - years'], 
+                   c=colors[category], label=category, alpha=0.7, s=30)
+
+plt.xlabel('ID')
+plt.ylabel('Age (years)')
+plt.title('Subject ID vs Age by Category')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig('id_vs_age_plot.png', dpi=300, bbox_inches='tight')
+plt.close() 
+
+print(f"\nID range: {df['ID'].min()} - {df['ID'].max()}")
+print(f"Age range: {df['age - years'].min()} - {df['age - years'].max()} years")
