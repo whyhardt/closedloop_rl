@@ -261,6 +261,9 @@ def fit_model(
     log_l2 = torch.tensor(0.0, requires_grad=True, device=model.device) # log of L2, push to CPU/GPU
     # Define log optimizer
     opt_l2 = optimizer.SGD([log_l2], lr=0.01) # introduces new learning rate, may add momentum later
+    ### T1-T2 logging
+    log_l2_history = []
+    hypergrad_history = []
     ### -----------------
         
     if epochs == 0:
@@ -280,6 +283,7 @@ def fit_model(
     loss_test = 0
     iterations_per_epoch = max(len(dataset_train), 64) // batch_size
     save_at_epoch = warmup_steps
+
     
     # start training
     while continue_training:
@@ -328,6 +332,15 @@ def fit_model(
 
             # Compute hypergradient
             grad_lambda = torch.autograd.grad(model.parameters(), log_l2, grad_outputs=grad_val)
+
+            # Logging
+            hypergrad = grad_lambda[0].item()
+            log_l2_value = log_l2.item()
+            if n_calls_to_train_model % 10 == 0:
+            print(f"Epoch {n_calls_to_train_model}: log_l2 = {log_l2_value:.4f}, hypergrad = {hypergrad:.4e}")
+
+            hypergrad_history.append(hypergrad)
+            log_l2_history.append(log_l2_value)
 
             # Update log_l2 using hypergradient
             opt_l2.zero_grad()
