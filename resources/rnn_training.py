@@ -291,6 +291,12 @@ def fit_model(
         # scheduler = ReduceOnPlateauWithRestarts(optimizer=optimizer, min_lr=1e-6, factor=0.1, patience=8)
     else:
         scheduler_warmup, scheduler = None, None
+
+    ### ---T1-T2 setup---
+    log_l2 = torch.tensor(0.0, requires_grad=True, device=model.device) # log of L2, push to CPU/GPU
+    # Define log optimizer
+    opt_l2 = optimizer.SGD([log_l2], lr=0.01) # introduces new learning rate, may add momentum later
+    ### -----------------
         
     if epochs == 0:
         continue_training = False
@@ -317,6 +323,21 @@ def fit_model(
             loss_test = 0
             t_start = time.time()
             n_calls_to_train_model += 1
+
+            ### --------------------------------- ### 
+            ### T1-T2 hypergrad step
+            dataloader_train_iter = iter(dataloader_train)
+            xs, ys = next(dataloader_train_iter)
+            xs = xs.to(model.device)
+            ys = ys.to(model.device)
+
+            # T1 Step: update model parameters with current lambda
+
+            # T2 Step: update lambda using val loss and hypergradient
+            
+            ### --------------------------------- ###
+            
+            # Normal training step
             for _ in range(iterations_per_epoch):
                 # get next batch
                 xs, ys = next(iter(dataloader_train))
@@ -336,6 +357,7 @@ def fit_model(
                 loss_train += loss_i
             loss_train /= iterations_per_epoch
             
+            # Usually none
             if dataset_test is not None:
                 model.eval()
                 with torch.no_grad():
@@ -351,6 +373,7 @@ def fit_model(
                         optimizer=optimizer,
                     )
                 model.train()
+
             
             # check for convergence
             dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
