@@ -158,48 +158,13 @@ def batch_train(
         iterations += 1
         
         if torch.is_grad_enabled():
-            
-            # alternative l1-reg -> penalize additionally the activations of the embedding
-            # if hasattr(model, 'participant_embedding'):
-            #     id_array = torch.arange(0, model.n_participants, dtype=torch.int32, device=model.device).view(1, -1)
-            #     embedding = torch.nn.functional.leaky_relu(model.participant_embedding(id_array), negative_slope=0.001)
-            #     # compute l1 regularization on activations
-            #     l1_reg = l1_weight_decay * embedding.abs().mean()
-            # else:
-            # original: l1 weight decay to enforce sparsification in the network (except for participant embedding)
-            # l1_reg = l1_weight_decay * torch.stack([
-            #     torch.pow(param, 2).mean()
-            #     for name, param in model.named_parameters()
-            #     # if "embedding" not in name
-            #     # if "embedding" in name
-            #     ])
+
+            if l2_weight_decay is not None:
+                l2_penalty = l2_weight_decay * torch.stack([
+                    param.pow(2).sum() 
+                    for param in model.parameters()]).mean()
                 
-                
-            # Regularization of the embedding space
-            # if l2_weight_decay > 0:
-            #     if hasattr(model, 'participant_embedding') and isinstance(model.participant_embedding, nn.Sequential) and isinstance(model.participant_embedding[0], CustomEmbedding):
-            #         # gradient penalty between two participants
-            #         # sample two random distributions of participant indices as one-hot-encoded tensors
-            #         e_i = torch.randint(low=0, high=model.n_participants, size=(xs.shape[0],), dtype=torch.int64, device=xs_step.device)
-            #         e_j = torch.randint(low=0, high=model.n_participants, size=(xs.shape[0],), dtype=torch.int64, device=xs_step.device)
-            #         embedding_reg = gradient_penalty(model.participant_embedding, e_i, e_j, factor=l2_weight_decay)
-            #     elif hasattr(model, 'participant_embedding') and ((isinstance(model.participant_embedding, nn.Sequential) and isinstance(model.participant_embedding[0], nn.Embedding)) or isinstance(model.participant_embedding, nn.Embedding)):
-            #         # L2 weight decay on participant embedding to enforce smoother gradients between participants and prevent overfitting
-            #         if model.embedding_size > 1:
-            #             embedding_reg = l2_weight_decay * torch.stack([
-            #                 param.pow(2).sum()
-            #                 for name, param in model.named_parameters()
-            #                 if "embedding" in name
-            #                 # if "embedding" not in name
-            #                 ]).mean()
-            #         else:
-            #             embedding_reg = 0
-            #     else:
-            #         embedding_reg = 0
-            # else:
-            #     embedding_reg = 0
-                
-            loss = loss_step# + l1_reg# + embedding_reg
+            loss = loss_step + l2_penalty # Added new penalty term for L2 regularization
             
             # backpropagation
             optimizer.zero_grad()
@@ -325,16 +290,50 @@ def fit_model(
             n_calls_to_train_model += 1
 
             ### --------------------------------- ### 
-            ### T1-T2 hypergrad step
-            dataloader_train_iter = iter(dataloader_train)
-            xs, ys = next(dataloader_train_iter)
+            ### T1-T2 hypergrad prep
+            dataloader_test_iter = iter(dataloader_test) # May need error handling for training without validation/test split
+            # Batch from T1 (Train set)
+            # Get batch for T1 (training)
+            xs, ys = next(iter(dataloader_train))
             xs = xs.to(model.device)
             ys = ys.to(model.device)
+            # Get batch for T2 (Val set)
+            xs_val, ys_val = next(dataloader_test_iter)
+            xs_val = xs_val.to(model.device)
+            ys_val = ys_val.to(model.device)
 
-            # T1 Step: update model parameters with current lambda
+            ### T1 Step: update model parameters with current lambda
+            optimizer.zero_grad() # This currently resets hyperparams such as momentum
 
-            # T2 Step: update lambda using val loss and hypergradient
-            
+            # Forward pass on training set
+            ys_pred = model(xs)
+            l2_penalty = log_l2 * torch.stack([
+                param.pow(2).sum() 
+                for param in model.parameters()]).mean()
+
+            loss_train_t1 = model.loss_fn(ys_pred, ys) + l2_penalty # Using custom loss_fn instead of MSE
+
+            # Backward pass
+            loss_train_t1.backward(create_graph=True)  # Create graph for hypergradient computation, allows for second grade derivatives
+            # Update params
+            optimizer.step()
+
+            ### T2 Step: update lambda using val loss and hypergradient
+            # Forward pass on validation set
+            ys_val_pred = model(xs_val)
+            loss_val_t2 = model.loss_fn(ys_val_pred, ys_val) # Use custom loss_fn instead of MSE
+
+            # Compute gradient of validation loss w.r.t. log_l2
+            grad_val = torch.autograd.grad(loss_val_t2, model.parameters(), retain_graph=True)
+
+            # Compute hypergradient
+            grad_lambda = torch.autograd.grad(model.parameters(), log_l2, grad_outputs=grad_val)
+
+            # Update log_l2 using hypergradient
+            opt_l2.zero_grad()
+            log_l2.grad = -grad_lambda[0] # Single param
+            opt_l2.step()  # Update log_l2 parameter
+
             ### --------------------------------- ###
             
             # Normal training step
@@ -352,8 +351,7 @@ def fit_model(
                     optimizer=optimizer,
                     n_steps=n_steps,
                     l1_weight_decay=l1_weight_decay,
-                    l2_weight_decay=l2_weight_decay,
-                )
+                    l2_weight_decay=log_l2,) # Use log_l2 instead of l2_weight_decay for new regularization
                 loss_train += loss_i
             loss_train /= iterations_per_epoch
             
