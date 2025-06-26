@@ -196,7 +196,7 @@ def main(
       n_participants=n_participants,
       ).to(device)
   
-  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=l2_weight_decay)
+  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate) # TURNED OFF WEIGHT DECAY
   
   print('Setup of the RNN model complete.')
 
