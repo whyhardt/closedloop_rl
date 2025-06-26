@@ -152,6 +152,9 @@ def main(
     if train_test_ratio < 1:
       dataset_train, dataset_test = rnn_utils.split_data_along_timedim(dataset, train_test_ratio)
       dataset_train = bandits.DatasetRNN(dataset_train.xs, dataset_train.ys, sequence_length=sequence_length, device=device)
+      ### Create val set for hyperparameter tuning
+      dataset_val, dataset_test = rnn_utils.split_data_along_timedim(dataset_test, 0.5)
+      ### 
     else:
       dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length, device=device)
       # if dataset_test is None:
