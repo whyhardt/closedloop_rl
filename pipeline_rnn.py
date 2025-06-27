@@ -214,7 +214,7 @@ def main(
         model=model,
         dataset_train=dataset_train,
         # dataset_test=None,
-        # dataset_test=dataset_test,
+        dataset_test=dataset_val,
         # dataset_test=dataset_train,
         optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
