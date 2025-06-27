@@ -260,7 +260,7 @@ def fit_model(
     ### ---T1-T2 setup---
     log_l2 = torch.tensor(0.0, requires_grad=True, device=model.device) # log of L2, push to CPU/GPU
     # Define log optimizer
-    opt_l2 = optimizer.SGD([log_l2], lr=0.01) # introduces new learning rate, may add momentum later
+    opt_l2 = torch.optim.SGD([log_l2], lr=0.01) # introduces new learning rate, may add momentum later
     ### T1-T2 logging
     log_l2_history = []
     hypergrad_history = []
@@ -310,34 +310,37 @@ def fit_model(
             optimizer.zero_grad() # This currently resets hyperparams such as momentum
 
             # Forward pass on training set
-            ys_pred = model(xs)
-            l2_penalty = log_l2 * torch.stack([
+            ys_pred = model(xs)[0] # [0] to just get the output, not the hidden state
+            l2_penalty = torch.exp(log_l2) * torch.stack([
                 param.pow(2).sum() 
                 for param in model.parameters()]).mean()
 
-            loss_train_t1 = model.loss_fn(ys_pred, ys) + l2_penalty # Using custom loss_fn instead of MSE
+            loss_train_t1 = nn.MSELoss()(ys_pred, ys) + l2_penalty # Using custom loss_fn instead of MSE
 
             # Backward pass
-            loss_train_t1.backward(create_graph=True)  # Create graph for hypergradient computation, allows for second grade derivatives
+            # loss_train_t1.backward(create_graph=True)  # Create graph for hypergradient computation, allows for second grade derivatives
             # Update params
-            optimizer.step()
+            # optimizer.step()
+
+            # New Backward pass
+            grads = torch.autograd.grad(loss_train_t1, model.parameters(), create_graph=True)
 
             ### T2 Step: update lambda using val loss and hypergradient
             # Forward pass on validation set
-            ys_val_pred = model(xs_val)
-            loss_val_t2 = model.loss_fn(ys_val_pred, ys_val) # Use custom loss_fn instead of MSE
+            ys_val_pred = model(xs_val)[0] # Again, [0] to just get the output, not the hidden state
+            loss_val_t2 = nn.MSELoss()(ys_val_pred, ys_val) # Use custom loss_fn instead of MSE
 
             # Compute gradient of validation loss w.r.t. log_l2
             grad_val = torch.autograd.grad(loss_val_t2, model.parameters(), retain_graph=True)
 
             # Compute hypergradient
-            grad_lambda = torch.autograd.grad(model.parameters(), log_l2, grad_outputs=grad_val)
+            grad_lambda = torch.autograd.grad(loss_val_t2, log_l2) # Maybe grad_outputs=grad_val
 
             # Logging
             hypergrad = grad_lambda[0].item()
             log_l2_value = log_l2.item()
             if n_calls_to_train_model % 10 == 0:
-            print(f"Epoch {n_calls_to_train_model}: log_l2 = {log_l2_value:.4f}, hypergrad = {hypergrad:.4e}")
+                print(f"Epoch {n_calls_to_train_model}: log_l2 = {log_l2_value:.4f}, hypergrad = {hypergrad:.4e}")
 
             hypergrad_history.append(hypergrad)
             log_l2_history.append(log_l2_value)
