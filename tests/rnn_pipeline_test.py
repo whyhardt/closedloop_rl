@@ -3,17 +3,17 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn
-from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
+from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
 
-path_model = 'params/eckstein2022/rnn_eckstein2022_FC_v2.pkl'
+path_model = 'params/T1-T2-TEST.pkl'
 path_data = 'data/eckstein2022/eckstein2022.csv'
-train_test_ratio = 0.8
-class_rnn = RLRNN_eckstein2022_FC
+train_test_ratio = 0.7
+class_rnn = RLRNN_eckstein2022
 additional_inputs = None
 # class_rnn = RLRNN_meta_eckstein2022
 # additional_inputs = ['age']
@@ -39,13 +39,13 @@ _, loss = pipeline_rnn.main(
     # sparsification parameter
     l1_weight_decay=0.,
     # generalization parameters
-    l2_weight_decay=0.0005,
+    l2_weight_decay=0.0, # Should now auto adapt using T1-T2
     dropout=0.25,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
     checkpoint=False,
-    epochs=8192, # <- 2^16
+    epochs=1024, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     
