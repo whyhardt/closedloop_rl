@@ -14,7 +14,7 @@ from typing import List
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, rnn_utils
+from resources import rnn, rnn_training, bandits, rnn_utils, rnn_training_metaopt
 from utils import convert_dataset, plotting
 
 def main(
@@ -210,22 +210,19 @@ def main(
     
     #Fit the RNN
     print('Training the RNN...')
-    model, optimizer_rnn, _ = rnn_training.fit_model(
+    model, optimizer_rnn, histories = rnn_training_metaopt.fit_with_metaopt(
         model=model,
         dataset_train=dataset_train,
-        # dataset_test=None,
-        dataset_test=dataset_val,
-        # dataset_test=dataset_train,
-        optimizer=optimizer_rnn,
+        dataset_val=dataset_val,
+        model_optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs,
         batch_size=batch_size,
         bagging=bagging,
         n_steps=n_steps,
         scheduler=scheduler,
-        l1_weight_decay=l1_weight_decay,
-        l2_weight_decay=l2_weight_decay,
         path_save_checkpoints=params_path if save_checkpoints else None,
+        verbose = True,
     )
         
     # save trained parameters
@@ -272,7 +269,7 @@ def main(
     fig.suptitle(title_ground_truth + '\n' + title_rnn)
     plt.show()
     
-  return model, loss_test
+  return model, loss_test, histories
 
 
 if __name__=='__main__':
