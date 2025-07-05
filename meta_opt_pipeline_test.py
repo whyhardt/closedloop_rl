@@ -44,7 +44,7 @@ additional_inputs = None
 # -------------------------------------------------------------------------------
 
 # Set seed
-manual_seed(0)
+manual_seed(2)
 
 _, _, histories = pipeline_rnn.main(
     
@@ -53,7 +53,7 @@ _, _, histories = pipeline_rnn.main(
     
     # general training parameters
     checkpoint=False,
-    epochs=2048, # <- 2^16
+    epochs=1024, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     
