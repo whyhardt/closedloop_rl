@@ -9,6 +9,11 @@ import numpy as np
 from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
+# Create Mask TODO: Find out what this does
+def apply_mask(preds, ss):
+    mask = ss[..., :1] > -1
+    return preds[0] * mask
+
 def fit_with_metaopt(
     model: BaseRNN,
     dataset_train: DatasetRNN,
@@ -26,7 +31,6 @@ def fit_with_metaopt(
 
     """
     """
-
     # Set batch size
     if batch_size == -1:
         batch_size = len(dataset_train)
@@ -39,11 +43,11 @@ def fit_with_metaopt(
         raise NotImplementedError("Bagging=False is not implemented in this function.")
     
     # Init DataLoaders
-    # TODO: Figure out num_workers
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=0)
+    # num_cores = 4 
+    num_workers = 0 # 0 on PC 2 on laptop
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
-        # TODO: Find out if Shuffle=True or False? (False was standard)
-        dataloader_val = DataLoader(dataset_val, batch_size=batch_size, num_workers=0)
+        dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     else:
         raise ValueError("Validation dataset is required for training with meta-optimization.")
 
@@ -74,23 +78,18 @@ def fit_with_metaopt(
     if epochs == 0:
         raise ValueError("Epochs must be specified.")
 
-    # Set up model and optimizer TODO: check if this is necessary
-    model = model
-    model_optimizer = model_optimizer # TODO: if model_optimizer is None:
-    loss_fn = nn.CrossEntropyLoss() # TODO: may need to do this as a module? 
+    loss_fn = nn.CrossEntropyLoss()
     
-    # Define some maybe useless variables TODO: check which are necessary
-    continue_training = True
-    converged = False
-    n_calls_to_train_model = 0
+    # Define some maybe useless variables
     convergence_value = 1
     last_loss = 1
     recency_factor = 0.5
-
-    train_loss = 0
-    val_loss = 0
-    iterations_per_epoch = max(len(dataset_train), 64) // batch_size
+    train_loss = torch.tensor(0.)
+    val_loss = torch.tensor(0.) # 0 for the first 10 epochs
     save_at_epoch = warmup_steps
+
+    # Initialize hypergrad if we use update freq
+    hypergrad = torch.tensor(0.)
 
     # Histories for plotting
     history_train_loss = []
@@ -99,9 +98,11 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    initial_log_lambda = -5.0  # Initial value for log_lambda
-    lr_log_lambda = 1e-3  # Learning rate for log_lambda
-    momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Find out what values mean and try out some
+    update_freq = 5
+    initial_log_lambda = -7.0  # Initial value for log_lambda
+    lr_log_lambda = 100.0  # Learning rate for log_lambda
+    momentum_log_lambda = 0.9  # Momentum for log_lambda TODO: Try out some
+    # I am also clipping the hypergrads, its in the loop
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
     lambda_optimizer = optim.SGD([log_lambda], lr=lr_log_lambda, momentum=momentum_log_lambda)
 
@@ -112,95 +113,96 @@ def fit_with_metaopt(
             t_start = time.time()
 
             # Set up the data:
-            # Training set TODO: make sure dataloaders work in the loop here
+            # Training set
             xs,ys = next(iter(dataloader_train))
             xs, ys = xs.to(model.device), ys.to(model.device)
             # Validation set
             xs_val, ys_val = next(iter(dataloader_val))
             xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
-            # Set model to training mode TODO: Find out what this does
-            model.train()
+            # Get real lambda value since we use log_lambda only to optimize 
             lambda_val = torch.exp(log_lambda)
 
-            # Start the inner loop for meta-optimization
-            with higher.innerloop_ctx(model, model_optimizer, copy_initial_weights=False) as (fmodel, diffopt):
-                # Set initial state TODO: Why
-                model.set_initial_state(batch_size=len(xs))
-                state = model.get_state(detach=True)
+            # Try this
+            model.set_initial_state(batch_size=len(xs))
 
-                # Create Mask TODO: Finde out what this does
-                mask = xs[..., :1] > -1
-                
-                # T1 step
-                train_preds = fmodel(xs, state, batch_first=True)[0]
+            if (epoch + 1) % update_freq == 0:
+                # Start the inner loop for meta-optimization
+                with higher.innerloop_ctx(model, model_optimizer, copy_initial_weights=False) as (fmodel, diffopt):
+                    # Set fmodel to training mode
+                    fmodel.train()
+                    # Set initial state since we use RNN
+                    fmodel.set_initial_state(batch_size=len(xs))
+                    
+                    # T1 step
+                    state = model.get_state(detach=True)
+                    train_preds = fmodel(xs, state, batch_first=True)[0]
 
-                # Add mask to preds
-                train_preds = train_preds[0] * mask
+                    # Add mask to preds
+                    train_preds = apply_mask(train_preds, xs)
 
-                # Calculate L2 TODO: May work with pytoch functions 
-                l2 = sum((p ** 2).sum() for p in fmodel.parameters())
-                num_params = sum(p.numel() for p in fmodel.parameters())
-                l2_norm = l2 / num_params
+                    # Calculate L2
+                    params = torch.cat([p.view(-1) for p in fmodel.parameters()])
+                    l2_norm = (params ** 2).mean()
 
-                train_loss = loss_fn(
-                    train_preds.reshape(-1, model._n_actions),
-                    torch.argmax(ys.reshape(-1, model._n_actions), dim=1),) + lambda_val * l2_norm
-                # Step with the inner loop optimizer
-                diffopt.step(train_loss)
 
-                # T2 step
-                # Predict and compute val loss
-                state = fmodel.get_state(detach=True)
-                mask_val = xs_val[..., :1] > -1
-                val_preds = fmodel(xs_val, state, batch_first=True)[0]
-                val_preds = val_preds * mask_val
+                    train_loss = loss_fn(
+                        train_preds.reshape(-1, model._n_actions),
+                        torch.argmax(ys.reshape(-1, model._n_actions), dim=1),) + lambda_val * l2_norm
+                    # Step with the inner loop optimizer
+                    diffopt.step(train_loss)
 
-                val_loss = loss_fn(
-                    val_preds.reshape(-1, model._n_actions),
-                    torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), ) # No regularrization here
+                    # T2 step
+                    # Predict and compute val loss
+                    # Set fmodel to eval mode
+                    fmodel.eval()
+                    state = fmodel.get_state(detach=True)
+                    val_preds = fmodel(xs_val, state, batch_first=True)[0]
+                    val_preds = apply_mask(val_preds, xs_val)
 
-                # Recompute train loss for fresh graph after diffopt.step TODO: Imporeve THIS comment
-                state = fmodel.get_state(detach=True)
-                train_preds = fmodel(xs, state, batch_first=True)[0]
-                l2 = sum((p ** 2).sum() for p in fmodel.parameters())
-                num_params = sum(p.numel() for p in fmodel.parameters())
-                l2_norm = l2 / num_params
-                # Do I have to mask again? TODO: Test both versions
-                mask = xs[..., :1] > -1
-                train_preds = train_preds[0] * mask
-                train_loss_updated = loss_fn(train_preds.reshape(-1, model._n_actions), 
-                                             torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                                             ) + lambda_val * l2_norm
+                    val_loss = loss_fn(
+                        val_preds.reshape(-1, model._n_actions),
+                        torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
 
-                # Gradients w.r.t. model params
-                train_grads = torch.autograd.grad(train_loss_updated, fmodel.parameters(), create_graph=True)
-                val_grads = torch.autograd.grad(val_loss, fmodel.parameters(), retain_graph=True)
+                    # Recompute train loss for next step (after diffopt.step)
+                    fmodel.train()
+                    state = fmodel.get_state(detach=True)
+                    train_preds = fmodel(xs, state, batch_first=True)[0]
+                    params = torch.cat([p.view(-1) for p in fmodel.parameters()])
+                    l2_norm = (params ** 2).mean()
+                    train_preds = apply_mask(train_preds, xs)
+                    train_loss_updated = loss_fn(train_preds.reshape(-1, model._n_actions), 
+                                                torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+                                                ) + lambda_val * l2_norm
 
-                # Dot product #?
-                dot = sum((v * t).sum() for v, t in zip(val_grads, train_grads))
-                # Hypergrad: dot product (?) w.r.t. log_lambda
-                hypergrad = torch.autograd.grad(dot, log_lambda)[0]
+                    # Gradients w.r.t. model params
+                    train_grads = torch.autograd.grad(train_loss_updated, fmodel.parameters(), create_graph=True)
+                    val_grads = torch.autograd.grad(val_loss, fmodel.parameters(), retain_graph=False)
 
-            # Update of log_lambda
-            # Set gradient of log_lambda to calculated hypergrad
-            log_lambda.grad = hypergrad
-            # Pytorch step function
-            lambda_optimizer.step()
-            # Reset gradients
-            lambda_optimizer.zero_grad()
+                    # Dot product #?
+                    dot = sum((v * t).sum() for v, t in zip(val_grads, train_grads))
+                    # Hypergrad: dot product (?) w.r.t. log_lambda
+                    hypergrad = torch.autograd.grad(dot, log_lambda)[0]
+
+                # Clip hypergrad
+                hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
+
+                # Update of log_lambda
+                # Set gradient of log_lambda to calculated hypergrad
+                log_lambda.grad = hypergrad
+                # Pytorch step function
+                lambda_optimizer.step()
+                # Reset gradients
+                lambda_optimizer.zero_grad()
 
             # Normal training step
             model_optimizer.zero_grad()
             state = model.get_state(detach=True)
+            model.train()
             outputs = model(xs, state, batch_first=True)[0]
-            # Using torch sum function here TODO: why?
-            l2 = sum(torch.sum(p**2) for p in model.parameters())
-            num_params = sum(p.numel() for p in fmodel.parameters())
-            l2_norm = l2 / num_params
-            # Mask again TODO: Do I have to?
-            mask = xs[..., :1] > -1
-            outputs = outputs * mask
+            params = torch.cat([p.view(-1) for p in model.parameters()])
+            l2_norm = (params ** 2).mean()
+            outputs = apply_mask(outputs, xs)
             # Detach lambda_val from this computation graph so this update does not influence hypergrad calculation
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                  torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
@@ -209,6 +211,17 @@ def fit_with_metaopt(
             # Backprop step
             train_loss.backward()
             model_optimizer.step()
+
+            # Validation step for non-meta-optimization
+            if (epoch + 1) % update_freq != 0:
+                model.eval()
+                state = model.get_state(detach=True)
+                val_preds = model(xs_val, state, batch_first=True)[0]
+                val_preds = apply_mask(val_preds, xs_val)
+
+                val_loss = loss_fn(
+                    val_preds.reshape(-1, model._n_actions),
+                    torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
 
             # Save histories
             history_train_loss.append(train_loss.item())
@@ -230,12 +243,19 @@ def fit_with_metaopt(
                 msg = f"Epoch {epoch + 1}/{epochs} --- L(Train): {train_loss:.4f}"
                 msg += f"; L(Val): {val_loss:.4f}"
                 msg += f"; log_lambda: {log_lambda.item():.4f}"
+                msg += f"; hypergrad: {hypergrad.item():.2f}"
                 msg += f"; Time: {time.time()-t_start:.2f}"
-                print(msg)
-                # TODO: Add convergence back here
-                # TODO: Add scheduler lr info here
 
-            # Scheduler update TODO: Add implementation for other schedulers back, check if this sitll works on correct epochs
+                # Just to use convergence_value
+                if converged:
+                    msg += " --- Converged!"
+
+                print(msg)
+                # Missing convergence back here - not necessary for my metaopt
+                # Missing scheduler lr info here - not necessary for my metaopt
+
+            # Scheduler update
+            # Only with CosineAnnealingWarmRestarts
             if scheduler is not None:
                 if epoch < warmup_steps:
                     scheduler_warmup.step()
@@ -243,8 +263,8 @@ def fit_with_metaopt(
                     scheduler.step()
                 
             # Save checkpoint TODO: Test if this still works on correct epochs
-            if path_save_checkpoints and (epoch+1) == save_at_epoch:
-                torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch+1}."))
+            if path_save_checkpoints and (epoch + 1) == save_at_epoch:
+                torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
                 save_at_epoch *= 2
             
     except KeyboardInterrupt:
