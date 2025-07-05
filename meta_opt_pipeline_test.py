@@ -2,9 +2,14 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import warnings
+import matplotlib.ticker as ticker
+from numpy import arange
+from torch import manual_seed
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated.*")
 
-
+# Disable cudnn
+from torch.backends import cudnn
+cudnn.enabled = False
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn
@@ -14,8 +19,7 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-
-path_model = 'params/T1-T2-TEST.pkl'
+path_model = 'params/T1-T2-R2-highLR.pkl'
 path_data = 'data/eckstein2022/eckstein2022.csv'
 train_test_ratio = 0.7
 class_rnn = RLRNN_eckstein2022
@@ -36,21 +40,20 @@ additional_inputs = None
 # additional_inputs = None
 
 # -------------------------------------------------------------------------------
-# SPICE PIPELINE
+# Meta-Optimization Test
 # -------------------------------------------------------------------------------
 
-_, loss, histories = pipeline_rnn.main(
+# Set seed
+manual_seed(0)
+
+_, _, histories = pipeline_rnn.main(
     
-    # sparsification parameter
-    l1_weight_decay=0.,
-    # generalization parameters
-    l2_weight_decay=0.0, # Should now auto adapt using T1-T2
     dropout=0.25,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
     checkpoint=False,
-    epochs=1024, # <- 2^16
+    epochs=2048, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     
@@ -80,35 +83,39 @@ _, loss, histories = pipeline_rnn.main(
     counterfactual=False,
     alpha_counterfactual=0.,
     
-    save_checkpoints=False,
+    save_checkpoints=True,
     analysis=False,
     participant_id=0,
 )
 
 train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
 
+epochs = arange(1, len(train_loss_history) + 1)
+
 plt.figure(figsize=(15,6))
 
 plt.subplot(1,3,1)
-plt.plot(train_loss_history, label="Train Loss")
-plt.plot(val_loss_history, label="Validation Loss")
+plt.plot(epochs, train_loss_history, label="Train Loss")
+plt.plot(epochs, val_loss_history, label="Validation Loss")
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.legend()
+plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 plt.subplot(1,3,2)
-plt.plot(log_lambda_history, label='log_lambda')
+plt.plot(epochs, log_lambda_history, label='log_lambda')
 # plt.yscale("log")
 plt.xlabel('Epoch')
 plt.ylabel('log_lambda')
 plt.legend()
+plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 plt.subplot(1,3,3)
-plt.plot(hypergrad_history, label='Hypergrad')
+plt.plot(epochs, hypergrad_history, label='Hypergrad')
 plt.xlabel('Epoch')
 plt.ylabel('Hypergrad')
 plt.legend()
+plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 plt.tight_layout()
 plt.show()
-# input("Press Enter to close plot...")
