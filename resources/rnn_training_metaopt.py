@@ -12,7 +12,7 @@ from resources.rnn_utils import DatasetRNN
 # Create Mask TODO: Find out what this does
 def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
-    return preds[0] * mask
+    return preds * mask
 
 def fit_with_metaopt(
     model: BaseRNN,
@@ -44,7 +44,7 @@ def fit_with_metaopt(
     
     # Init DataLoaders
     # num_cores = 4 
-    num_workers = 0 # 0 on PC 2 on laptop
+    num_workers = 2 # 0 on PC 2 on laptop
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
         dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -98,9 +98,9 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 5
-    initial_log_lambda = -7.0  # Initial value for log_lambda
-    lr_log_lambda = 100.0  # Learning rate for log_lambda
+    update_freq = 2
+    initial_log_lambda = -5.0  # Initial value for log_lambda
+    lr_log_lambda = 1000.0  # Learning rate for log_lambda
     momentum_log_lambda = 0.9  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
@@ -149,6 +149,7 @@ def fit_with_metaopt(
                     train_loss = loss_fn(
                         train_preds.reshape(-1, model._n_actions),
                         torch.argmax(ys.reshape(-1, model._n_actions), dim=1),) + lambda_val * l2_norm
+
                     # Step with the inner loop optimizer
                     diffopt.step(train_loss)
 
@@ -177,6 +178,7 @@ def fit_with_metaopt(
 
                     # Gradients w.r.t. model params
                     train_grads = torch.autograd.grad(train_loss_updated, fmodel.parameters(), create_graph=True)
+
                     val_grads = torch.autograd.grad(val_loss, fmodel.parameters(), retain_graph=False)
 
                     # Dot product #?
@@ -185,7 +187,7 @@ def fit_with_metaopt(
                     hypergrad = torch.autograd.grad(dot, log_lambda)[0]
 
                 # Clip hypergrad
-                hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
+                hypergrad = torch.clamp(hypergrad, -5.0, 5.0)
 
                 # Update of log_lambda
                 # Set gradient of log_lambda to calculated hypergrad
@@ -243,7 +245,7 @@ def fit_with_metaopt(
                 msg = f"Epoch {epoch + 1}/{epochs} --- L(Train): {train_loss:.4f}"
                 msg += f"; L(Val): {val_loss:.4f}"
                 msg += f"; log_lambda: {log_lambda.item():.4f}"
-                msg += f"; hypergrad: {hypergrad.item():.2f}"
+                msg += f"; hypergrad: {hypergrad.item():.7f}"
                 msg += f"; Time: {time.time()-t_start:.2f}"
 
                 # Just to use convergence_value
