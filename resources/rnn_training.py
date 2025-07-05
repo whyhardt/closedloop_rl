@@ -119,8 +119,6 @@ def batch_train(
     ys: torch.Tensor,
     optimizer: torch.optim.Optimizer = None,
     n_steps: int = -1,
-    l1_weight_decay: float = 1e-4,
-    l2_weight_decay: float = 1e-4,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
     ):
 
@@ -158,17 +156,10 @@ def batch_train(
         iterations += 1
         
         if torch.is_grad_enabled():
-
-            if l2_weight_decay is not None:
-                l2_penalty = l2_weight_decay * torch.stack([
-                    param.pow(2).sum() 
-                    for param in model.parameters()]).mean()
-                
-            loss = loss_step + l2_penalty # Added new penalty term for L2 regularization
             
             # backpropagation
             optimizer.zero_grad()
-            loss.backward()
+            loss_step.backward()
             optimizer.step()
     
     return model, optimizer, loss_batch.item()/iterations
@@ -185,11 +176,8 @@ def fit_model(
     bagging: bool = False,
     scheduler: bool = False,
     n_steps: int = -1,
-    l1_weight_decay: float = 1e-4,
-    l2_weight_decay: float = 1e-4,
     verbose: bool = True,
     path_save_checkpoints: str = None,
-    meta_optimization: bool = False,
     ):
     """_summary_
 
@@ -203,7 +191,6 @@ def fit_model(
         batch_size (int, optional): Batch size. Defaults to -1.
         bagging (bool, optional): Enables bootstrap aggregation. Defaults to False.
         n_steps (int, optional): Number of steps passed at once through the RNN to compute a gradient over steps. Defaults to -1.
-        l1_weight_decay (float, optional): L1 weight decay for sparsification. Defaults to 1e-4.
         verbose (bool, optional): Verbosity. Defaults to True.
 
     Returns:
@@ -256,15 +243,6 @@ def fit_model(
         # scheduler = ReduceOnPlateauWithRestarts(optimizer=optimizer, min_lr=1e-6, factor=0.1, patience=8)
     else:
         scheduler_warmup, scheduler = None, None
-
-    ### ---T1-T2 setup---
-    log_l2 = torch.tensor(0.0, requires_grad=True, device=model.device) # log of L2, push to CPU/GPU
-    # Define log optimizer
-    opt_l2 = torch.optim.SGD([log_l2], lr=0.01) # introduces new learning rate, may add momentum later
-    ### T1-T2 logging
-    log_l2_history = []
-    hypergrad_history = []
-    ### -----------------
         
     if epochs == 0:
         continue_training = False
@@ -283,7 +261,6 @@ def fit_model(
     loss_test = 0
     iterations_per_epoch = max(len(dataset_train), 64) // batch_size
     save_at_epoch = warmup_steps
-
     
     # start training
     while continue_training:
@@ -292,67 +269,6 @@ def fit_model(
             loss_test = 0
             t_start = time.time()
             n_calls_to_train_model += 1
-
-            ### --------------------------------- ### 
-            ### T1-T2 hypergrad prep
-            dataloader_test_iter = iter(dataloader_test) # May need error handling for training without validation/test split
-            # Batch from T1 (Train set)
-            # Get batch for T1 (training)
-            xs, ys = next(iter(dataloader_train))
-            xs = xs.to(model.device)
-            ys = ys.to(model.device)
-            # Get batch for T2 (Val set)
-            xs_val, ys_val = next(dataloader_test_iter)
-            xs_val = xs_val.to(model.device)
-            ys_val = ys_val.to(model.device)
-
-            ### T1 Step: update model parameters with current lambda
-            optimizer.zero_grad() # This currently resets hyperparams such as momentum
-
-            # Forward pass on training set
-            ys_pred = model(xs)[0] # [0] to just get the output, not the hidden state
-            l2_penalty = torch.exp(log_l2) * torch.stack([
-                param.pow(2).sum() 
-                for param in model.parameters()]).mean()
-
-            loss_train_t1 = nn.MSELoss()(ys_pred, ys) + l2_penalty # Using custom loss_fn instead of MSE
-
-            # Backward pass
-            # loss_train_t1.backward(create_graph=True)  # Create graph for hypergradient computation, allows for second grade derivatives
-            # Update params
-            # optimizer.step()
-
-            # New Backward pass
-            grads = torch.autograd.grad(loss_train_t1, model.parameters(), create_graph=True)
-
-            ### T2 Step: update lambda using val loss and hypergradient
-            # Forward pass on validation set
-            ys_val_pred = model(xs_val)[0] # Again, [0] to just get the output, not the hidden state
-            loss_val_t2 = nn.MSELoss()(ys_val_pred, ys_val) # Use custom loss_fn instead of MSE
-
-            # Compute gradient of validation loss w.r.t. log_l2
-            grad_val = torch.autograd.grad(loss_val_t2, model.parameters(), retain_graph=True)
-
-            # Compute hypergradient
-            grad_lambda = torch.autograd.grad(loss_val_t2, log_l2) # Maybe grad_outputs=grad_val
-
-            # Logging
-            hypergrad = grad_lambda[0].item()
-            log_l2_value = log_l2.item()
-            if n_calls_to_train_model % 10 == 0:
-                print(f"Epoch {n_calls_to_train_model}: log_l2 = {log_l2_value:.4f}, hypergrad = {hypergrad:.4e}")
-
-            hypergrad_history.append(hypergrad)
-            log_l2_history.append(log_l2_value)
-
-            # Update log_l2 using hypergradient
-            opt_l2.zero_grad()
-            log_l2.grad = -grad_lambda[0] # Single param
-            opt_l2.step()  # Update log_l2 parameter
-
-            ### --------------------------------- ###
-            
-            # Normal training step
             for _ in range(iterations_per_epoch):
                 # get next batch
                 xs, ys = next(iter(dataloader_train))
@@ -366,12 +282,10 @@ def fit_model(
                     ys=ys,
                     optimizer=optimizer,
                     n_steps=n_steps,
-                    l1_weight_decay=l1_weight_decay,
-                    l2_weight_decay=log_l2,) # Use log_l2 instead of l2_weight_decay for new regularization
+                )
                 loss_train += loss_i
             loss_train /= iterations_per_epoch
             
-            # Usually none
             if dataset_test is not None:
                 model.eval()
                 with torch.no_grad():
@@ -387,7 +301,6 @@ def fit_model(
                         optimizer=optimizer,
                     )
                 model.train()
-
             
             # check for convergence
             dloss = last_loss - loss_test if dataset_test is not None else last_loss - loss_train
