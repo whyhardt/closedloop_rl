@@ -191,9 +191,9 @@ def main(
       dropout=dropout,
       n_participants=n_participants,
       ).to(device)
-  
+
   optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=l2_weight_decay)
-  
+
   print('Setup of the RNN model complete.')
 
   if checkpoint:
