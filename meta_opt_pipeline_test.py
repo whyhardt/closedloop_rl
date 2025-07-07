@@ -14,6 +14,7 @@ cudnn.enabled = False
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn_t1t2
 import pipeline_rnn_imaml
+import pipeline_rnn_bo
 from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
 
@@ -47,7 +48,7 @@ additional_inputs = None
 # Set seed
 manual_seed(6)
 
-_, _, histories = pipeline_rnn_imaml.main(
+_, _, histories = pipeline_rnn_bo.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
@@ -89,7 +90,7 @@ _, _, histories = pipeline_rnn_imaml.main(
     participant_id=0,
 )
 
-train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
+train_loss_history, val_loss_history, log_lambda_history = histories # Add hypergrad_history if not using Bayesian Optimization
 
 epochs = arange(1, len(train_loss_history) + 1)
 
@@ -111,12 +112,12 @@ plt.ylabel('log_lambda')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-plt.subplot(1,3,3)
-plt.plot(epochs, hypergrad_history, label='Hypergrad')
-plt.xlabel('Epoch')
-plt.ylabel('Hypergrad')
-plt.legend()
-plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+# plt.subplot(1,3,3)
+# plt.plot(epochs, hypergrad_history, label='Hypergrad')
+# plt.xlabel('Epoch')
+# plt.ylabel('Hypergrad')
+# plt.legend()
+# plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 plt.tight_layout()
 plt.show()
