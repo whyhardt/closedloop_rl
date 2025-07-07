@@ -12,7 +12,7 @@ from torch.backends import cudnn
 cudnn.enabled = False
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import pipeline_rnn
+import pipeline_rnn_t1t2
 from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
 
@@ -46,7 +46,7 @@ additional_inputs = None
 # Set seed
 manual_seed(2)
 
-_, _, histories = pipeline_rnn.main(
+_, _, histories = pipeline_rnn_t1t2.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
