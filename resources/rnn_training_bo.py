@@ -47,7 +47,7 @@ def fit_with_metaopt(
     
     # Init DataLoaders
     # num_cores = 4 
-    num_workers = 2 # 0 on PC 2 on laptop
+    num_workers = 0 # 0 on PC 2 on laptop
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
         dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -101,7 +101,7 @@ def fit_with_metaopt(
 
     # Set up meta-optimization
     initial_log_lambda = -5.0
-    bo_n_calls=10
+    bo_n_calls=10 # Number of Bayesian optim steps
 
     # Training loop
     try:
@@ -109,7 +109,7 @@ def fit_with_metaopt(
         # Bayesian Optimization objective function
         if perform_bo == True:
             print("Starting Bayesian Optimization for log_lambda...")
-            def bo_objective(log_lambda, bo_epochs=10):
+            def bo_objective(log_lambda):
                 log_lambda = torch.tensor(log_lambda)
                 lambda_val = torch.exp(log_lambda)
 
@@ -120,7 +120,7 @@ def fit_with_metaopt(
                     dataset_val=dataset_val,
                     model_optimizer=model_optimizer,
                     convergence_threshold=1e-7,
-                    epochs=2,
+                    epochs=10,  # Number of training steps for each bo point
                     batch_size=batch_size,
                     bagging=bagging,
                     scheduler=scheduler,

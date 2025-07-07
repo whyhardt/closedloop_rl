@@ -44,7 +44,7 @@ def fit_with_metaopt(
     
     # Init DataLoaders
     # num_cores = 4 
-    num_workers = 2 # 0 on PC 2 on laptop
+    num_workers = 0 # 0 on PC 2 on laptop
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
         dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -98,9 +98,9 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 2
+    update_freq = 18
     initial_log_lambda = -5.0  # Initial value for log_lambda
-    lr_log_lambda = 1000.0  # Learning rate for log_lambda
+    lr_log_lambda = 0.1  # Learning rate for log_lambda
     momentum_log_lambda = 0.9  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
