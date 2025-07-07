@@ -14,7 +14,7 @@ from typing import List
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, rnn_utils, rnn_training_metaopt
+from resources import rnn, rnn_training, bandits, rnn_utils
 from utils import convert_dataset, plotting
 
 def main(
@@ -67,9 +67,8 @@ def main(
   
   # print cuda devices available
   print(f'Cuda available: {torch.cuda.is_available()}')
-  # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-  # As GPU is currently not working
-  device = torch.device('cpu')
+  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  # device = torch.device('cpu')
   
   if not os.path.exists('params'):
     os.makedirs('params')
@@ -207,11 +206,13 @@ def main(
     
     #Fit the RNN
     print('Training the RNN...')
-    model, optimizer_rnn, histories = rnn_training_metaopt.fit_with_metaopt(
+    model, optimizer_rnn, _ = rnn_training.fit_model(
         model=model,
         dataset_train=dataset_train,
-        dataset_val=dataset_test,
-        model_optimizer=optimizer_rnn,
+        # dataset_test=None,
+        # dataset_test=dataset_test,
+        # dataset_test=dataset_train,
+        optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs,
         batch_size=batch_size,
@@ -265,7 +266,7 @@ def main(
     fig.suptitle(title_ground_truth + '\n' + title_rnn)
     plt.show()
     
-  return model, loss_test, histories
+  return model, loss_test
 
 
 if __name__=='__main__':
