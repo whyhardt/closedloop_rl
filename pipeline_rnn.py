@@ -67,8 +67,8 @@ def main(
   
   # print cuda devices available
   print(f'Cuda available: {torch.cuda.is_available()}')
-  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-  # device = torch.device('cpu')
+  # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  device = torch.device('cpu')
   
   if not os.path.exists('params'):
     os.makedirs('params')
