@@ -37,10 +37,8 @@ additional_inputs = None
 _, loss = pipeline_rnn.main(
     
     # sparsification parameter
-    l1_weight_decay=0.,
     # generalization parameters
-    l2_weight_decay=0.0, # Should now auto adapt using T1-T2
-    dropout=0.25,
+    l2_weight_decay=0.0,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
