@@ -98,14 +98,16 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 10
-    initial_log_lambda = -5.0  # Initial value for log_lambda
+    update_freq = 5
+    initial_log_lambda = -3.0  # Initial value for log_lambda
     lr_log_lambda = 1e-3  # Learning rate for log_lambda
-    momentum_log_lambda = 0.9  # Momentum for log_lambda TODO: Try out some
+    momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
+    ema_smoothing = 0.9 # Lower values weight previous values more
+    hypergrad_scalar = 1e-5  # Scalar to normalize hypergrad, prevents exploding gradients
 
     # Lookahead number of steps
-    num_inner_steps = 3
+    num_inner_steps = 2 # 3 is usually min
 
     # Conjugate gradient hyperparams
     cgh_damping = 1e-1
@@ -209,13 +211,23 @@ def fit_with_metaopt(
 
                 # Step 5: Compute the hypergrad
                 hypergrad = -sum((g * v_i).sum() for g, v_i in zip(val_grads, inv_hvp)) + reg_grad
-                hypergrad = torch.clamp(hypergrad, -5.0, 5.0) # TODO: Find out if clipping is necessary; It's not but keeps from exploding
+                # Apply grad clipping, keeps from exploding
+                hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
+
+                # Apply EMA
+                if epoch > 0:
+                    hypergrad = ema_smoothing * hypergrad + (1 - ema_smoothing) * history_hypergrad[-1]
+
+                # Normalize hypergrad
+                hypergrad = hypergrad / (torch.norm(hypergrad) + hypergrad_scalar)
 
                 # Step 6: Update log_lambda
                 lambda_optimizer.zero_grad()
                 log_lambda.grad = hypergrad
                 lambda_optimizer.step()
 
+                # Give log_lambda a threshold, so it can't decrease
+                log_lambda.data = torch.clamp(log_lambda.data, -4.0, 0.0)
 
             # Normal training step
             model_optimizer.zero_grad()
