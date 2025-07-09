@@ -98,17 +98,17 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 35
+    update_freq = 10
     initial_log_lambda = -5.0  # Initial value for log_lambda
-    lr_log_lambda = 0.1  # Learning rate for log_lambda
+    lr_log_lambda = 1e-3  # Learning rate for log_lambda
     momentum_log_lambda = 0.9  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
 
     # Lookahead number of steps
-    num_inner_steps = 5
+    num_inner_steps = 3
 
     # Conjugate gradient hyperparams
-    cgh_damping = 0.1
+    cgh_damping = 1e-1
     cgh_n_steps = 5
 
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)

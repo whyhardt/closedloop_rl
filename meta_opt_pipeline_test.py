@@ -21,7 +21,7 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/T1-T2-R2-highLR.pkl'
+path_model = 'params/iMAML-4096.pkl'
 path_data = 'data/eckstein2022/eckstein2022.csv'
 train_test_ratio = 0.7
 class_rnn = RLRNN_eckstein2022
@@ -46,16 +46,16 @@ additional_inputs = None
 # -------------------------------------------------------------------------------
 
 # Set seed
-manual_seed(6)
+manual_seed(7)
 
-_, _, histories = pipeline_rnn_imaml.main(
+_, _, histories = pipeline_rnn_t1t2.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
     checkpoint=False,
-    epochs=1024, # <- 2^16
+    epochs=4096, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     
