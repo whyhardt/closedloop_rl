@@ -101,7 +101,7 @@ def fit_with_metaopt(
 
     # Set up meta-optimization
     initial_log_lambda = -5.0
-    bo_n_calls=10 # Number of Bayesian optim steps
+    bo_n_calls=50 # Number of Bayesian optim steps
 
     # Training loop
     try:

@@ -98,20 +98,22 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 5
-    initial_log_lambda = -3.0  # Initial value for log_lambda
-    lr_log_lambda = 1e-3  # Learning rate for log_lambda
+    update_freq = 10
+    initial_log_lambda = -2.0  # Initial value for log_lambda, make sure its float
+    lr_log_lambda = 1e-1  # Learning rate for log_lambda
     momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
     ema_smoothing = 0.9 # Lower values weight previous values more
-    hypergrad_scalar = 1e-5  # Scalar to normalize hypergrad, prevents exploding gradients
+    hypergrad_scalar = 1e-6  # Scalar to normalize hypergrad, prevents exploding gradients
+    # Try with val window
+    val_window = 10
 
     # Lookahead number of steps
-    num_inner_steps = 2 # 3 is usually min
+    num_inner_steps = 5 # 3 is usually min
 
     # Conjugate gradient hyperparams
     cgh_damping = 1e-1
-    cgh_n_steps = 5
+    cgh_n_steps = 5 # Should be enough as stated in Rajeswaran et al.
 
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
     lambda_optimizer = optim.SGD([log_lambda], lr=lr_log_lambda, momentum=momentum_log_lambda)
@@ -214,9 +216,9 @@ def fit_with_metaopt(
                 # Apply grad clipping, keeps from exploding
                 hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
 
-                # Apply EMA
-                if epoch > 0:
-                    hypergrad = ema_smoothing * hypergrad + (1 - ema_smoothing) * history_hypergrad[-1]
+                # # Apply EMA
+                # if epoch > 0:
+                #     hypergrad = ema_smoothing * hypergrad + (1 - ema_smoothing) * history_hypergrad[-1]
 
                 # Normalize hypergrad
                 hypergrad = hypergrad / (torch.norm(hypergrad) + hypergrad_scalar)
@@ -226,8 +228,8 @@ def fit_with_metaopt(
                 log_lambda.grad = hypergrad
                 lambda_optimizer.step()
 
-                # Give log_lambda a threshold, so it can't decrease
-                log_lambda.data = torch.clamp(log_lambda.data, -4.0, 0.0)
+                # Clip log_lambda, so it can't decrease or explode
+                log_lambda.data = torch.clamp(log_lambda.data, -10.0, 0.0)
 
             # Normal training step
             model_optimizer.zero_grad()

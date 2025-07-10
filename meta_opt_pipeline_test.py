@@ -15,6 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn_t1t2
 import pipeline_rnn_imaml
 import pipeline_rnn_bo
+from resources.rnn_training_imaml import apply_mask
 from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
 
@@ -46,16 +47,16 @@ additional_inputs = None
 # -------------------------------------------------------------------------------
 
 # Set seed
-manual_seed(8)
+manual_seed(12)
 
-_, _, histories = pipeline_rnn_imaml.main(
+model, _, histories, dataset_val = pipeline_rnn_imaml.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
     checkpoint=False,
-    epochs=2048, # <- 2^16
+    epochs=1024, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     
@@ -89,6 +90,47 @@ _, _, histories = pipeline_rnn_imaml.main(
     analysis=False,
     participant_id=0,
 )
+
+### Loss surface
+import torch
+import numpy as np
+from torch.utils.data import DataLoader
+
+def eval_val_loss_for_log_lambda(model, dataloader_val, log_lambda_value):
+    model.eval()
+    xs_val, ys_val = next(iter(dataloader_val))
+    state = model.get_state(detach=True)
+    preds = model(xs_val, state, batch_first=True)[0]
+    preds = apply_mask(preds, xs_val)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    l2_lambda = torch.exp(torch.tensor(log_lambda_value, device=xs_val.device))
+    params = torch.cat([p.view(-1) for p in model.parameters()])
+    l2_norm = (params ** 2).mean()
+    val_loss = loss_fn(
+        preds.reshape(-1, model._n_actions),
+        torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1),
+    ) + l2_lambda * l2_norm
+    return val_loss.item()
+
+dataloader_val = DataLoader(dataset_val, batch_size=len(dataset_val), shuffle=False)
+
+log_lambda_range = np.linspace(-7, -1, 100)
+val_losses = []
+for ll in log_lambda_range:
+    val_loss = eval_val_loss_for_log_lambda(model, dataloader_val, ll)
+    val_losses.append(val_loss)
+
+plt.figure(figsize=(6,4))
+plt.plot(log_lambda_range, val_losses, marker='o')
+plt.xlabel('log_lambda')
+plt.ylabel('Validation Loss')
+plt.title('Validation Loss Landscape vs log_lambda')
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+###
+
 
 train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories # Add hypergrad_history if not using Bayesian Optimization
 
