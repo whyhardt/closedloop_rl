@@ -98,65 +98,12 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 5
-    initial_log_lambda = -4.0  # Initial value for log_lambda, make sure its float
-    lr_log_lambda = 1e-1  # Learning rate for log_lambda
-    momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
-    # I am also clipping the hypergrads, its in the loop
-    ema_smoothing = 0.9 # Lower values weight previous values more
-    hypergrad_scalar = 1e-6  # Scalar to normalize hypergrad 
-    # Try with val window
-    val_window = 10
+    update_freq = 1
+    # Now using normal lambda
+    lambda_val = 0.0  # Initial value for lambda, make sure its float
+    ema_scale = 0.1  # Exponential moving average scale: lower = more smoothing
 
-    # Lookahead number of steps
-    num_inner_steps = 5 # 3 is usually min
-
-    # Conjugate gradient hyperparams
-    cgh_damping = 1e-1
-    cgh_n_steps = 5 # Should be enough as stated in Rajeswaran et al.
-
-    log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
-    lambda_optimizer = optim.SGD([log_lambda], lr=lr_log_lambda, momentum=momentum_log_lambda)
-
-    # Define inner training function:
-    def inner_train(model, xs, ys, lr, lambda_val, num_inner_steps=num_inner_steps):
-        # Create a copy of the model
-        inner = deepcopy(model)
-        # Create a new optimizer for the inner model
-        opt = optim.SGD(inner.parameters(), lr=lr)
-
-        for _ in range(num_inner_steps):
-            # Forward pass
-            inner.train()
-            inner.set_initial_state(batch_size=len(xs))
-            state = inner.get_state(detach=True)
-            preds = inner(xs, state, batch_first=True)[0]
-            preds = apply_mask(preds, xs)
-
-            # Recompute L2 norm
-            params = torch.cat([p.view(-1) for p in inner.parameters()])
-            l2_norm = (params ** 2).mean()
-
-            # Compute inner loss
-            loss = loss_fn(preds.reshape(-1, model._n_actions),
-                        torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                        ) + lambda_val.detach() * l2_norm
-
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-        return inner
-    
-    # Method to approximate the inverse Hessian-vector product using conjugate gradients
-    def conjugate_gradients(val_grad, params, damping=cgh_damping, n_steps=cgh_n_steps):
-        x = [torch.zeros_like(p) for p in params]
-
-        for _ in range(n_steps):
-            dot = sum((g * xi).sum() for g, xi in zip(val_grad, x))
-            Hv = torch.autograd.grad(dot, params, retain_graph=True)
-            x = [x_i - damping * x_i + h for x_i, h in zip(x, Hv)]
-
-        return x
+    awd_scale = 0.5 # 0.1 is Scaling from AWD paper (Ghiasi et al., 2023)
 
 
     # Training loop
@@ -173,57 +120,7 @@ def fit_with_metaopt(
             xs_val, ys_val = next(iter(dataloader_val))
             xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
-            # Get real lambda value since we use log_lambda only to optimize 
-            lambda_val = torch.exp(log_lambda)
-
-            # Try this
             model.set_initial_state(batch_size=len(xs))
-
-            # Inner loop for meta-optimization
-            if (epoch + 1) % update_freq == 0:
-                # Step 1: Train inner model
-                # TODO: Using fixed lr here, adapt to use scheduled one 
-                inner_model = inner_train(model, xs, ys, lr=1e-2, lambda_val=lambda_val)
-
-                # Step 2: Compute training grad w.r.t val loss
-                # First compute val loss
-                inner_model.set_initial_state(batch_size=len(xs_val))
-                state = inner_model.get_state(detach=True)
-                val_preds = inner_model(xs_val, state, batch_first=True)[0]
-                val_preds = apply_mask(val_preds, xs_val)
-                val_loss = loss_fn(
-                    val_preds.reshape(-1, model._n_actions),
-                    torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), ) # No regularization here
-                # Now compute grads
-                val_grads = torch.autograd.grad(val_loss, inner_model.parameters(), create_graph=True) # Maybe retain graph
-                pass
-
-                # Step 3: Approximate inverse Hessian-vector product
-                # Using the conjugate gradient method
-                params = [p for p in inner_model.parameters() if p.requires_grad]
-                inv_hvp = conjugate_gradients(val_grads, params, damping=1e-2, n_steps=5) # TODO: Find out how this algo works and what damping and n_steps do
-
-                # Step 4: Compute gradient of log_lambda w.r.t. the reg term that could be applied
-                reg_term = torch.cat([p.view(-1) for p in inner_model.parameters()]) ** 2
-                reg_term = reg_term.mean()  # L2 norm
-                # Compute full regularization
-                reg = lambda_val * reg_term
-                # reg_grad = torch.autograd.grad(reg_term, log_lambda, retain_graph=True)[0]
-                reg_grad = reg.detach() 
-
-                # Step 5: Compute the hypergrad
-                hypergrad = -sum((g * v_i).sum() for g, v_i in zip(val_grads, inv_hvp)) + reg_grad
-                # Apply grad clipping, keeps from exploding
-                hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
-
-
-                # Step 6: Update log_lambda
-                lambda_optimizer.zero_grad()
-                log_lambda.grad = hypergrad
-                lambda_optimizer.step()
-
-                # Clip log_lambda, so it can't decrease or explode
-                log_lambda.data = torch.clamp(log_lambda.data, -10.0, 0.0)
 
             # Normal training step
             model_optimizer.zero_grad()
@@ -233,25 +130,46 @@ def fit_with_metaopt(
             params = torch.cat([p.view(-1) for p in model.parameters()])
             l2_norm = (params ** 2).mean()
             outputs = apply_mask(outputs, xs)
-            # Detach lambda_val from this computation graph so this update does not influence hypergrad calculation
+            # Calculate the training loss without regularization
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                  torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                                 ) + lambda_val.detach() * l2_norm
-
-            # Backprop step
+                                 )
+            
+            # Backprop step to get the gradients
             train_loss.backward()
+
+            # AWD meta-optimization step TODO: Find out how this works
+            # 1. Compute average gradient and weight norms
+            grad_norm = torch.sqrt(sum((p.grad ** 2).sum() for p in model.parameters()))
+            weight_norm = torch.sqrt(sum((p.data ** 2).sum() for p in model.parameters()))
+            current_lambda = (awd_scale * grad_norm) / (weight_norm + 1e-8)  # Avoid dividing by zero
+
+            # 2. Apply EMA smoothing
+            # if epoch == 0:
+            #     prev_lambda = 0.0
+
+            # lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda
+            # prev_lambda = lambda_val
+            lambda_val = current_lambda
+
+            # 3. Update train loss with regularization
+            train_loss += lambda_val * l2_norm
+
+            # Update only after AWD
             model_optimizer.step()
 
-            # Validation step for non-meta-optimization
-            if (epoch + 1) % update_freq != 0:
-                model.eval()
-                state = model.get_state(detach=True)
-                val_preds = model(xs_val, state, batch_first=True)[0]
-                val_preds = apply_mask(val_preds, xs_val)
+            # Validation step
+            model.eval()
+            state = model.get_state(detach=True)
+            val_preds = model(xs_val, state, batch_first=True)[0]
+            val_preds = apply_mask(val_preds, xs_val)
 
-                val_loss = loss_fn(
-                    val_preds.reshape(-1, model._n_actions),
-                    torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+            val_loss = loss_fn(
+                val_preds.reshape(-1, model._n_actions),
+                torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+
+            # Put lambda in log scale for logging
+            log_lambda = torch.log(torch.tensor(lambda_val))
 
             # Save histories
             history_train_loss.append(train_loss.item())

@@ -100,8 +100,8 @@ def fit_with_metaopt(
     history_log_lambda = []
 
     # Set up meta-optimization
-    initial_log_lambda = -5.0
-    bo_n_calls=50 # Number of Bayesian optim steps
+    initial_log_lambda = -4.0
+    bo_n_calls=50 # Number of bayesian optim steps
 
     # Training loop
     try:
@@ -120,7 +120,7 @@ def fit_with_metaopt(
                     dataset_val=dataset_val,
                     model_optimizer=model_optimizer,
                     convergence_threshold=1e-7,
-                    epochs=10,  # Number of training steps for each bo point
+                    epochs=5,  # Number of training steps for each bo point
                     batch_size=batch_size,
                     bagging=bagging,
                     scheduler=scheduler,

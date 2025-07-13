@@ -98,10 +98,12 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 10
-    initial_log_lambda = -5.0  # Initial value for log_lambda
-    lr_log_lambda = 100.0  # Learning rate for log_lambda
+    update_freq = 5
+    initial_log_lambda = -4.0  # Initial value for log_lambda
+    lr_log_lambda = 1.0  # Learning rate for log_lambda
     momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
+    scale_hypergrad = 10  # Scaling factor for hypergrad TODO: Find literature for this
+
     # I am also clipping the hypergrads, its in the loop
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
     lambda_optimizer = optim.SGD([log_lambda], lr=lr_log_lambda, momentum=momentum_log_lambda)
@@ -186,8 +188,8 @@ def fit_with_metaopt(
                     # Hypergrad: dot product (?) w.r.t. log_lambda
                     hypergrad = torch.autograd.grad(dot, log_lambda)[0]
 
-                # Clip hypergrad
-                hypergrad = torch.clamp(hypergrad, -5.0, 5.0)
+                # Clip hypergrad and potentially scale it
+                hypergrad = torch.clamp(hypergrad, -5.0, 5.0) * scale_hypergrad
 
                 # Update of log_lambda
                 # Set gradient of log_lambda to calculated hypergrad

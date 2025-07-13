@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import warnings
 import matplotlib.ticker as ticker
-from numpy import arange
+import numpy as np
 from torch import manual_seed
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated.*")
 
@@ -14,7 +14,7 @@ cudnn.enabled = False
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn_t1t2
 import pipeline_rnn_imaml
-import pipeline_rnn_bo
+import pipeline_rnn_awd
 from resources.rnn_training_imaml import apply_mask
 from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
@@ -25,31 +25,19 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 path_model = 'params/iMAML-4096.pkl'
 path_data = 'data/eckstein2022/eckstein2022.csv'
 train_test_ratio = 0.7
-class_rnn = RLRNN_eckstein2022
+class_rnn = RLRNN
 additional_inputs = None
-# class_rnn = RLRNN_meta_eckstein2022
-# additional_inputs = ['age']
-
-# class_rnn = RLRNN_dezfouli2019
-# train_test_ratio = None#[3, 6, 9]#[1, 3, 4, 6, 8, 10]   # list of test sessions
-# path_model = 'params/dezfouli2019/rnn_dezfouli2019_no_l1_l2_0_crossval_baseline.pkl'
-# path_data = 'data/dezfouli2019/dezfouli2019_simulated_gql_multi_session_d1.csv'
-# additional_inputs = None
-
-# class_rnn = RLRNN_dezfouli2019_blocks
-# train_test_ratio = [1, 3, 4, 6, 8, 10]  # list of test sessions
-# path_model = 'params/dezfouli2019/rnn_dezfouli2019_blocks_rldm_l1emb_0_001_l2_0_0001.pkl'
-# path_data = 'data/dezfouli2019/dezfouli2019.csv'
-# additional_inputs = None
 
 # -------------------------------------------------------------------------------
 # Meta-Optimization Test
 # -------------------------------------------------------------------------------
 
-# Set seed
-manual_seed(12)
+# Set seed for torch and np
+seed = 10
+manual_seed(seed)
+np.random.seed(seed)
 
-model, _, histories, dataset_val = pipeline_rnn_imaml.main(
+model, _, histories, dataset_val = pipeline_rnn_imaml.main( # Set iMAML or T1-T2 or awd pipeline
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
@@ -116,29 +104,20 @@ dataloader_val = DataLoader(dataset_val, batch_size=len(dataset_val), shuffle=Fa
 
 log_lambda_range = np.linspace(-7, -1, 100)
 val_losses = []
+print("Calculating loss surface...")
 for ll in log_lambda_range:
     val_loss = eval_val_loss_for_log_lambda(model, dataloader_val, ll)
     val_losses.append(val_loss)
 
-plt.figure(figsize=(6,4))
-plt.plot(log_lambda_range, val_losses, marker='o')
-plt.xlabel('log_lambda')
-plt.ylabel('Validation Loss')
-plt.title('Validation Loss Landscape vs log_lambda')
-plt.grid(True)
-plt.tight_layout()
-plt.show()
 
-###
+train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
 
+epochs = np.arange(1, len(train_loss_history) + 1)
 
-train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories # Add hypergrad_history if not using Bayesian Optimization
+plt.figure(figsize=(15,10))
 
-epochs = arange(1, len(train_loss_history) + 1)
-
-plt.figure(figsize=(15,6))
-
-plt.subplot(1,3,1)
+# Subplot 1: Losses
+plt.subplot(2,2,1)
 plt.plot(epochs, train_loss_history, label="Train Loss")
 plt.plot(epochs, val_loss_history, label="Validation Loss")
 plt.xlabel('Epoch')
@@ -146,20 +125,29 @@ plt.ylabel('Loss')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-plt.subplot(1,3,2)
+# Subplot 2: log_lambda
+plt.subplot(2,2,2)
 plt.plot(epochs, log_lambda_history, label='log_lambda')
-# plt.yscale("log")
 plt.xlabel('Epoch')
 plt.ylabel('log_lambda')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-plt.subplot(1,3,3)
+# Subplot 3: hypergrad
+plt.subplot(2,2,3)
 plt.plot(epochs, hypergrad_history, label='Hypergrad')
 plt.xlabel('Epoch')
 plt.ylabel('Hypergrad')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+# Subplot 4: Loss landscape
+plt.subplot(2,2,4)
+plt.plot(log_lambda_range, val_losses, marker='o')
+plt.xlabel('log_lambda')
+plt.ylabel('Validation Loss')
+plt.title('Val Loss vs log_lambda')
+plt.grid(True)
 
 plt.tight_layout()
 plt.show()
