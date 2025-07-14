@@ -101,7 +101,7 @@ def fit_with_metaopt(
     update_freq = 1
     # Now using normal lambda
     lambda_val = 0.0  # Initial value for lambda, make sure its float
-    ema_scale = 0.1  # Exponential moving average scale: lower = more smoothing
+    ema_scale = 0.5  # Exponential moving average scale: lower = more smoothing
 
     awd_scale = 0.5 # 0.1 is Scaling from AWD paper (Ghiasi et al., 2023)
 
@@ -145,11 +145,11 @@ def fit_with_metaopt(
             current_lambda = (awd_scale * grad_norm) / (weight_norm + 1e-8)  # Avoid dividing by zero
 
             # 2. Apply EMA smoothing
-            # if epoch == 0:
-            #     prev_lambda = 0.0
+            if epoch == 0:
+                prev_lambda = 0.0
 
-            # lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda
-            # prev_lambda = lambda_val
+            lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda
+            prev_lambda = lambda_val
             lambda_val = current_lambda
 
             # 3. Update train loss with regularization

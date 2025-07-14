@@ -265,7 +265,7 @@ def main(
     fig.suptitle(title_ground_truth + '\n' + title_rnn)
     plt.show()
     
-  return model, loss_test, histories, dataset_test
+  return model, loss_test, histories
 
 
 if __name__=='__main__':

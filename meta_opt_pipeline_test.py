@@ -37,7 +37,7 @@ seed = 10
 manual_seed(seed)
 np.random.seed(seed)
 
-model, _, histories, dataset_val = pipeline_rnn_imaml.main( # Set iMAML or T1-T2 or awd pipeline
+model, _, histories = pipeline_rnn_awd.main( # Set iMAML or T1-T2 or AWD pipeline
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
@@ -82,33 +82,6 @@ model, _, histories, dataset_val = pipeline_rnn_imaml.main( # Set iMAML or T1-T2
 ### Loss surface
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
-
-def eval_val_loss_for_log_lambda(model, dataloader_val, log_lambda_value):
-    model.eval()
-    xs_val, ys_val = next(iter(dataloader_val))
-    state = model.get_state(detach=True)
-    preds = model(xs_val, state, batch_first=True)[0]
-    preds = apply_mask(preds, xs_val)
-    loss_fn = torch.nn.CrossEntropyLoss()
-    l2_lambda = torch.exp(torch.tensor(log_lambda_value, device=xs_val.device))
-    params = torch.cat([p.view(-1) for p in model.parameters()])
-    l2_norm = (params ** 2).mean()
-    val_loss = loss_fn(
-        preds.reshape(-1, model._n_actions),
-        torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1),
-    ) + l2_lambda * l2_norm
-    return val_loss.item()
-
-dataloader_val = DataLoader(dataset_val, batch_size=len(dataset_val), shuffle=False)
-
-log_lambda_range = np.linspace(-7, -1, 100)
-val_losses = []
-print("Calculating loss surface...")
-for ll in log_lambda_range:
-    val_loss = eval_val_loss_for_log_lambda(model, dataloader_val, ll)
-    val_losses.append(val_loss)
-
 
 train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
 
@@ -140,14 +113,3 @@ plt.xlabel('Epoch')
 plt.ylabel('Hypergrad')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-# Subplot 4: Loss landscape
-plt.subplot(2,2,4)
-plt.plot(log_lambda_range, val_losses, marker='o')
-plt.xlabel('log_lambda')
-plt.ylabel('Validation Loss')
-plt.title('Val Loss vs log_lambda')
-plt.grid(True)
-
-plt.tight_layout()
-plt.show()

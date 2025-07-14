@@ -49,7 +49,7 @@ seed = 10
 manual_seed(seed)
 np.random.seed(seed)
 
-model, _, histories, dataset_val = pipeline_rnn_bo.main(
+model, _, histories = pipeline_rnn_bo.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
