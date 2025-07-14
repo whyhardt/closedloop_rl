@@ -87,10 +87,10 @@ train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = hi
 
 epochs = np.arange(1, len(train_loss_history) + 1)
 
-plt.figure(figsize=(15,10))
+plt.figure(figsize=(18,5))
 
 # Subplot 1: Losses
-plt.subplot(2,2,1)
+plt.subplot(1,3,1)
 plt.plot(epochs, train_loss_history, label="Train Loss")
 plt.plot(epochs, val_loss_history, label="Validation Loss")
 plt.xlabel('Epoch')
@@ -99,7 +99,7 @@ plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 # Subplot 2: log_lambda
-plt.subplot(2,2,2)
+plt.subplot(1,3,2)
 plt.plot(epochs, log_lambda_history, label='log_lambda')
 plt.xlabel('Epoch')
 plt.ylabel('log_lambda')
@@ -107,7 +107,7 @@ plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 # Subplot 3: hypergrad
-plt.subplot(2,2,3)
+plt.subplot(1,3,3)
 plt.plot(epochs, hypergrad_history, label='Hypergrad')
 plt.xlabel('Epoch')
 plt.ylabel('Hypergrad')

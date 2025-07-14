@@ -94,43 +94,15 @@ model, _, histories = pipeline_rnn_bo.main(
 ### Loss surface
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
-
-def eval_val_loss_for_log_lambda(model, dataloader_val, log_lambda_value):
-    model.eval()
-    xs_val, ys_val = next(iter(dataloader_val))
-    state = model.get_state(detach=True)
-    preds = model(xs_val, state, batch_first=True)[0]
-    preds = apply_mask(preds, xs_val)
-    loss_fn = torch.nn.CrossEntropyLoss()
-    l2_lambda = torch.exp(torch.tensor(log_lambda_value, device=xs_val.device))
-    params = torch.cat([p.view(-1) for p in model.parameters()])
-    l2_norm = (params ** 2).mean()
-    val_loss = loss_fn(
-        preds.reshape(-1, model._n_actions),
-        torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1),
-    ) + l2_lambda * l2_norm
-    return val_loss.item()
-
-dataloader_val = DataLoader(dataset_val, batch_size=len(dataset_val), shuffle=False)
-
-log_lambda_range = np.linspace(-7, -1, 100)
-val_losses = []
-print("Calculating loss surface...")
-for ll in log_lambda_range:
-    val_loss = eval_val_loss_for_log_lambda(model, dataloader_val, ll)
-    val_losses.append(val_loss)
-
-
 
 train_loss_history, val_loss_history, log_lambda_history = histories
 
 epochs = np.arange(1, len(train_loss_history) + 1)
 
-plt.figure(figsize=(18,5))
+plt.figure(figsize=(12,5))
 
 # Subplot 1: Losses
-plt.subplot(1,3,1)
+plt.subplot(1,2,1)
 plt.plot(epochs, train_loss_history, label="Train Loss")
 plt.plot(epochs, val_loss_history, label="Validation Loss")
 plt.xlabel('Epoch')
@@ -139,20 +111,12 @@ plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 # Subplot 2: log_lambda
-plt.subplot(1,3,2)
+plt.subplot(1,2,2)
 plt.plot(epochs, log_lambda_history, label='log_lambda')
 plt.xlabel('Epoch')
 plt.ylabel('log_lambda')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-# Subplot 3: Loss landscape
-plt.subplot(1,3,3)
-plt.plot(log_lambda_range, val_losses)
-plt.xlabel('log_lambda')
-plt.ylabel('Validation Loss')
-plt.title('Val Loss vs log_lambda')
-plt.grid(True)
 
 plt.tight_layout()
 plt.show()
