@@ -14,7 +14,7 @@ class RLLSTM(torch.nn.Module):
     def __init__(self, n_cells, n_actions):
         super().__init__()
         
-        self.lstm = torch.nn.LSTM(n_actions*2, n_cells, batch_first=True)
+        self.lstm = torch.nn.LSTM(n_actions*2, n_cells, batch_first=True, dropout=0.5)
         self.lin_out = torch.nn.Linear(n_cells, n_actions)
         self.softmax = torch.nn.Softmax(dim=-1)
         self.device = torch.device('cpu')
@@ -166,17 +166,19 @@ def main(path_save_model:str, path_data: str, n_actions: int, n_cells: int, n_ep
     
 if __name__=='__main__':
     
-    # dataset_name = 'eckstein2022'
-    dataset_name = 'dezfouli2019'
+    dataset_name = 'eckstein2022'
+    split_ratio = 0.8
     
-    path_model_save = f'params/{dataset_name}/lstm_{dataset_name}_training_0_5.pkl'
+    # dataset_name = 'dezfouli2019'
+    # split_ratio = [3, 6, 9]
+    
+    path_model_save = f'params/{dataset_name}/lstm_{dataset_name}.pkl'
     path_data = f'data/{dataset_name}/{dataset_name}.csv'
     n_actions = 2
-    n_cells = 32
+    n_cells = 16
     n_epochs = 3000
     lr = 1e-3
-    split_ratio = [3, 6, 9]
-    # split_ratio = [1, 3, 4, 6, 8, 10]
+    
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     
     main(path_save_model=path_model_save, path_data=path_data, n_actions=n_actions, n_cells=n_cells, n_epochs=n_epochs, lr=lr, split_ratio=split_ratio, device=device)

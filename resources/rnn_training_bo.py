@@ -120,7 +120,7 @@ def fit_with_metaopt(
                     dataset_val=dataset_val,
                     model_optimizer=model_optimizer,
                     convergence_threshold=1e-7,
-                    epochs=5,  # Number of training steps for each bo point
+                    epochs=1024,  # Number of training steps for each bo point
                     batch_size=batch_size,
                     bagging=bagging,
                     scheduler=scheduler,

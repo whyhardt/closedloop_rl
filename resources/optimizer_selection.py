@@ -2,7 +2,6 @@ import sys, os
 
 import optuna
 import numpy as np
-import torch
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from resources.fit_sindy import fit_sindy_pipeline
@@ -21,7 +20,10 @@ def optimize_for_participant(
     library_setup: dict,
     filter_setup: dict,
     polynomial_degree: int,
+    optimizer_type: str,
     n_sessions_off_policy: int,
+    n_trials_off_policy: int,
+    n_trials_same_action_off_policy: int,
     n_trials_optuna: int = 50,
     timeout: int = 600,  # ? 10 minutes timeout
     threshold: float = 0.01,
@@ -46,18 +48,21 @@ def optimize_for_participant(
         dict: Best optimizer configuration with type and parameters
     """
     
+    threshold = 0.01
+    
     def objective(trial):
         
         # Sample optimizer type
-        optimizer_type = trial.suggest_categorical("optimizer_type", ["STLSQ", "SR3_L1"])#, "SR3_weighted_l1"])
+        # optimizer_type = trial.suggest_categorical("optimizer_type", ["STLSQ", "SR3_L1"])#, "SR3_weighted_l1"])
         
         # Sample optimizer hyperparameters
         optimizer_alpha = trial.suggest_float("optimizer_alpha", 0.01, 1.0, log=True)
         optimizer_threshold = trial.suggest_float("optimizer_threshold", 0.01, 0.2, log=True)
         
         # Sample off-policy parameters
-        n_trials_off_policy = trial.suggest_categorical("n_trials_off_policy", [1000, 2000])
-        n_trials_same_action_off_policy = trial.suggest_categorical("n_trials_same_action_off_policy", [5, 10, 20])
+        # n_sessions_off_policy = trial.suggest_categorical("n_sessions_off_policy", [0, 1])
+        # n_trials_off_policy = trial.suggest_categorical("n_trials_off_policy", [1000, 2000])
+        # n_trials_same_action_off_policy = trial.suggest_categorical("n_trials_same_action_off_policy", [5, 10, 20])
         
         # just fit the SINDy modules with the given parameters 
         sindy_modules = fit_sindy_pipeline(
@@ -86,16 +91,27 @@ def optimize_for_participant(
             spice_modules[rnn_module][participant_id] = sindy_modules[rnn_module]
         
         agent_spice = AgentSpice(model_rnn=agent_rnn._model, sindy_modules=spice_modules, n_actions=agent_rnn._n_actions)
-                
-        # compute error
-        probs_spice = get_update_dynamics(experiment=data.xs[0], agent=agent_spice)[1]
-        lik_spice = np.exp(log_likelihood(data.xs[0, :probs_spice.shape[0], :agent_rnn._n_actions].numpy(), probs=probs_spice) / probs_spice.size)
-        error = metric_rnn - lik_spice
         
-        if error == np.nan:
-            error = 1e3
+        # compute loss
+        probs_spice = get_update_dynamics(experiment=data.xs[0], agent=agent_spice)[1]
+        
+        # loss: Difference between average trial likelihoods of RNN and SPICE -> SPICE can become even better than RNN; But that does not make sense on off-policy data
+        # lik_spice = np.exp(log_likelihood(data.xs[0, :probs_spice.shape[0], :agent_rnn._n_actions].numpy(), probs=probs_spice) / probs_spice.size)
+        # loss = metric_rnn - lik_spice
+        
+        # loss: MSE between predicted trial probabilities
+        loss_reconstruction = np.power(metric_rnn - probs_spice, 2).mean()
+        # loss_parameter = bayesian_information_criterion(data.xs[0, :len(probs_spice), :agent_spice._n_actions].numpy(), probs_spice, n_parameters=agent_spice.count_parameters()[agent_spice.get_participant_ids()[0]])/len(probs_spice)
+        penalty_parameters = 0
+        penalty_parameters += np.sum([np.sum(np.abs(sindy_modules[module].coefficients())) for module in sindy_modules])
+        loss = loss_reconstruction + penalty_parameters * 1e-4
+        
+        if loss == np.nan:
+            loss = 1e3
                     
-        return error
+        return loss
+    
+    threshold_no_improvement = 50
     
     def callback_no_improvement(study, trial):
         """
@@ -124,13 +140,17 @@ def optimize_for_participant(
             study.set_user_attr("trial_count", trial_count)
 
             # Stop the study if patience is exceeded
-            if trial_count >= 15:
+            if trial_count >= threshold_no_improvement:
                 study.stop()
         
     def callback_threshold_reached(study, trial):
-        if study.best_value < threshold:  # Use the threshold argument
-            study.stop()
-    
+        try:
+            if study.best_value < threshold:  # Use the threshold argument
+                study.stop()
+        except ValueError as e:
+            if "No trials are completed yet" in str(e):
+                pass
+        
     study = optuna.create_study(direction="minimize")
     study.optimize(
         objective, 
@@ -139,14 +159,15 @@ def optimize_for_participant(
         show_progress_bar=True, 
         callbacks=[
             callback_threshold_reached, 
-            callback_no_improvement,
+            # callback_no_improvement,
             ],
     )
     
     return {
-        "optimizer_type": study.best_params["optimizer_type"],
+        # "optimizer_type": study.best_params["optimizer_type"],
         "optimizer_alpha": study.best_params["optimizer_alpha"],
         "optimizer_threshold": study.best_params["optimizer_threshold"],
-        "n_trials_off_policy": study.best_params["n_trials_off_policy"],
-        "n_trials_same_action_off_policy": study.best_params["n_trials_same_action_off_policy"],
+        # "n_sessions_off_policy": study.best_params["n_sessions_off_policy"],
+        # "n_trials_off_policy": study.best_params["n_trials_off_policy"],
+        # "n_trials_same_action_off_policy": study.best_params["n_trials_same_action_off_policy"],
     }

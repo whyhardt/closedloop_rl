@@ -98,12 +98,12 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 1
     # Now using normal lambda
+    prev_lambda = torch.tensor(0.0) # Init at 0
     lambda_val = 0.0  # Initial value for lambda, make sure its float
-    ema_scale = 0.5  # Exponential moving average scale: lower = more smoothing
+    ema_scale = 0.1  # Exponential moving average scale: lower = more smoothing
 
-    awd_scale = 0.5 # 0.1 is Scaling from AWD paper (Ghiasi et al., 2023)
+    awd_scale = 0.1 # 0.1 is scaling from AWD paper (Ghiasi et al., 2023) # This is basically a new hyperparameter
 
 
     # Training loop
@@ -136,7 +136,7 @@ def fit_with_metaopt(
                                  )
             
             # Backprop step to get the gradients
-            train_loss.backward()
+            train_loss.backward(retain_graph=True)
 
             # AWD meta-optimization step TODO: Find out how this works
             # 1. Compute average gradient and weight norms
@@ -145,10 +145,7 @@ def fit_with_metaopt(
             current_lambda = (awd_scale * grad_norm) / (weight_norm + 1e-8)  # Avoid dividing by zero
 
             # 2. Apply EMA smoothing
-            if epoch == 0:
-                prev_lambda = 0.0
-
-            lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda
+            lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda.detach()
             prev_lambda = lambda_val
             lambda_val = current_lambda
 
@@ -156,6 +153,10 @@ def fit_with_metaopt(
             train_loss += lambda_val * l2_norm
 
             # Update only after AWD
+            # May be able to backward only once TODO: Implement this
+            model_optimizer.zero_grad()
+            train_loss.backward()
+            #
             model_optimizer.step()
 
             # Validation step

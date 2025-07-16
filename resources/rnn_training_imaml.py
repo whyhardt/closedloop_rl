@@ -85,7 +85,7 @@ def fit_with_metaopt(
     last_loss = 1
     recency_factor = 0.5
     train_loss = torch.tensor(0.)
-    val_loss = torch.tensor(0.) # 0 for the first 10 epochs
+    val_loss = torch.tensor(0.)
     save_at_epoch = warmup_steps
 
     # Initialize hypergrad if we use update freq
@@ -98,15 +98,12 @@ def fit_with_metaopt(
     history_hypergrad = []
 
     # Set up meta-optimization
-    update_freq = 5
-    initial_log_lambda = -4.0  # Initial value for log_lambda, make sure its float
-    lr_log_lambda = 1e-1  # Learning rate for log_lambda
+    update_freq = 10
+    initial_log_lambda = -8.0  # Initial value for log_lambda, make sure its float
+    lr_log_lambda = 1  # Learning rate for log_lambda
     momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
     # I am also clipping the hypergrads, its in the loop
     ema_smoothing = 0.9 # Lower values weight previous values more
-    hypergrad_scalar = 1e-6  # Scalar to normalize hypergrad 
-    # Try with val window
-    val_window = 10
 
     # Lookahead number of steps
     num_inner_steps = 5 # 3 is usually min
@@ -196,7 +193,6 @@ def fit_with_metaopt(
                     torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), ) # No regularization here
                 # Now compute grads
                 val_grads = torch.autograd.grad(val_loss, inner_model.parameters(), create_graph=True) # Maybe retain graph
-                pass
 
                 # Step 3: Approximate inverse Hessian-vector product
                 # Using the conjugate gradient method
@@ -208,22 +204,17 @@ def fit_with_metaopt(
                 reg_term = reg_term.mean()  # L2 norm
                 # Compute full regularization
                 reg = lambda_val * reg_term
-                # reg_grad = torch.autograd.grad(reg_term, log_lambda, retain_graph=True)[0]
-                reg_grad = reg.detach() 
+                reg = reg.detach() 
 
                 # Step 5: Compute the hypergrad
-                hypergrad = -sum((g * v_i).sum() for g, v_i in zip(val_grads, inv_hvp)) + reg_grad
+                hypergrad = -sum((g * v_i).sum() for g, v_i in zip(val_grads, inv_hvp)) + reg
                 # Apply grad clipping, keeps from exploding
-                hypergrad = torch.clamp(hypergrad, -1.0, 1.0)
-
+                hypergrad = torch.clamp(hypergrad, -2.0, 2.0)
 
                 # Step 6: Update log_lambda
                 lambda_optimizer.zero_grad()
                 log_lambda.grad = hypergrad
                 lambda_optimizer.step()
-
-                # Clip log_lambda, so it can't decrease or explode
-                log_lambda.data = torch.clamp(log_lambda.data, -10.0, 0.0)
 
             # Normal training step
             model_optimizer.zero_grad()

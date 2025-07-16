@@ -6,12 +6,14 @@ import matplotlib.pyplot as plt
 
 import benchmarking_dezfouli2019, benchmarking_eckstein2022
 
-# path_model = 'params/eckstein2022/mcmc_eckstein2022_ApBrAcfpBcfBch.nc' 
-# rl_model = benchmarking_eckstein2022.rl_model'
+# path_model = 'params/eckstein2022/mcmc_eckstein2022_ApBr_new.nc'
+path_model = 'benchmarking/params/mcmc_eckstein2022_ApAnBrBcfBch.nc'
+rl_model = benchmarking_eckstein2022.rl_model
+params = ['alpha_pos', 'alpha_neg', 'beta_r', 'beta_ch']
 
-path_model = 'params/dezfouli2019/mcmc_dezfouli2019_gql.nc'
-gql_model = benchmarking_dezfouli2019.gql_model
-params = ['phi', 'beta', 'chi', 'kappa']
+# path_model = 'params/dezfouli2019/mcmc_dezfouli2019_gql.nc'
+# gql_model = benchmarking_dezfouli2019.gql_model
+# params = ['phi', 'beta', 'chi', 'kappa']
 
 # setup mcmc agent
 with open(path_model, 'rb') as file:

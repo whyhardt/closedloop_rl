@@ -125,8 +125,9 @@ class Agent_eckstein2022(Agent):
         alpha_counterfactual_penalty: float = 0.,
         beta_choice: float = 0.,
         alpha_choice: float = 1.,
+        deterministic: bool = True,
     ):
-        super().__init__(n_actions=n_actions)
+        super().__init__(n_actions=n_actions, deterministic=deterministic)
         
         self._n_actions = n_actions
         self._q_init = 0.5
@@ -163,8 +164,8 @@ class Agent_eckstein2022(Agent):
         
         # Use shared update function
         r_values_new, c_values_new, _ = rl_update_step(
-            self._state['x_value_reward'],
-            self._state['x_value_choice'],
+            self._state['x_value_reward'].reshape(-1),
+            self._state['x_value_choice'].reshape(-1),
             choice,
             reward_value,
             self._params
@@ -177,17 +178,21 @@ class Agent_eckstein2022(Agent):
     @property
     def q(self):
         return (self._state['x_value_reward'] * self._params['beta_r'] + 
-                self._state['x_value_choice'] * self._params['beta_ch'])
+                self._state['x_value_choice'] * self._params['beta_ch']).reshape(-1)
 
+    @property
+    def q_choice(self):
+        return (self._state['x_value_choice'] * self._params['beta_ch']).reshape(-1)
+    
 
-def setup_agent_mcmc(model: str) -> List[Agent_eckstein2022]:
+def setup_agent_benchmark(path_model: str, model_config: str, deterministic: bool = True, **kwargs) -> List[Agent_eckstein2022]:
     """Setup MCMC agents using the shared Agent class."""
     
-    with open(model, 'rb') as file:
+    with open(path_model, 'rb') as file:
         mcmc = pickle.load(file)
     
     n_sessions = mcmc.get_samples()[list(mcmc.get_samples().keys())[0]].shape[-1]
-    model_name = model.split('_')[-1].split('.')[0]
+    model_name = path_model.split('_')[-1].split('.')[0]
     
     agents = []
     
@@ -229,9 +234,18 @@ def setup_agent_mcmc(model: str) -> List[Agent_eckstein2022]:
             beta_reward=parameters['beta_r']*15,
             beta_choice=parameters['beta_ch']*15,
             beta_counterfactual=1.0 if 'Bcf' in model_name else 0.0,
+            deterministic=deterministic,
         ))
     
-    return agents
+    n_parameters = 0
+    for letter in model_config:
+        if not letter.islower():
+            n_parameters += 1
+    if 'Bcf' in model_config:
+        # remove again one parameter because Bcf is not trained
+        n_parameters -= 1
+            
+    return agents, n_parameters
 
 
 def rl_model(model, choice, reward):
@@ -298,7 +312,7 @@ def rl_model(model, choice, reward):
             beta_ch = numpyro.sample("beta_ch", dist.Beta(beta_ch_mean * beta_ch_kappa, (1 - beta_ch_mean) * beta_ch_kappa))[:, None] * beta_scaling
         else:
             beta_ch = jnp.full((n_participants, 1), 0.0)
-
+            
         if model[6]:
             beta_r = numpyro.sample("beta_r", dist.Beta(beta_r_mean * beta_r_kappa, (1 - beta_r_mean) * beta_r_kappa))[:, None] * beta_scaling
         else:
@@ -367,7 +381,7 @@ def encode_model_name(model: str, model_parts: list) -> np.ndarray:
     return enc
 
 
-def fit_mcmc(file: str, model: str, num_samples: int, num_warmup: int, num_chains: int, output_dir: str, checkpoint: bool, train_test_ratio: float = 1.):
+def fit_mcmc(data: str, model: str, num_samples: int, num_warmup: int, num_chains: int, output_dir: str, checkpoint: bool, train_test_ratio: float = 1.):
     # Set output file
     output_file = os.path.join(output_dir, 'mcmc_eckstein2022_'+model+'.nc')
     
@@ -380,7 +394,7 @@ def fit_mcmc(file: str, model: str, num_samples: int, num_warmup: int, num_chain
         raise ValueError(f'The provided model {model} is not supported. At least some part of the configuration ({model_checked}) is not valid. Valid configurations may include {valid_config}.')
     
     # Get and prepare the data
-    dataset = convert_dataset(file)[0]
+    dataset = convert_dataset(data)[0]
     if isinstance(train_test_ratio, float):
         dataset = split_data_along_timedim(dataset=dataset, split_ratio=train_test_ratio)[0].xs.numpy()
     else:
@@ -399,8 +413,8 @@ def fit_mcmc(file: str, model: str, num_samples: int, num_warmup: int, num_chain
     print('Initialized MCMC model.')
     
     if checkpoint:
-        with open(output_file, 'rb') as file:
-            checkpoint = pickle.load(file)
+        with open(output_file, 'rb') as data:
+            checkpoint = pickle.load(data)
         mcmc.post_warmup_state = checkpoint.last_state
         rng_key = mcmc.post_warmup_state.rng_key
         print('Checkpoint loaded.')
@@ -409,8 +423,8 @@ def fit_mcmc(file: str, model: str, num_samples: int, num_warmup: int, num_chain
         
     mcmc.run(rng_key, model=tuple(encode_model_name(model, valid_config)), choice=jnp.array(choices.swapaxes(1, 0)), reward=jnp.array(rewards.swapaxes(1, 0)))
 
-    with open(output_file, 'wb') as file:
-        pickle.dump(mcmc, file)
+    with open(output_file, 'wb') as data:
+        pickle.dump(mcmc, data)
     
     return mcmc
 
@@ -418,19 +432,32 @@ def fit_mcmc(file: str, model: str, num_samples: int, num_warmup: int, num_chain
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Performs a hierarchical bayesian parameter inference with numpyro.')
 
-    parser.add_argument('--file', type=str, default='data/eckstein2022/eckstein2022.csv', help='Dataset of a 2-armed bandit task with columns (session, choice, reward)')
+    parser.add_argument('--data', type=str, default='data/eckstein2022/eckstein2022.csv', help='Dataset of a 2-armed bandit task with columns (session, choice, reward)')
     parser.add_argument('--model', type=str, default='ApBr', help='Model configuration (Ap: learning rate for positive outcomes, An: learning rate for negative outcomes, Ac: learning rate for choice-based value, Bc: Importance of choice-based values, Br: Importance and inverse noise termperature for reward-based values)')
-    parser.add_argument('--num_samples', type=int, default=10, help='Number of MCMC samples')
-    parser.add_argument('--num_warmup', type=int, default=5, help='Number of warmup samples (additional)')
-    parser.add_argument('--num_chains', type=int, default=1, help='Number of chains')
+    parser.add_argument('--num_samples', type=int, default=5000, help='Number of MCMC samples')
+    parser.add_argument('--num_warmup', type=int, default=1000, help='Number of warmup samples (additional)')
+    parser.add_argument('--num_chains', type=int, default=2, help='Number of chains')
     parser.add_argument('--output_dir', type=str, default='benchmarking/params', help='Output directory')
     parser.add_argument('--checkpoint', action='store_true', help='Whether to load the specified output file as a checkpoint')
+    parser.add_argument('--train_test_ratio', type=float, default=1.0, help='Relative training set size of the total number of samples')
 
     args = parser.parse_args()
 
-    mcmc = fit_mcmc(args.file, args.model, args.num_samples, args.num_warmup, args.num_chains, args.output_dir, args.checkpoint)
+    mcmc = fit_mcmc(
+        data=args.data, 
+        model=args.model, 
+        num_samples=args.num_samples, 
+        num_warmup=args.num_warmup, 
+        num_chains=args.num_chains, 
+        output_dir=args.output_dir, 
+        checkpoint=args.checkpoint, 
+        train_test_ratio=args.train_test_ratio,
+        )
 
-    agent_mcmc = setup_agent_mcmc(os.path.join(args.output_dir, 'mcmc_eckstein2022_'+args.model+'.nc'))
+    agent_mcmc = setup_agent_benchmark(
+        path_model=os.path.join(args.output_dir, 'mcmc_eckstein2022_'+args.model+'.nc'),
+        model_config=args.model,
+        )
     experiment = convert_dataset(args.file)[0].xs[0]
-    fig, axs = plot_session(agents={'benchmark': agent_mcmc[0]}, experiment=experiment)
+    fig, axs = plot_session(agents={'benchmark': agent_mcmc[0][0]}, experiment=experiment)
     plt.show()

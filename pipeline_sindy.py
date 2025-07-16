@@ -8,8 +8,9 @@ from typing import List, Dict
 
 sys.path.append('resources')
 from resources.bandits import AgentQ, BanditsDrift, BanditsSwitch, plot_session, create_dataset as create_dataset_bandits
-from resources.sindy_utils import check_library_setup, save_spice
+from resources.rnn import RLRNN_eckstein2022
 from resources.rnn_utils import parameter_file_naming
+from resources.sindy_utils import check_library_setup, save_spice, SindyConfig_eckstein2022
 from resources.sindy_training import fit_spice
 from utils.convert_dataset import convert_dataset
 from utils.plotting import plot_session as plot_session
@@ -199,7 +200,7 @@ def main(
         optimizer_alpha=optimizer_alpha,
         get_loss=get_loss,
         participant_id=participant_id,
-        shuffle=True,
+        shuffle=False,
         verbose=verbose,
         use_optuna=use_optuna,
         filter_bad_participants=filter_bad_participants,
@@ -307,21 +308,35 @@ if __name__=='__main__':
     parser.add_argument("--data", type=str, default=None, help="Path to data file")
     parser.add_argument("--participant_id", type=int, default=None, help="Participant ID")
     parser.add_argument("--polynomial_degree", type=int, default=2, help="Polynomial degree")
-    parser.add_argument("--optimizer_type", type=str, default="SR3_L1", choices=["STLSQ", "SR3_L1", "SR3_weighted_l1"], help="Optimizer type")
+    parser.add_argument("--optimizer_type", type=str, default="SR3_weighted_l1", choices=["STLSQ", "SR3_L1", "SR3_weighted_l1"], help="Optimizer type")
     parser.add_argument("--optimizer_alpha", type=float, default=0.1, help="Optimizer alpha")
     parser.add_argument("--optimizer_threshold", type=float, default=0.05, help="Optimizer threshold")
+    parser.add_argument("--optuna_threshold", type=float, default=0.1, help="Threshold to use Optuna: Difference of action probabilities between RNN and discovered SPICE model")
+    parser.add_argument("--optuna_n_trials", type=int, default=50, help="Number of Optuna trials to optimize SPICE fitting configuration")
     parser.add_argument("--use_optuna", action="store_true", help="Use Optuna to find the best optimizer for each participant")
     parser.add_argument("--filter_bad_participants", action="store_true", help="Remove badly fitted participants")
-    parser.add_argument("--n_trials_off_policy", type=int, default=1024, help="Number of trials for off-policy data")
+    parser.add_argument("--n_trials_off_policy", type=int, default=1000, help="Number of trials for off-policy data")
+    parser.add_argument("--n_trials_same_action_off_policy", type=int, default=5, help="Number of same actions in a row for off-policy data")
     parser.add_argument("--n_sessions_off_policy", type=int, default=1, help="Number of sessions for off-policy data")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--analysis", action="store_true", help="Perform analysis")
     parser.add_argument("--get_loss", action="store_true", help="Compute loss")
     parser.add_argument("--save", action="store_true", help="Pickle SPICE parameters")
+    parser.add_argument('--train_test_ratio', type=str, default="1.0", help='Ratio of training data; Can also be a comma-separated list of integeres to indicate testing sessions.')
     
     args = parser.parse_args()
     
+    # convert train_test_ratio to number of list of numbers
+    if ',' in args.train_test_ratio:
+        train_test_ratio = [int(x) for x in args.train_test_ratio.split(',')]
+    else:
+        train_test_ratio = float(args.train_test_ratio)
+    
+    class_rnn = RLRNN_eckstein2022
+    sindy_config = SindyConfig_eckstein2022
+    
     agent_spice, features, loss = main(
+        class_rnn=class_rnn,
         model=args.model,
         data=args.data,
         save=args.save,
@@ -331,12 +346,17 @@ if __name__=='__main__':
         optimizer_alpha=args.optimizer_alpha,
         optimizer_threshold=args.optimizer_threshold,
         n_trials_off_policy=args.n_trials_off_policy,
+        n_trials_same_action_off_policy=args.n_trials_same_action_off_policy,
         n_sessions_off_policy=args.n_sessions_off_policy,
         verbose=args.verbose,
         analysis=args.analysis,
         get_loss=args.get_loss,
         use_optuna=args.use_optuna,
         filter_bad_participants=args.filter_bad_participants,
+        train_test_ratio=args.train_test_ratio,
+        optuna_threshold=args.optuna_threshold,
+        optuna_n_trials=args.optuna_n_trials,
+        **sindy_config,
     )
     
     if loss is not None:

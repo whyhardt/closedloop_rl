@@ -91,10 +91,13 @@ class DatasetRNN(Dataset):
 def load_checkpoint(params_path, model, optimizer):
     # load trained parameters
     state_dict = torch.load(params_path, map_location=torch.device('cpu'))
+    
     state_dict_model = state_dict['model']
     state_dict_optimizer = state_dict['optimizer']
+    
     model.load_state_dict(state_dict_model)
     optimizer.load_state_dict(state_dict_optimizer)
+    
     return model, optimizer
 
 

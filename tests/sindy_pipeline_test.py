@@ -15,7 +15,7 @@ from resources import rnn, sindy_utils
 # sindy_config = SindyConfig
 
 path_data = 'data/eckstein2022/eckstein2022.csv'
-path_model = 'params/eckstein2022/rnn_eckstein2022_no_l1_l2_0_001.pkl'
+path_model = 'params/AWD_8192_eckstein2022_rnn.pkl'
 sindy_config = sindy_utils.SindyConfig_eckstein2022
 class_rnn = rnn.RLRNN_eckstein2022
 additional_inputs = None
@@ -49,7 +49,7 @@ agent_spice, features, loss = pipeline_sindy.main(
     # general recovery parameters
     participant_id=None,
     filter_bad_participants=False,
-    use_optuna=True,
+    use_optuna=False, # Set to True later
     pruning=False,
     
     # sindy parameters
