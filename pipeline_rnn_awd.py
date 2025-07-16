@@ -6,6 +6,7 @@ import time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from copy import deepcopy
 from typing import Callable
 import argparse
 from typing import List
@@ -152,17 +153,27 @@ def main(
     if train_test_ratio < 1:
       dataset_train, dataset_test = rnn_utils.split_data_along_timedim(dataset, train_test_ratio)
       dataset_train = bandits.DatasetRNN(dataset_train.xs, dataset_train.ys, sequence_length=sequence_length, device=device)
+      dataset_val, dataset_test = rnn_utils.split_data_along_timedim(dataset_test, 0.5) # Split test set for val set
     else:
       dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length, device=device)
       # if dataset_test is None:
       #   dataset_test = bandits.DatasetRNN(dataset.xs, dataset.ys, device=device)
   elif isinstance(train_test_ratio, list):
-    dataset_train, dataset_test = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=train_test_ratio, device=device)
-  elif train_test_ratio is None:
+    val_test_split = len(train_test_ratio) // 2
+    # train_test_ratio are all the test sessions
+    val_sessions = train_test_ratio[:val_test_split]
+    test_sessions = train_test_ratio[val_test_split:]
+
+    dummy_set = deepcopy(dataset)
+
+    dataset_train, _ = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=train_test_ratio, device=device)
+    _, dataset_val = rnn_utils.split_data_along_sessiondim(dummy_set, list_test_sessions=val_sessions, device=device)
+    _, dataset_test = rnn_utils.split_data_along_sessiondim(dummy_set, list_test_sessions=test_sessions, device=device)
+    # TODO: Check if this works
     dataset_train, dataset_test = dataset, dataset
   else:
-    raise TypeError("train_test_raio must be either a float number or a list of integers containing the session/block ids which should be used as test sessions/blocks")
-  
+    raise TypeError("train_test_ratio must be either a float number or a list of integers containing the session/block ids which should be used as test sessions/blocks")
+
   if data is None and model is None:
     params_path = rnn_utils.parameter_file_naming(
       'params/params', 
@@ -210,7 +221,7 @@ def main(
     model, optimizer_rnn, histories = rnn_training_awd.fit_with_metaopt(
         model=model,
         dataset_train=dataset_train,
-        dataset_val=dataset_test,
+        dataset_val=dataset_val,
         model_optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs,

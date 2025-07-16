@@ -152,6 +152,7 @@ def main(
     if train_test_ratio < 1:
       dataset_train, dataset_test = rnn_utils.split_data_along_timedim(dataset, train_test_ratio)
       dataset_train = bandits.DatasetRNN(dataset_train.xs, dataset_train.ys, sequence_length=sequence_length, device=device)
+      dataset_val, dataset_test = rnn_utils.split_data_along_timedim(dataset_test, 0.5) # Split test set for val set
     else:
       dataset_train = bandits.DatasetRNN(dataset.xs, dataset.ys, sequence_length=sequence_length, device=device)
       # if dataset_test is None:
@@ -210,7 +211,7 @@ def main(
     model, optimizer_rnn, histories = rnn_training_imaml.fit_with_metaopt(
         model=model,
         dataset_train=dataset_train,
-        dataset_val=dataset_test,
+        dataset_val=dataset_val,
         model_optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs,
