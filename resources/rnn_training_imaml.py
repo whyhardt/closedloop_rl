@@ -236,6 +236,7 @@ def fit_with_metaopt(
             # Validation step for non-meta-optimization
             if (epoch + 1) % update_freq != 0:
                 model.eval()
+                model.set_initial_state(batch_size=len(xs_val))
                 state = model.get_state(detach=True)
                 val_preds = model(xs_val, state, batch_first=True)[0]
                 val_preds = apply_mask(val_preds, xs_val)

@@ -159,6 +159,7 @@ def fit_with_metaopt(
                     # Predict and compute val loss
                     # Set fmodel to eval mode
                     fmodel.eval()
+                    fmodel.set_initial_state(batch_size=len(xs_val))
                     state = fmodel.get_state(detach=True)
                     val_preds = fmodel(xs_val, state, batch_first=True)[0]
                     val_preds = apply_mask(val_preds, xs_val)
@@ -169,6 +170,7 @@ def fit_with_metaopt(
 
                     # Recompute train loss for next step (after diffopt.step)
                     fmodel.train()
+                    fmodel.set_initial_state(batch_size=len(xs))
                     state = fmodel.get_state(detach=True)
                     train_preds = fmodel(xs, state, batch_first=True)[0]
                     params = torch.cat([p.view(-1) for p in fmodel.parameters()])
@@ -219,6 +221,7 @@ def fit_with_metaopt(
             # Validation step for non-meta-optimization
             if (epoch + 1) % update_freq != 0:
                 model.eval()
+                model.set_initial_state(batch_size=len(xs_val))
                 state = model.get_state(detach=True)
                 val_preds = model(xs_val, state, batch_first=True)[0]
                 val_preds = apply_mask(val_preds, xs_val)

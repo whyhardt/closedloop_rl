@@ -22,7 +22,7 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 path_model = 'params/iMAML-4096.pkl'
 path_data = 'data/eckstein2022/eckstein2022.csv'
-train_test_ratio = 0.7
+train_test_ratio = 0.8
 class_rnn = RLRNN
 additional_inputs = None
 # class_rnn = RLRNN_meta_eckstein2022

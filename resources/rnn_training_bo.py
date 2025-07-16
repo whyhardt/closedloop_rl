@@ -91,9 +91,6 @@ def fit_with_metaopt(
     val_loss = torch.tensor(0.) # 0 for the first 10 epochs
     save_at_epoch = warmup_steps
 
-    # Initialize hypergrad if we use update freq
-    hypergrad = torch.tensor(0.)
-
     # Histories for plotting
     history_train_loss = []
     history_val_loss = []
@@ -101,13 +98,14 @@ def fit_with_metaopt(
 
     # Set up meta-optimization
     initial_log_lambda = -4.0
-    bo_n_calls=50 # Number of bayesian optim steps
+    bo_n_calls=10 # Number of bayesian optim steps; 10 is min
 
     # Training loop
     try:
         # Perform Bayesian Optimization first:
         # Bayesian Optimization objective function
         if perform_bo == True:
+            path_save_checkpoints = None 
             print("Starting Bayesian Optimization for log_lambda...")
             def bo_objective(log_lambda):
                 log_lambda = torch.tensor(log_lambda)
@@ -120,7 +118,7 @@ def fit_with_metaopt(
                     dataset_val=dataset_val,
                     model_optimizer=model_optimizer,
                     convergence_threshold=1e-7,
-                    epochs=1024,  # Number of training steps for each bo point
+                    epochs=1,  # Number of training steps for each bo point, 1024 makes sense
                     batch_size=batch_size,
                     bagging=bagging,
                     scheduler=scheduler,
@@ -170,7 +168,6 @@ def fit_with_metaopt(
             params = torch.cat([p.view(-1) for p in model.parameters()])
             l2_norm = (params ** 2).mean()
             outputs = apply_mask(outputs, xs)
-            # Detach lambda_val from this computation graph so this update does not influence hypergrad calculation
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                  torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
                                  ) + lambda_val * l2_norm
@@ -181,6 +178,7 @@ def fit_with_metaopt(
 
             # Validation step 
             model.eval()
+            model.set_initial_state(batch_size=len(xs_val))
             state = model.get_state(detach=True)
             val_preds = model(xs_val, state, batch_first=True)[0]
             val_preds = apply_mask(val_preds, xs_val)

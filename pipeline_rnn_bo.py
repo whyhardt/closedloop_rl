@@ -157,7 +157,16 @@ def main(
       # if dataset_test is None:
       #   dataset_test = bandits.DatasetRNN(dataset.xs, dataset.ys, device=device)
   elif isinstance(train_test_ratio, list):
-    dataset_train, dataset_test = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=train_test_ratio, device=device)
+    val_test_split = len(train_test_ratio) // 2
+    # train_test_ratio are all the test sessions
+    val_sessions = train_test_ratio[:val_test_split]
+    test_sessions = train_test_ratio[val_test_split:]
+
+    dataset_train, _ = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=train_test_ratio, device=device)
+    _, dataset_val = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=val_sessions, device=device)
+    _, dataset_test = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=test_sessions, device=device)
+  elif train_test_ratio is None:
+    dataset_train, dataset_test = dataset, dataset
   elif train_test_ratio is None:
     dataset_train, dataset_test = dataset, dataset
   else:

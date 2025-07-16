@@ -164,12 +164,10 @@ def main(
     val_sessions = train_test_ratio[:val_test_split]
     test_sessions = train_test_ratio[val_test_split:]
 
-    dummy_set = deepcopy(dataset)
-
     dataset_train, _ = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=train_test_ratio, device=device)
-    _, dataset_val = rnn_utils.split_data_along_sessiondim(dummy_set, list_test_sessions=val_sessions, device=device)
-    _, dataset_test = rnn_utils.split_data_along_sessiondim(dummy_set, list_test_sessions=test_sessions, device=device)
-    # TODO: Check if this works
+    _, dataset_val = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=val_sessions, device=device)
+    _, dataset_test = rnn_utils.split_data_along_sessiondim(dataset=dataset, list_test_sessions=test_sessions, device=device)
+  elif train_test_ratio is None:
     dataset_train, dataset_test = dataset, dataset
   else:
     raise TypeError("train_test_ratio must be either a float number or a list of integers containing the session/block ids which should be used as test sessions/blocks")

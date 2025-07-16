@@ -37,7 +37,7 @@ seed = 10
 manual_seed(seed)
 np.random.seed(seed)
 
-model, _, histories = pipeline_rnn_awd.main( # Set iMAML or T1-T2 or AWD pipeline
+model, _, histories = pipeline_rnn_t1t2.main( # Set iMAML or T1-T2 or AWD pipeline
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
@@ -114,5 +114,5 @@ plt.ylabel('Hypergrad')
 plt.legend()
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-plt.tight_layout
+plt.tight_layout()
 plt.show()
