@@ -28,36 +28,51 @@ from benchmarking.benchmarking_dezfouli2019 import Dezfouli2019GQL
 # -------------------------------------------------------------------------------
 
 # ------------------- CONFIGURATION ECKSTEIN2022 w/o AGE --------------------
-study = 'eckstein2022'
-models_benchmark = ['ApAnBrBcfBch']#['ApBr', 'ApBrAcfpBcf', 'ApBrAcfpBcfBch', 'ApAnBrBch', 'ApAnBrAcfpAcfnBcfBch', 'ApAnBrBcfBch']
-train_test_ratio = 0.8
-sindy_config = sindy_utils.SindyConfig_eckstein2022
-rnn_class = rnn.RLRNN_eckstein2022
-additional_inputs = None
-setup_agent_benchmark = benchmarking_eckstein2022.setup_agent_benchmark
-rl_model = benchmarking_eckstein2022.rl_model
-benchmark_file = f'mcmc_{study}_MODEL.nc'
-model_config_baseline = 'ApBr'
-baseline_file = f'mcmc_{study}_ApBr.nc'
+# study = 'eckstein2022'
+# models_benchmark = ['ApAnBrBcfBch']#['ApBr', 'ApBrAcfpBcf', 'ApBrAcfpBcfBch', 'ApAnBrBch', 'ApAnBrAcfpAcfnBcfBch', 'ApAnBrBcfBch']
+# train_test_ratio = 0.8
+# sindy_config = sindy_utils.SindyConfig_eckstein2022
+# rnn_class = rnn.RLRNN_eckstein2022
+# additional_inputs = None
+# setup_agent_benchmark = benchmarking_eckstein2022.setup_agent_benchmark
+# rl_model = benchmarking_eckstein2022.rl_model
+# benchmark_file = f'mcmc_{study}_MODEL.nc'
+# model_config_baseline = 'ApBr'
+# baseline_file = f'mcmc_{study}_ApBr.nc'
 
 # -------------------- CONFIGURATION ECKSTEIN2022 w/ AGE --------------------
 # rnn_class = RLRNN_meta_eckstein2022
 # additional_inputs = ['age']
 
 # ------------------------ CONFIGURATION DEZFOULI2019 -----------------------
-# study = 'dezfouli2019'
-# train_test_ratio = [3, 6, 9]
-# models_benchmark = ['PhiChiBetaKappaC']
+study = 'dezfouli2019'
+train_test_ratio = [3, 6, 9]
+models_benchmark = ['PhiChiBetaKappaC']
+sindy_config = sindy_utils.SindyConfig_dezfouli2019
+rnn_class = rnn.RLRNN_dezfouli2019
+additional_inputs = []
+# setup_agent_benchmark = benchmarking_dezfouli2019.setup_agent_benchmark
+# gql_model = benchmarking_dezfouli2019.gql_model
+setup_agent_benchmark = benchmarking_dezfouli2019.setup_agent_gql
+gql_model = benchmarking_dezfouli2019.Dezfouli2019GQL
+benchmark_file = f'gql_{study}_MODEL.pkl'
+model_config_baseline = 'PhiBeta'
+baseline_file = f'gql_{study}_PhiBeta.pkl'
+
+# ------------------------ CONFIGURATION GERSHMAN2018 -----------------------
+# study = 'gershmanB2018'
+# train_test_ratio = [4, 8, 12, 16]
+# models_benchmark = ['PhiBeta']
 # sindy_config = sindy_utils.SindyConfig_eckstein2022
 # rnn_class = rnn.RLRNN_eckstein2022
 # additional_inputs = []
-# setup_agent_benchmark = benchmarking_dezfouli2019.setup_agent_benchmark
-# gql_model = benchmarking_dezfouli2019.gql_model
+# # setup_agent_benchmark = benchmarking_dezfouli2019.setup_agent_benchmark
+# # gql_model = benchmarking_dezfouli2019.gql_model
 # setup_agent_benchmark = benchmarking_dezfouli2019.setup_agent_gql
 # gql_model = benchmarking_dezfouli2019.Dezfouli2019GQL
-# benchmark_file = f'gql_{study}_MODEL.pkl'
+# benchmark_file = f'ql_{study}_MODEL.pkl'
 # model_config_baseline = 'PhiBeta'
-# baseline_file = f'gql_{study}_PhiBeta.pkl'
+# baseline_file = f'ql_{study}_PhiBeta.pkl'
 
 # ------------------------ CONFIGURATION DEZFOULI2019 w/ blocks -----------------------
 # study = 'dezfouli2019'
@@ -69,10 +84,11 @@ baseline_file = f'mcmc_{study}_ApBr.nc'
 
 # ------------------------- CONFIGURATION FILE PATHS ------------------------
 use_test = True
+# spice_suffix = '_l2_0_0005'
 
 path_data = f'data/{study}/{study}.csv'
-path_model_rnn = f'params/{study}/AWD_8192_eckstein2022_rnn.pkl'
-path_model_spice = f'params/{study}/AWD_8192_eckstein2022_spice.pkl'
+path_model_rnn = f'params/{study}/AWD_8192_dezfouli2019_rnn.pkl'
+path_model_spice = f'params/{study}/AWD_8192_dezfouli2019_spice.pkl'
 path_model_baseline = None#os.path.join(f'params/{study}/', baseline_file)
 path_model_benchmark = None#os.path.join(f'params/{study}', benchmark_file) if len(models_benchmark) > 0 else None
 path_model_benchmark_lstm = None#f'params/{study}/lstm_{study}.pkl'

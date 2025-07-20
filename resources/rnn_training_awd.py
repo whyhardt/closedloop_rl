@@ -103,7 +103,7 @@ def fit_with_metaopt(
     lambda_val = 0.0  # Initial value for lambda, make sure its float
     ema_scale = 0.1  # Exponential moving average scale: lower = more smoothing
 
-    awd_scale = 0.1 # 0.1 is scaling from AWD paper (Ghiasi et al., 2023) # This is basically a new hyperparameter
+    awd_scale = 0.5 # 0.1 is scaling from AWD paper (Ghiasi et al., 2023) # This is basically a new hyperparameter
 
 
     # Training loop
@@ -156,7 +156,8 @@ def fit_with_metaopt(
             # May be able to backward only once TODO: Implement this
             model_optimizer.zero_grad()
             train_loss.backward()
-            #
+            # Clip gradients for optuna and non exploding grads
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             model_optimizer.step()
 
             # Validation step

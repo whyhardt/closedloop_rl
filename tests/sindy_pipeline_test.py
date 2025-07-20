@@ -14,25 +14,18 @@ from resources import rnn, sindy_utils
 # class_rnn = RLRNN
 # sindy_config = SindyConfig
 
-path_data = 'data/eckstein2022/eckstein2022.csv'
-path_model = 'params/AWD_8192_eckstein2022_rnn.pkl'
-sindy_config = sindy_utils.SindyConfig_eckstein2022
-class_rnn = rnn.RLRNN_eckstein2022
+# Set seed for torch and np
+from torch import manual_seed
+import numpy as np
+seed = 10
+manual_seed(seed)
+np.random.seed(seed)
+
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+path_model = 'params/dezfouli2019/AWD_8192_dezfouli2019_opt_rnn.pkl'
+sindy_config = sindy_utils.SindyConfig_dezfouli2019
+class_rnn = rnn.RLRNN_dezfouli2019
 additional_inputs = None
-# class_rnn = RLRNN_meta_eckstein2022
-# additional_inputs = ['age']
-
-# path_data = 'data/dezfouli2019/dezfouli2019.csv'
-# path_model = 'params/dezfouli2019/rnn_dezfouli2019_no_l1_l2_0.pkl'
-# class_rnn = rnn.RLRNN_dezfouli2019
-# sindy_config = sindy_utils.SindyConfig_dezfouli2019
-# additional_inputs = None
-
-# path_data = 'data/dezfouli2019/dezfouli2019.csv'
-# path_model = 'params/dezfouli2019/rnn_dezfouli2019_blocks_rldm_l1emb_0_001_l2_0_0001.pkl'
-# class_rnn = rnn.RLRNN_dezfouli2019_blocks
-# sindy_config = sindy_utils.SindyConfig_dezfouli2019_blocks
-# additional_inputs = None
 
 # -------------------------------------------------------------------------------
 # SPICE PIPELINE
@@ -49,7 +42,7 @@ agent_spice, features, loss = pipeline_sindy.main(
     # general recovery parameters
     participant_id=None,
     filter_bad_participants=False,
-    use_optuna=False, # Set to True later
+    use_optuna=True, # Set to True later
     pruning=False,
     
     # sindy parameters
