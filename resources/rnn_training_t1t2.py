@@ -14,6 +14,16 @@ def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
     return preds * mask
 
+# Try with neg avg trial LL
+def neg_avg_trial_log_likelihood(logits, target, inputs):
+    log_probs = torch.log_softmax(logits, dim=-1)
+    # One-hot to index probabilities
+    chosen_log_probs = (log_probs * target).sum(dim=-1)
+    # Apply mask
+    masked_log_probs = apply_mask(chosen_log_probs.unsqueeze(-1), inputs).squeeze(-1)
+    trial_log_likelihood = masked_log_probs.sum(dim=1) / (masked_log_probs != 0).sum(dim=1)
+    return -trial_log_likelihood.mean()
+
 def fit_with_metaopt(
     model: BaseRNN,
     dataset_train: DatasetRNN,
@@ -99,10 +109,10 @@ def fit_with_metaopt(
 
     # Set up meta-optimization
     update_freq = 5
-    initial_log_lambda = -4.0  # Initial value for log_lambda
+    initial_log_lambda = -9.0  # Initial value for log_lambda
     lr_log_lambda = 1.0  # Learning rate for log_lambda
     momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
-    scale_hypergrad = 10  # Scaling factor for hypergrad TODO: Find literature for this
+    scale_hypergrad = 100  # Scaling factor for hypergrad TODO: Find literature for this
 
     # I am also clipping the hypergrads, its in the loop
     log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
@@ -148,9 +158,12 @@ def fit_with_metaopt(
                     l2_norm = (params ** 2).mean()
 
 
-                    train_loss = loss_fn(
-                        train_preds.reshape(-1, model._n_actions),
-                        torch.argmax(ys.reshape(-1, model._n_actions), dim=1),) + lambda_val * l2_norm
+                    # train_loss = loss_fn(
+                    #     train_preds.reshape(-1, model._n_actions),
+                    #     torch.argmax(ys.reshape(-1, model._n_actions), dim=1),) + lambda_val * l2_norm
+
+                    # Try with neg avg trial LL
+                    train_loss = neg_avg_trial_log_likelihood(train_preds, ys, xs) + lambda_val * l2_norm
 
                     # Step with the inner loop optimizer
                     diffopt.step(train_loss)
@@ -176,9 +189,12 @@ def fit_with_metaopt(
                     params = torch.cat([p.view(-1) for p in fmodel.parameters()])
                     l2_norm = (params ** 2).mean()
                     train_preds = apply_mask(train_preds, xs)
-                    train_loss_updated = loss_fn(train_preds.reshape(-1, model._n_actions), 
-                                                torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                                                ) + lambda_val * l2_norm
+                    # train_loss_updated = loss_fn(train_preds.reshape(-1, model._n_actions), 
+                    #                             torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+                    #                             ) + lambda_val * l2_norm
+
+                    # Try with neg avg trial LL
+                    train_loss_updated = neg_avg_trial_log_likelihood(train_preds, ys, xs) + lambda_val * l2_norm
 
                     # Gradients w.r.t. model params
                     train_grads = torch.autograd.grad(train_loss_updated, fmodel.parameters(), create_graph=True)
@@ -190,8 +206,9 @@ def fit_with_metaopt(
                     # Hypergrad: dot product (?) w.r.t. log_lambda
                     hypergrad = torch.autograd.grad(dot, log_lambda)[0]
 
-                # Clip hypergrad and potentially scale it
-                hypergrad = torch.clamp(hypergrad, -5.0, 5.0) * scale_hypergrad
+                    hypergrad = hypergrad / (hypergrad.norm() + 1e-8)  # Normalize hypergrad to prevent exploding gradients
+                # # Clip hypergrad and potentially scale it
+                # hypergrad = torch.clamp(hypergrad, -5.0, 5.0) * scale_hypergrad
 
                 # Update of log_lambda
                 # Set gradient of log_lambda to calculated hypergrad
@@ -210,9 +227,12 @@ def fit_with_metaopt(
             l2_norm = (params ** 2).mean()
             outputs = apply_mask(outputs, xs)
             # Detach lambda_val from this computation graph so this update does not influence hypergrad calculation
-            train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
-                                 torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                                 ) + lambda_val.detach() * l2_norm
+            # train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
+            #                      torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+            #                      ) + lambda_val.detach() * l2_norm
+
+            # Try with neg avg trial LL
+            train_loss = neg_avg_trial_log_likelihood(outputs, ys, xs) + lambda_val.detach() * l2_norm
 
             # Backprop step
             train_loss.backward()

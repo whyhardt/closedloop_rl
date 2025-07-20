@@ -14,6 +14,16 @@ def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
     return preds * mask
 
+# Try with neg avg trial LL
+def neg_avg_trial_log_likelihood(logits, target, inputs):
+    log_probs = torch.log_softmax(logits, dim=-1)
+    # One-hot to index probabilities
+    chosen_log_probs = (log_probs * target).sum(dim=-1)
+    # Apply mask
+    masked_log_probs = apply_mask(chosen_log_probs.unsqueeze(-1), inputs).squeeze(-1)
+    trial_log_likelihood = masked_log_probs.sum(dim=1) / (masked_log_probs != 0).sum(dim=1)
+    return -trial_log_likelihood.mean()
+
 def fit_with_metaopt(
     model: BaseRNN,
     dataset_train: DatasetRNN,
@@ -131,9 +141,11 @@ def fit_with_metaopt(
             l2_norm = (params ** 2).mean()
             outputs = apply_mask(outputs, xs)
             # Calculate the training loss without regularization
-            train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
-                                 torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-                                 )
+            # train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
+            #                      torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+            #                      )
+            # Use neg avg trial LL
+            train_loss = neg_avg_trial_log_likelihood(outputs, ys, xs)
             
             # Backprop step to get the gradients
             train_loss.backward(retain_graph=True)
@@ -167,9 +179,13 @@ def fit_with_metaopt(
             val_preds = model(xs_val, state, batch_first=True)[0]
             val_preds = apply_mask(val_preds, xs_val)
 
-            val_loss = loss_fn(
-                val_preds.reshape(-1, model._n_actions),
-                torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+            # Calculate the validation loss
+            # val_loss = loss_fn(
+            #     val_preds.reshape(-1, model._n_actions),
+            #     torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+
+            # Use neg avg trial LL
+            val_loss = neg_avg_trial_log_likelihood(val_preds, ys_val, xs_val)
 
             # Put lambda in log scale for logging
             log_lambda = torch.log(torch.tensor(lambda_val))

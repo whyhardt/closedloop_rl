@@ -22,10 +22,10 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/dezfouli2019/AWD_8192_dezfouli2019_rnn.pkl'
-path_data = 'data/dezfouli2019/dezfouli2019.csv'
-train_test_ratio = [3, 6, 9]
-class_rnn = RLRNN_dezfouli2019
+path_model = 'params/eckstein2022/T1-T2_2048_eckstein2022_rnn.pkl'
+path_data = 'data/eckstein2022/eckstein2022.csv'
+train_test_ratio = 0.8
+class_rnn = RLRNN_eckstein2022
 additional_inputs = None
 
 # -------------------------------------------------------------------------------
@@ -37,14 +37,14 @@ seed = 10
 manual_seed(seed)
 np.random.seed(seed)
 
-model, _, histories = pipeline_rnn_awd.main( # Set iMAML or T1-T2 or AWD pipeline
+model, _, histories = pipeline_rnn_t1t2.main( # Set iMAML or T1-T2 or AWD pipeline
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
     
     # general training parameters
-    checkpoint="params/dezfouli2019/AWD_8192_dezfouli2019_rnn_ep4096.pkl",
-    epochs=4096, # <- 2^16
+    checkpoint=None,
+    epochs=2048, # <- 2^16
     scheduler=True,
     learning_rate=1e-2,
     

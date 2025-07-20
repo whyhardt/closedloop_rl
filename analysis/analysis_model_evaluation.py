@@ -40,10 +40,6 @@ from benchmarking.benchmarking_dezfouli2019 import Dezfouli2019GQL
 # model_config_baseline = 'ApBr'
 # baseline_file = f'mcmc_{study}_ApBr.nc'
 
-# -------------------- CONFIGURATION ECKSTEIN2022 w/ AGE --------------------
-# rnn_class = RLRNN_meta_eckstein2022
-# additional_inputs = ['age']
-
 # ------------------------ CONFIGURATION DEZFOULI2019 -----------------------
 study = 'dezfouli2019'
 train_test_ratio = [3, 6, 9]
@@ -74,21 +70,12 @@ baseline_file = f'gql_{study}_PhiBeta.pkl'
 # model_config_baseline = 'PhiBeta'
 # baseline_file = f'ql_{study}_PhiBeta.pkl'
 
-# ------------------------ CONFIGURATION DEZFOULI2019 w/ blocks -----------------------
-# study = 'dezfouli2019'
-# train_test_ratio = [3, 6, 9]
-# models_benchmark = ['ApAnBrBcfAchBch']#['ApBr', 'ApBrBch', 'ApAnBrBcfAchBch']
-# sindy_config = SindyConfig_dezfouli2019
-# rnn_class = RLRNN_dezfouli2019
-# additional_inputs = []
-
 # ------------------------- CONFIGURATION FILE PATHS ------------------------
 use_test = True
-# spice_suffix = '_l2_0_0005'
 
 path_data = f'data/{study}/{study}.csv'
-path_model_rnn = f'params/{study}/AWD_8192_dezfouli2019_rnn.pkl'
-path_model_spice = f'params/{study}/AWD_8192_dezfouli2019_spice.pkl'
+path_model_rnn = f'params/{study}/AWD_8192_{study}_opt_rnn.pkl'
+path_model_spice = f'params/{study}/AWD_8192_{study}_opt_spice.pkl'
 path_model_baseline = None#os.path.join(f'params/{study}/', baseline_file)
 path_model_benchmark = None#os.path.join(f'params/{study}', benchmark_file) if len(models_benchmark) > 0 else None
 path_model_benchmark_lstm = None#f'params/{study}/lstm_{study}.pkl'
