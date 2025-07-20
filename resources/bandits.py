@@ -347,6 +347,10 @@ class AgentQ(Agent):
   @property
   def q_choice(self):
     return (self._state['x_value_reward']*self._beta_choice).reshape(self._n_actions)
+  
+  @property
+  def learning_rate_reward(self):
+    return self._state['x_learning_rate_reward'].reshape(self._n_actions)
 
 
 class AgentQ_SampleZeros(AgentQ):
@@ -442,16 +446,13 @@ class AgentNetwork(Agent):
       """
       
       super().__init__(n_actions=n_actions)
-      
-      assert isinstance(model_rnn, BaseRNN), "The passed model is not an instance of BaseRNN."
               
       self._deterministic = deterministic
 
       self._model = model_rnn
-      self._model = self._model.to(device)
-      self._model.eval()
-      
-      self.new_sess()
+      if model_rnn is not None:
+        self._model = self._model.to(device)
+        self._model.eval()
 
   def new_sess(self, participant_id: int = 0, experiment_id: int = 0, additional_embedding_inputs: np.ndarray = torch.zeros(0), **kwargs):
     """Reset the network for the beginning of a new session."""
@@ -524,34 +525,38 @@ class AgentNetwork(Agent):
   def q_reward(self):
     betas = self.get_betas()
     if betas is not None:
-      logits = np.sum(
-        np.concatenate([
-          self._state[key] * betas[key] for key in self._state if key in betas and 'reward' in key
-          ]), 
-        axis=0)
+      # logits = np.sum(
+      #   np.concatenate([
+      #     self._state[key] * betas[key] for key in self._state if key in betas and 'reward' in key
+      #     ]), 
+      #   axis=0)
+      logits = self._state['x_value_reward'] #* betas['x_value_reward']
     else:
-      logits = np.sum(
-        np.concatenate([
-          self._state[key] for key in self._state if 'x_value' in key and 'reward' in key
-          ]),
-        axis=0)
+      # logits = np.sum(
+      #   np.concatenate([
+      #     self._state[key] for key in self._state if 'x_value' in key and 'reward' in key
+      #     ]),
+      #   axis=0)
+      logits = self._state['x_value_reward']
     return logits
 
   @property
   def q_choice(self):
     betas = self.get_betas()
     if betas is not None:
-      logits = np.sum(
-        np.concatenate([
-          self._state[key] * betas[key] for key in self._state if key in betas and 'choice' in key
-          ]), 
-        axis=0)
+      # logits = np.sum(
+      #   np.concatenate([
+      #     self._state[key] * betas[key] for key in self._state if key in betas and 'choice' in key
+      #     ]), 
+      #   axis=0)
+      logits = self._state['x_value_choice'] #* betas['x_value_choice']
     else:
-      logits = np.sum(
-        np.concatenate([
-          self._state[key] for key in self._state if 'x_value' in key and 'choice' in key
-          ]),
-        axis=0)
+      # logits = np.sum(
+      #   np.concatenate([
+      #     self._state[key] for key in self._state if 'x_value' in key and 'choice' in key
+      #     ]),
+      #   axis=0)
+      logits = self._state['x_value_choice']
     return logits
   
   @property
@@ -927,6 +932,41 @@ class BanditsFlip_eckstein2022(Bandits):
   @property
   def n_actions(self) -> int:
     return 2
+  
+
+class Bandits_Standard(Bandits):
+  """Env for 2-armed bandit task with reward probs that flip in blocks."""
+
+  def __init__(
+      self,
+      reward_prob_0: float = 0.8,
+      reward_prob_1: float = 0.2,
+      counterfactual: bool = False,
+      **kwargs,
+  ):
+    
+    super().__init__()
+    
+    # Assign the input parameters as properties
+    self.reward_probs = [reward_prob_0, reward_prob_1]
+    self._counterfactual = counterfactual
+    
+  def step(self, choice: int = None):
+    """Step the model forward given chosen action."""
+
+    # Sample a reward with this probability
+    reward = np.array([float(np.random.binomial(1, prob)) for prob in self.reward_probs], dtype=float)
+
+    # Return the reward
+    choice_onehot = np.eye(self.n_actions)[choice]
+    if self._counterfactual:
+      return reward
+    else:
+      return choice_onehot * reward[choice] + (1-choice_onehot)*-1
+
+  @property
+  def n_actions(self) -> int:
+    return 2
 
 
 class BanditSession(NamedTuple):
@@ -1038,24 +1078,29 @@ def create_dataset(
     An experliment_list with the results of (simulated) experiments
   """
   
-  xs = np.zeros((n_sessions, n_trials, agent._n_actions*2 + 1))
-  ys = np.zeros((n_sessions, n_trials, agent._n_actions))
+  agent_original = agent
+  n_actions = agent[0]._n_actions if isinstance(agent_original, list) else agent._n_actions
+  xs = np.zeros((n_sessions, n_trials, n_actions*2 + 3))
+  ys = np.zeros((n_sessions, n_trials, n_actions))
   experiment_list = []
   parameter_list = []
-
+  
   print('Creating dataset...')
   for session in tqdm(range(n_sessions)):
     if verbose:
       print(f'Running session {session+1}/{n_sessions}...')
     environment.new_sess()
+    if isinstance(agent_original, list):
+      agent = agent_original[session]
     agent.new_sess(sample_parameters=sample_parameters, participant_id=session)
     experiment, choices, rewards = run_experiment(agent, environment, n_trials, session)
     experiment_list.append(experiment)
     
     # one-hot encoding of choices
+    participant_id = experiment.session[:, None]
     choices = np.eye(agent._n_actions)[choices]
     ys[session] = choices[1:]
-    xs[session] = np.concatenate((choices[:-1], rewards[:-1], experiment.session[:, None]), axis=-1)
+    xs[session] = np.concatenate((choices[:-1], rewards[:-1], np.zeros_like(participant_id), np.zeros_like(participant_id), participant_id), axis=-1)
     
     if isinstance(agent, AgentQ):
       # add current parameters to list
@@ -1228,14 +1273,22 @@ def plot_session(
   not_chosen_y = max_y + 1e-1  # Slightly lower for not chosen (smaller tick)
   # not_chosen_y = chosen_y - 1e-1 * diff_min_max  # Slightly lower for not chosen (smaller tick)
 
+  # if (rewards > 0 and rewards < 1).any():
   # Plot ticks for chosen options
-  ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='green', s=100, marker='|')  # Large green tick for chosen reward
+  ax.scatter(x[(choices == 1) & (rewards == 1)], np.full(sum((choices == 1) & (rewards == 1)), chosen_y), color='green', s=120, marker='|')  # Large green tick for chosen reward
   ax.scatter(x[(choices == 1) & (rewards == 0)], np.full(sum((choices == 1) & (rewards == 0)), chosen_y), color='red', s=80, marker='|')  # Large red tick for chosen penalty
 
   # Plot ticks for not chosen options
-  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='green', s=100, marker='|')  # Small green tick
+  ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0) & (rewards == 1)), not_chosen_y), color='green', s=120, marker='|')  # Small green tick
   ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0) & (rewards == 0)), not_chosen_y), color='red', s=80, marker='|')  # Small red tick
+  # else:
+  #   # Plot ticks for chosen options
+  #   ax.scatter(x[(choices == 1)], np.full(sum((choices == 1)), chosen_y), color='green', s=100, marker='|')  # Large green tick for chosen reward
+  #   ax.scatter(x[(choices == 1)], np.full(sum((choices == 1)), chosen_y), color='red', s=80, marker='|')  # Large red tick for chosen penalty
 
+  #   # Plot ticks for not chosen options
+  #   ax.scatter(x[(choices == 0) & (rewards == 1)], np.full(sum((choices == 0)), not_chosen_y), color='green', s=100, marker='|')  # Small green tick
+  #   ax.scatter(x[(choices == 0) & (rewards == 0)], np.full(sum((choices == 0)), not_chosen_y), color='red', s=80, marker='|')  # Small red tick
   # ax.set_ylim(not_chosen_y, np.max((-not_chosen_y, np.max(timeseries + 1e-1 * diff_min_max))))
   
   if x_axis_info:

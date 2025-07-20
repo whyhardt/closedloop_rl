@@ -55,7 +55,7 @@ def get_scores(data: np.ndarray, probs: np.ndarray, n_parameters: int, **kwargs)
         ll = log_likelihood(data=data, probs=probs)
         bic = bayesian_information_criterion(data=data, probs=probs, n_parameters=n_parameters, ll=ll)
         aic = akaike_information_criterion(data=data, probs=probs, n_parameters=n_parameters, ll=ll)
-        return -ll, bic, aic
+        return -ll, aic, bic
     
 def plot_traces(file_numpyro: Union[str, numpyro.infer.MCMC], figsize=(12, 8)):
     """

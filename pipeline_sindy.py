@@ -68,7 +68,8 @@ def main(
     counterfactual = False,
     
     get_loss: bool = False,
-    analysis: bool = False, 
+    analysis: bool = False,
+    # reward_range: List[float] = [0, 1],
     ):
 
     # ---------------------------------------------------------------------------------------------------
@@ -174,7 +175,10 @@ def main(
         # get data from experiments for later evaluation
         dataset, _, df, _ = convert_dataset(data, additional_inputs=additional_inputs_data)
         participant_ids = dataset.xs[..., -1].unique().int().cpu().numpy()
-        
+
+    choices = dataset.xs[..., 0] == 1
+    reward_range = [dataset.xs[..., n_actions][choices].min(), dataset.xs[..., n_actions][choices].max()]
+    print(reward_range)
     # ---------------------------------------------------------------------------------------------------
     # SINDy training
     # ---------------------------------------------------------------------------------------------------
@@ -266,8 +270,8 @@ def main(
         else:
             agents = {'rnn': agent_rnn, 'sindy': agent_spice}
             plt_title = ''
-            
-        fig, axs = plot_session(agents, experiment_test)
+        
+        fig, axs = plot_session(agents, experiment_test, reward_range=reward_range)
         betas = agent_spice.get_betas()
         plt_title += r'SINDy: $\beta_{reward}=$'+str(np.round(betas['x_value_reward'], 2)) + r'; $\beta_{choice}=$'+str(np.round(betas['x_value_choice'], 2))
         

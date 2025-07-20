@@ -8,6 +8,17 @@ from resources import rnn, sindy_utils
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
+class_rnn = rnn.RLRNN_eckstein2022
+sindy_config = sindy_utils.SindyConfig_eckstein2022
+additional_inputs = None
+
+# path_data = 'data/eckstein2022/eckstein2022.csv'
+# path_model = 'params/eckstein2022/rnn_eckstein2022_no_l1_l2_0_0005.pkl'
+# train_test_ratio = 0.8
+
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+path_model = 'params/dezfouli2019/rnn_dezfouli2019_no_l1_l2_0_00005_ep8192.pkl'
+train_test_ratio = [3, 6, 9]
 
 # path_data='data/parameter_recovery/data_256p_0.csv'
 # path_model='params/parameter_recovery/rnn_256p_0.pkl'
@@ -46,16 +57,17 @@ agent_spice, features, loss = pipeline_sindy.main(
     pruning=False,
     
     # sindy parameters
-    # optimizer_type="SR3_weighted_l1",
-    train_test_ratio=0.8,
-    polynomial_degree=1,
+    train_test_ratio=train_test_ratio,
+    polynomial_degree=3,
     optimizer_alpha=0.1,
     optimizer_threshold=0.05,
     n_trials_off_policy=1000,
     n_sessions_off_policy=1,
     n_trials_same_action_off_policy=5,
-    optuna_threshold=0.001,
+    optuna_threshold=0.1,
     optuna_n_trials=50,
+    optimizer_type='SR3_weighted_l1',
+    # optimizer_type='SR3_L1',
     verbose=False,
     
     # generated training dataset parameters
@@ -71,7 +83,7 @@ agent_spice, features, loss = pipeline_sindy.main(
     counterfactual=False,
     alpha_counterfactual=0.,
     
-    analysis=False,
+    analysis=True,
     get_loss=False,
     
     **sindy_config,

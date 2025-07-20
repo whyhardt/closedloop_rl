@@ -90,6 +90,7 @@ def setup_agent_spice(
     filter_bad_participants: bool = False,
     use_optuna: bool = False,
     verbose: bool = False,
+    **kwargs,
 ) -> AgentSpice:
     
     agent_rnn = setup_agent_rnn(class_rnn=class_rnn, path_model=path_rnn)

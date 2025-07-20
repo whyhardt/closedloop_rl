@@ -26,6 +26,7 @@ for iteration in range(n_iterations_per_n_sessions):
         #     )
         
         agent = AgentQ(
+            alpha_reward=0.25,
             beta_reward=3.,
             beta_choice=1,
             )

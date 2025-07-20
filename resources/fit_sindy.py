@@ -105,7 +105,7 @@ def fit_sindy(
         # Setup sindy model for current x-feature
         sindy_models[x_feature] = ps.SINDy(
             optimizer=optimizer,
-            feature_library=ps.PolynomialLibrary(polynomial_degree),
+            feature_library=ps.PolynomialLibrary(polynomial_degree, interaction_only=False),
             discrete_time=True,
             feature_names=feature_names_i,
         )

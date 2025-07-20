@@ -11,11 +11,11 @@ from sklearn.linear_model import LinearRegression
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.setup_agents import setup_agent_spice
 from resources.bandits import AgentSpice
-from resources.rnn import RLRNN
-from resources.sindy_utils import SindyConfig
+from resources.rnn import RLRNN_eckstein2022 as RLRNN
+from resources.sindy_utils import SindyConfig_eckstein2022 as SindyConfig
 
 
-save_plots = True
+save_plots = False
 
 # -----------------------------------------------------------------------------------------------
 # create a mapping of ground truth parameters to library parameters
@@ -26,7 +26,7 @@ mapping_x_learning_rate_reward = {
      
     'x_learning_rate_reward': lambda alpha_reward, alpha_penalty: 0,
     
-    'c_reward': lambda alpha_reward, alpha_penalty: alpha_reward,
+    'c_reward_chosen': lambda alpha_reward, alpha_penalty: alpha_reward,
     
     'c_value_reward': lambda alpha_reward, alpha_penalty: 0,
 
@@ -53,7 +53,7 @@ mapping_x_value_reward_not_chosen = {
     
     'x_value_reward_not_chosen': lambda forget_rate: 1-forget_rate,
     
-    # 'c_reward': lambda forget_rate: 0,
+    'c_reward_chosen': lambda forget_rate: 0,
     
     'c_value_choice': lambda forget_rate: 0,
     
@@ -105,7 +105,7 @@ mapping_variable_names = {
     'x_value_reward_not_chosen': r'$q_{r,t}$',
     'x_value_choice_chosen': r'$q_{c,t}$',
     'x_value_choice_not_chosen': r'$q_{c,t}$',
-    'c_reward': r'$r$',
+    'c_reward_chosen': r'$r$',
     'c_value_reward': r'$q_{r}$',
     'c_value_choice': r'$q_{c}$',
 }
@@ -197,20 +197,19 @@ def n_true_params(true_coefs):
 # -----------------------------------------------------------------------------------------------
 
 random_sampling = [0.25, 0.5, 0.75]
-n_sessions = [16, 32, 64, 128, 256]
-iterations = 4
+n_sessions = [128]#[16, 32, 64, 128, 256]
+iterations = 1
 
 base_name_data = 'data/parameter_recovery/data_SESSp_IT.csv'
-base_name_params = 'params/parameter_recovery'#/rnn_SESSp_IT.pkl'
+base_name_params = 'params'#/parameter_recovery'#/rnn_SESSp_IT.pkl'
 kw_participant_id = 'session'
 path_plots = 'analysis/plots_parameter_recovery'
 
 # meta parameters
 # mapping_lens = {'x_V_LR': 10, 'x_V_nc': 3, 'x_C': 3, 'x_C_nc': 3}
-mapping_lens = {'x_V_LR': 5, 'x_V_nc': 3, 'x_C': 3, 'x_C_nc': 3}
+mapping_lens = {'x_V_LR': 5, 'x_V_nc': 4, 'x_C': 3, 'x_C_nc': 3}
 n_candidate_terms = np.sum([mapping_lens[key] for key in mapping_lens])
 n_params_q = 5
-
 
 # -----------------------------------------------------------------------------------------------
 # Initialization of storages
