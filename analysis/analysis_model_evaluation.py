@@ -74,8 +74,8 @@ baseline_file = f'gql_{study}_PhiBeta.pkl'
 use_test = True
 
 path_data = f'data/{study}/{study}.csv'
-path_model_rnn = f'params/{study}/AWD_8192_{study}_opt_rnn.pkl'
-path_model_spice = f'params/{study}/AWD_8192_{study}_opt_spice.pkl'
+path_model_rnn = f'params/{study}/T1-T2_8192_{study}_rnn_ep4096.pkl'
+path_model_spice = f'params/{study}/T1-T2_8192_{study}_spice_ep4096.pkl'
 path_model_baseline = None#os.path.join(f'params/{study}/', baseline_file)
 path_model_benchmark = None#os.path.join(f'params/{study}', benchmark_file) if len(models_benchmark) > 0 else None
 path_model_benchmark_lstm = None#f'params/{study}/lstm_{study}.pkl'

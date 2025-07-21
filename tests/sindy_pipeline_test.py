@@ -8,22 +8,21 @@ from resources import rnn, sindy_utils
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-class_rnn = rnn.RLRNN_eckstein2022
-sindy_config = sindy_utils.SindyConfig_eckstein2022
-additional_inputs = None
+# class_rnn = rnn.RLRNN_eckstein2022
+# sindy_config = sindy_utils.SindyConfig_eckstein2022
+# additional_inputs = None
 
 # path_data = 'data/eckstein2022/eckstein2022.csv'
-# path_model = 'params/eckstein2022/rnn_eckstein2022_no_l1_l2_0_0005.pkl'
+# path_model = 'params/eckstein2022/T1-T2_8192_eckstein2022_rnn.pkl'
 # train_test_ratio = 0.8
 
-path_data = 'data/dezfouli2019/dezfouli2019.csv'
-path_model = 'params/dezfouli2019/rnn_dezfouli2019_no_l1_l2_0_00005_ep8192.pkl'
-train_test_ratio = [3, 6, 9]
+class_rnn = rnn.RLRNN_dezfouli2019
+sindy_config = sindy_utils.SindyConfig_dezfouli2019
+additional_inputs = None
 
-# path_data='data/parameter_recovery/data_256p_0.csv'
-# path_model='params/parameter_recovery/rnn_256p_0.pkl'
-# class_rnn = RLRNN
-# sindy_config = SindyConfig
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+path_model = 'params/dezfouli2019/T1-T2_8192_dezfouli2019_rnn_ep4096.pkl'
+train_test_ratio = [3, 6, 9]
 
 # Set seed for torch and np
 from torch import manual_seed
@@ -31,12 +30,6 @@ import numpy as np
 seed = 10
 manual_seed(seed)
 np.random.seed(seed)
-
-path_data = 'data/dezfouli2019/dezfouli2019.csv'
-path_model = 'params/dezfouli2019/AWD_8192_dezfouli2019_opt_rnn.pkl'
-sindy_config = sindy_utils.SindyConfig_dezfouli2019
-class_rnn = rnn.RLRNN_dezfouli2019
-additional_inputs = None
 
 # -------------------------------------------------------------------------------
 # SPICE PIPELINE
@@ -53,7 +46,7 @@ agent_spice, features, loss = pipeline_sindy.main(
     # general recovery parameters
     participant_id=None,
     filter_bad_participants=False,
-    use_optuna=True, # Set to True later
+    use_optuna=False, # Set to True later
     pruning=False,
     
     # sindy parameters

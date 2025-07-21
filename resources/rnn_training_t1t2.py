@@ -21,7 +21,9 @@ def neg_avg_trial_log_likelihood(logits, target, inputs):
     chosen_log_probs = (log_probs * target).sum(dim=-1)
     # Apply mask
     masked_log_probs = apply_mask(chosen_log_probs.unsqueeze(-1), inputs).squeeze(-1)
-    trial_log_likelihood = masked_log_probs.sum(dim=1) / (masked_log_probs != 0).sum(dim=1)
+    valid_timesteps = (inputs[..., :1] > -1).squeeze(-1).sum(dim=1)
+    trial_log_likelihood = masked_log_probs.sum(dim=1) / valid_timesteps
+
     return -trial_log_likelihood.mean()
 
 def fit_with_metaopt(
@@ -208,7 +210,7 @@ def fit_with_metaopt(
 
                     hypergrad = hypergrad / (hypergrad.norm() + 1e-8)  # Normalize hypergrad to prevent exploding gradients
                 # # Clip hypergrad and potentially scale it
-                # hypergrad = torch.clamp(hypergrad, -5.0, 5.0) * scale_hypergrad
+                hypergrad = torch.clamp(hypergrad, -5.0, 5.0) # * scale_hypergrad
 
                 # Update of log_lambda
                 # Set gradient of log_lambda to calculated hypergrad
@@ -217,6 +219,9 @@ def fit_with_metaopt(
                 lambda_optimizer.step()
                 # Reset gradients
                 lambda_optimizer.zero_grad()
+
+                # Clip lambda value to prevent numerical issues
+                log_lambda = torch.clamp(log_lambda, -10.0, -1.0)
 
             # Normal training step
             model_optimizer.zero_grad()
