@@ -29,6 +29,9 @@ def main(
   embedding_size = 32,
   dropout = 0.5,
 
+  # Meta-optimization parameters
+  lambda_awd: float = 0.022,  # Default from paper experiments
+
   # data and training parameters
   epochs = 128,
   train_test_ratio = 1.,
@@ -228,6 +231,7 @@ def main(
         n_steps=n_steps,
         scheduler=scheduler,
         path_save_checkpoints=params_path if save_checkpoints else None,
+        lambda_awd=lambda_awd,
     )
         
     # save trained parameters

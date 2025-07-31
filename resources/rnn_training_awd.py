@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler
 
-from copy import deepcopy # For copying the wholemodel
 import time
 import numpy as np
 from resources.rnn import BaseRNN, CustomEmbedding
@@ -13,16 +12,6 @@ from resources.rnn_utils import DatasetRNN
 def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
     return preds * mask
-
-# Try with neg avg trial LL
-def neg_avg_trial_log_likelihood(logits, target, inputs):
-    log_probs = torch.log_softmax(logits, dim=-1)
-    # One-hot to index probabilities
-    chosen_log_probs = (log_probs * target).sum(dim=-1)
-    # Apply mask
-    masked_log_probs = apply_mask(chosen_log_probs.unsqueeze(-1), inputs).squeeze(-1)
-    trial_log_likelihood = masked_log_probs.sum(dim=1) / (masked_log_probs != 0).sum(dim=1)
-    return -trial_log_likelihood.mean()
 
 def fit_with_metaopt(
     model: BaseRNN,
@@ -37,9 +26,16 @@ def fit_with_metaopt(
     n_steps: int = -1,
     verbose: bool = True,
     path_save_checkpoints: str = None,
+
+    lambda_awd: float = 0.022,  # Default from paper experiments
     ):
 
     """
+    Training loop with Adaptive Weight Decay implementation based on Ghiasi et al. (2023)
+    
+    Args:
+        lambda_awd: The AWD hyperparameter (λ_awd in the paper)
+        use_awd: Whether to use adaptive weight decay or traditional weight decay
     """
     # Set batch size
     if batch_size == -1:
@@ -47,23 +43,20 @@ def fit_with_metaopt(
 
     # Set bagging
     if bagging:
-        batch_size = max(batch_size, 64)  # Ensure batch size is at least 64 for bagging
+        batch_size = max(batch_size, 64)
         sampler = RandomSampler(dataset_train, replacement=True, num_samples=batch_size)
     else:
         raise NotImplementedError("Bagging=False is not implemented in this function.")
     
-    # Init DataLoaders
-    # num_cores = 4 
-    num_workers = 0 # 0 on PC 2 on laptop
+    num_workers = 0
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
         dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     else:
         raise ValueError("Validation dataset is required for training with meta-optimization.")
 
-
     # Set up learning rate scheduler
-    warmup_steps = 1024 if epochs > 1024 else 1 #int(epochs * 0.125/16)
+    warmup_steps = 1024 if epochs > 1024 else 1
     if scheduler and model_optimizer is not None:
         default_lr = model_optimizer.param_groups[0]['lr'] + 0
 
@@ -90,146 +83,131 @@ def fit_with_metaopt(
 
     loss_fn = nn.CrossEntropyLoss()
     
-    # Define some maybe useless variables
+    # Define convergence variables
     convergence_value = 1
     last_loss = 1
     recency_factor = 0.5
+
+    # Initialize losses and histories for logging/plotting
     train_loss = torch.tensor(0.)
     val_loss = torch.tensor(0.) # 0 for the first 10 epochs
-    save_at_epoch = warmup_steps
 
-    # Initialize hypergrad if we use update freq
-    hypergrad = torch.tensor(0.)
-
-    # Histories for plotting
     history_train_loss = []
     history_val_loss = []
-    history_log_lambda = []
-    history_hypergrad = []
+    history_lambda_wd = []
 
-    # Set up meta-optimization
-    # Now using normal lambda
-    prev_lambda = torch.tensor(0.0) # Init at 0
-    lambda_val = 0.0  # Initial value for lambda, make sure its float
-    ema_scale = 0.1  # Exponential moving average scale: lower = more smoothing
+    # Step 2: Initialize λ̄_0 ← 0
+    lambda_wd_bar = 0.0  # Exponential weighted average of λ_wd
 
-    awd_scale = 0.5 # 0.1 is scaling from AWD paper (Ghiasi et al., 2023) # This is basically a new hyperparameter
-
+    # Set up at which epoch to save
+    save_at_epoch = warmup_steps
 
     # Training loop
     try:
+        # Step 3: Iterate over epochs
         for epoch in range(epochs):
-            # Meaasure the time
             t_start = time.time()
 
-            # Set up the data:
-            # Training set
-            xs,ys = next(iter(dataloader_train))
+            xs, ys = next(iter(dataloader_train))
             xs, ys = xs.to(model.device), ys.to(model.device)
-            # Validation set
+
             xs_val, ys_val = next(iter(dataloader_val))
             xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
-            model.set_initial_state(batch_size=len(xs))
-
-            # Normal training step
-            model_optimizer.zero_grad()
-            state = model.get_state(detach=True)
             model.train()
-            outputs = model(xs, state, batch_first=True)[0]
-            params = torch.cat([p.view(-1) for p in model.parameters()])
-            l2_norm = (params ** 2).mean()
-            outputs = apply_mask(outputs, xs)
-            # Calculate the training loss without regularization
-            # train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
-            #                      torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-            #                      )
-            # Use neg avg trial LL
-            train_loss = neg_avg_trial_log_likelihood(outputs, ys, xs)
-            
-            # Backprop step to get the gradients
-            train_loss.backward(retain_graph=True)
-
-            # AWD meta-optimization step TODO: Find out how this works
-            # 1. Compute average gradient and weight norms
-            grad_norm = torch.sqrt(sum((p.grad ** 2).sum() for p in model.parameters()))
-            weight_norm = torch.sqrt(sum((p.data ** 2).sum() for p in model.parameters()))
-            current_lambda = (awd_scale * grad_norm) / (weight_norm + 1e-8)  # Avoid dividing by zero
-
-            # 2. Apply EMA smoothing
-            lambda_val = ema_scale * current_lambda + (1 - ema_scale) * prev_lambda.detach()
-            prev_lambda = lambda_val
-            lambda_val = current_lambda
-
-            # 3. Update train loss with regularization
-            train_loss += lambda_val * l2_norm
-
-            # Update only after AWD
-            # May be able to backward only once TODO: Implement this
+            model.set_initial_state(batch_size=len(xs))
             model_optimizer.zero_grad()
+
+            # Ensure fresh computational graph
+            state = model.get_state(detach=True)
+            if hasattr(state, 'detach'):
+                state = state.detach()
+
+            # Step 4: Get model predictions
+            outputs = model(xs, state, batch_first=True)[0]
+            outputs = apply_mask(outputs, xs)
+            
+            # Step 5: Calculate the main loss (CrossEntropy)
+            train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
+                               torch.argmax(ys.reshape(-1, model._n_actions), dim=1))
+
+            # Step 6: Compute gradients of main loss w.r.t weights
             train_loss.backward()
-            # Clip gradients for optuna and non exploding grads
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            # AWD Section
+            # Step 7: Compute iteration's weight decay hyperparameter
+            # λ_wd(t) = (λ_awd * ||∇_w L||) / ||w||
+            # Compute gradient norm ||∇_w L||
+            grad_norm = 0.0
+            for param in model.parameters():
+                if param.grad is not None:
+                    grad_norm += (param.grad ** 2).sum().item()
+            grad_norm = np.sqrt(grad_norm)
+            
+            # Compute weight norm ||w||
+            weight_norm = 0.0
+            for param in model.parameters():
+                weight_norm += (param.data ** 2).sum().item()
+            weight_norm = np.sqrt(weight_norm)
+            
+            # Compute current iteration's weight decay parameter
+            if weight_norm > 1e-8:  # Avoid division by zero
+                lambda_wd_current = (lambda_awd * grad_norm) / weight_norm
+            else:
+                lambda_wd_current = 0.0
+            
+            # Step 8: Compute exponential weighted average (using paper's coefficients)
+            lambda_wd_bar = 0.1 * lambda_wd_bar + 0.9 * lambda_wd_current
+
+            # Step 9: Update network parameters with adaptive weight decay
+            # w = w - lr * (∇_w L + λ_wd_bar * w)
+            # Manually add weight decay to gradients (following paper's approach)
+            for param in model.parameters():
+                if param.grad is not None:
+                    param.grad.add_(param.data, alpha=lambda_wd_bar)
+            
+            
             model_optimizer.step()
 
-            # Validation step
             model.eval()
             model.set_initial_state(batch_size=len(xs_val))
             state = model.get_state(detach=True)
             val_preds = model(xs_val, state, batch_first=True)[0]
             val_preds = apply_mask(val_preds, xs_val)
 
-            # Calculate the validation loss
-            # val_loss = loss_fn(
-            #     val_preds.reshape(-1, model._n_actions),
-            #     torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+            val_loss = loss_fn(
+                val_preds.reshape(-1, model._n_actions),
+                torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1))
 
-            # Use neg avg trial LL
-            val_loss = neg_avg_trial_log_likelihood(val_preds, ys_val, xs_val)
 
-            # Put lambda in log scale for logging
-            log_lambda = torch.log(torch.tensor(lambda_val))
-
-            # Save histories
             history_train_loss.append(train_loss.item())
             history_val_loss.append(val_loss.item())
-            history_log_lambda.append(log_lambda.item())
-            history_hypergrad.append(hypergrad.item())
+            history_lambda_wd.append(lambda_wd_bar)
 
-            # Check for convergence
-            # Note taht val_loss here is calculated in the inner loop
             dloss = last_loss - val_loss
             convergence_value += recency_factor * (torch.abs(dloss).item() - convergence_value)
             converged = convergence_value < convergence_threshold
             last_loss = val_loss 
 
-            # Endo of epoch message
             msg = None
             if verbose:
                 # Shortened num decimal points displayed
                 msg = f"Epoch {epoch + 1}/{epochs} --- L(Train): {train_loss:.4f}"
                 msg += f"; L(Val): {val_loss:.4f}"
-                msg += f"; log_lambda: {log_lambda.item():.4f}"
-                msg += f"; hypergrad: {hypergrad.item():.7f}"
+                msg += f"; λ_wd: {lambda_wd_bar:.6f}"
                 msg += f"; Time: {time.time()-t_start:.2f}"
 
-                # Just to use convergence_value
                 if converged:
                     msg += " --- Converged!"
-
                 print(msg)
-                # Missing convergence back here - not necessary for my metaopt
-                # Missing scheduler lr info here - not necessary for my metaopt
 
-            # Scheduler update
-            # Only with CosineAnnealingWarmRestarts
             if scheduler is not None:
                 if epoch < warmup_steps:
                     scheduler_warmup.step()
                 else:
                     scheduler.step()
                 
-            # Save checkpoint TODO: Test if this still works on correct epochs
+            # Save checkpoint TODO: Test if loading from these checkpoints works
             if path_save_checkpoints and (epoch + 1) == save_at_epoch:
                 torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
                 save_at_epoch *= 2
@@ -237,9 +215,8 @@ def fit_with_metaopt(
     except KeyboardInterrupt:
         msg = "Training interrupted. Continuing with further operations..."
         
-        # Wrap histories 
-        histories = [history_train_loss, history_val_loss, history_log_lambda, history_hypergrad]
+        histories = [history_train_loss, history_val_loss, history_lambda_wd]
         return model, model_optimizer, histories
 
-    histories = [history_train_loss, history_val_loss, history_log_lambda, history_hypergrad]
+    histories = [history_train_loss, history_val_loss, history_lambda_wd]
     return model, model_optimizer, histories

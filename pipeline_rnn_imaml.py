@@ -28,6 +28,13 @@ def main(
   embedding_size = 32,
   dropout = 0.5,
 
+  # Meta-optimization parameters
+  meta_update_interval: int = 10,
+  meta_lr: float = 0.01,
+  cg_steps: int = 5,
+  cg_damping: float = 1e-3,
+  init_lambda: float = 1.0,
+
   # data and training parameters
   epochs = 128,
   train_test_ratio = 1.,
@@ -214,7 +221,10 @@ def main(
   loss_test = None
   if epochs > 0:
     start_time = time.time()
-    
+
+    # Initialize iMAML optimizer if provided
+    imaml_opt = rnn_training_imaml.iMAMLOptimizer(meta_lr=meta_lr, cg_steps=cg_steps, cg_damping=cg_damping, init_lambda=1.0)
+
     #Fit the RNN
     print('Training the RNN...')
     model, optimizer_rnn, histories = rnn_training_imaml.fit_with_metaopt(
@@ -229,6 +239,8 @@ def main(
         n_steps=n_steps,
         scheduler=scheduler,
         path_save_checkpoints=params_path if save_checkpoints else None,
+        meta_update_interval=meta_update_interval,
+        imaml_optimizer=imaml_opt,
     )
         
     # save trained parameters

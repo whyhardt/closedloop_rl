@@ -1,30 +1,184 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler
 
-from copy import deepcopy # For copying the wholemodel
 import time
 import numpy as np
 from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
-# Create Mask TODO: Find out what this does
+# Compute conjugate gradient TODO: Understand this
+def conjugate_gradient(Av_func, b, x_init=None, max_iter=10, tol=1e-10):
+    """
+    Conjugate gradient solver for Ax = b
+
+    Args:
+        Av_func: function that computes matrix-vector product Av
+        b: right hand side vector
+        x_init: initial guess for x
+    """
+    x = torch.zeros_like(b) if x_init is None else x_init.clone()
+    r = b - Av_func(x)
+    p = r.clone()
+    rsold = r.dot(r)
+    
+    for _ in range(max_iter):
+        Ap = Av_func(p)
+        alpha = rsold / p.dot(Ap)
+        x = x + alpha * p
+        r = r - alpha * Ap
+        rsnew = r.dot(r)
+        
+        if rsnew.sqrt() < tol:
+            break
+            
+        beta = rsnew / rsold
+        p = r + beta * p
+        rsold = rsnew
+    
+    return x
+
+# Compute hessian vector product TODO: Understand this
+def compute_hvp(loss, params, vector):
+    """
+    Compute Hessian-vector product H*v where H is the Hessian of loss w.r.t. params
+
+    Args:
+        loss: scalar loss value
+        params: list of model parameters
+        vector: vector to multiply with Hessian
+    """
+    # Compute gradient
+    grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
+    flat_grad = torch.cat([g.view(-1) for g in grads])
+    
+    # Compute Hessian-vector product
+    grad_product = flat_grad.dot(vector)
+    hvp = torch.autograd.grad(grad_product, params, retain_graph=True)
+    flat_hvp = torch.cat([g.view(-1) for g in hvp])
+    
+    return flat_hvp
+
+class iMAMLOptimizer:
+    def __init__(self, meta_lr=0.01, cg_steps=5, cg_damping=1e-5, init_lambda=1.0):
+        """
+        iMAML optimizer for meta-learning L2 weight decay
+        
+        Args:
+            meta_lr: learning rate for meta-parameter (L2 weight decay)
+            cg_steps: number of conjugate gradient steps
+            cg_damping: damping factor for CG
+        """
+        self.meta_lr = meta_lr
+        self.cg_steps = cg_steps
+        self.cg_damping = cg_damping
+
+        log_lambda_init = np.log(init_lambda)
+        
+        # Initialize Lambda in iMAML on log scale for possible auto adaptation
+        self.log_l2_lambda = nn.Parameter(torch.tensor(log_lambda_init))
+
+    @property # TODO: Understand why this is a property
+    def l2_lambda(self):
+        return torch.exp(self.log_l2_lambda)
+    
+    def compute_lambda_meta_gradient(self, model, inner_loss, outer_loss):
+        """
+        Compute meta-gradient using implicit differentiation
+        
+        Args:
+            model: the model being trained
+            inner_loss: training loss
+            outer_loss: validation loss
+            inner_params: converged parameters from inner optimization
+        """
+        # Get model parameters
+        params = list(model.parameters())
+        
+        # Compute outer gradient ∇φ L_val(φ*)
+        outer_grad = torch.autograd.grad(outer_loss, params, retain_graph=True)
+        flat_outer_grad = torch.cat([g.view(-1) for g in outer_grad])
+        
+        # Define function for (I + λ^(-1) H) v
+        def Av_func(v):
+            # Compute Hessian-vector product
+            hvp = compute_hvp(inner_loss, params, v)
+            # Return (I + λ^(-1) H) v
+            return v + hvp / self.l2_lambda
+        
+        # Solve (I + λ^(-1) H) g = ∇φ L_val using CG
+        implicit_grad = conjugate_gradient(
+            Av_func, 
+            flat_outer_grad, 
+            max_iter=self.cg_steps,
+            tol=1e-10
+        )
+        
+        # The meta-gradient w.r.t. λ requires computing ∂φ*/∂λ
+        # For L2 regularization: ∂φ*/∂λ = -(I + λ^(-1) H)^(-1) * (φ* - θ)
+        param_diff = torch.cat([
+            (p - p0).view(-1) 
+            for p, p0 in zip(params, model.initial_params)
+        ])
+        
+        # Compute ∂L_val/∂λ = ∂L_val/∂φ * ∂φ/∂λ
+        dL_dlambda = -implicit_grad.dot(param_diff) / self.l2_lambda
+        
+        # Account for log parameterization
+        meta_grad = dL_dlambda * self.l2_lambda
+        
+        return meta_grad
+    
+    def update_lambda(self, meta_grad):
+        """
+        Update the L2 weight decay parameter
+        """
+        with torch.no_grad():
+            self.log_l2_lambda -= self.meta_lr * meta_grad
+
+    def compute_theta_meta_grad(self, model, inner_loss, outer_loss):
+        """
+        Compute meta-gradient w.r.t. θ using implicit differentiation
+
+        Args:
+            model: the model being trained
+            inner_loss: training loss
+            outer_loss: recomputed training loss
+        """
+        params = list(model.parameters())
+
+        # Outer gradient: ∇φ L_val(φ)
+        outer_grad = torch.autograd.grad(outer_loss, params, retain_graph=True)
+        flat_outer_grad = torch.cat([g.view(-1) for g in outer_grad])
+
+        def Av_func(v):
+            hvp = compute_hvp(inner_loss, params, v)
+            return v + hvp / self.l2_lambda
+
+        # Solve implicit gradient
+        implicit_grad_flat = conjugate_gradient(Av_func, flat_outer_grad, max_iter=self.cg_steps)
+
+        # Unflatten back to per-parameter shape
+        meta_grad = []
+        pointer = 0
+        for p in params:
+            numel = p.numel()
+            meta_grad.append(implicit_grad_flat[pointer:pointer + numel].view_as(p))
+            pointer += numel
+
+        return meta_grad
+
+    def update_theta(self, model, meta_grad):
+        """
+        Apply the meta-gradient to update model parameters θ
+        """
+        with torch.no_grad():
+            for p, g in zip(model.parameters(), meta_grad):
+                p -= self.meta_lr * g
+
 def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
     return preds * mask
-
-# Try with neg avg trial LL
-def neg_avg_trial_log_likelihood(logits, target, inputs):
-    log_probs = torch.log_softmax(logits, dim=-1)
-    # One-hot to index probabilities
-    chosen_log_probs = (log_probs * target).sum(dim=-1)
-    # Apply mask
-    masked_log_probs = apply_mask(chosen_log_probs.unsqueeze(-1), inputs).squeeze(-1)
-    valid_timesteps = (inputs[..., :1] > -1).squeeze(-1).sum(dim=1)
-    trial_log_likelihood = masked_log_probs.sum(dim=1) / valid_timesteps
-
-    return -trial_log_likelihood.mean()
 
 def fit_with_metaopt(
     model: BaseRNN,
@@ -39,10 +193,34 @@ def fit_with_metaopt(
     n_steps: int = -1,
     verbose: bool = True,
     path_save_checkpoints: str = None,
+    meta_update_interval: int = 10,  # <-- NEW: how often to update lambda
+    imaml_optimizer: iMAMLOptimizer = iMAMLOptimizer,  # <-- NEW: pass your optimizer
     ):
 
     """
-    """
+    Fit the model with iMAML meta-optimization
+
+    Args:
+        model: the model to train
+        dataset_train: training dataset
+        dataset_val: validation dataset (required for meta-optimization)
+        model_optimizer: optimizer for the model parameters
+        convergence_threshold: threshold for convergence
+        epochs: number of training epochs
+        batch_size: size of each training batch, -1 for full dataset (-1 used for thesis)
+        bagging: whether to use bagging
+        scheduler: whether to use a learning rate scheduler (CosineAnnealingWarmRestarts used in thesis)
+        n_steps: number of steps for training, -1 for full dataset
+        verbose: whether to print training progress
+        path_save_checkpoints: path to save model checkpoints
+        meta_update_interval: At which frequency to run an iMAML meta-update step
+        imaml_optimizer: instance of iMAMLOptimizer for meta-learning
+
+    Returns:
+        model: trained model
+        model_optimizer: optimizer used for training
+        histories: list of training and validation losses, theta drift, and meta-gradient norms
+    """ 
     # Set batch size
     if batch_size == -1:
         batch_size = len(dataset_train)
@@ -54,9 +232,7 @@ def fit_with_metaopt(
     else:
         raise NotImplementedError("Bagging=False is not implemented in this function.")
     
-    # Init DataLoaders
-    # num_cores = 4 
-    num_workers = 0 # 0 on PC 2 on laptop
+    num_workers = 0
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
         dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -65,7 +241,7 @@ def fit_with_metaopt(
 
 
     # Set up learning rate scheduler
-    warmup_steps = 1024 if epochs > 1024 else 1 #int(epochs * 0.125/16)
+    warmup_steps = 1024 if epochs > 1024 else 1
     if scheduler and model_optimizer is not None:
         default_lr = model_optimizer.param_groups[0]['lr'] + 0
 
@@ -78,7 +254,7 @@ def fit_with_metaopt(
                 progress = (current_step - warmup_steps * 0.8) / (warmup_steps * 0.2)
                 return (0.1 + progress * (1.0 - 0.1)) * scale
             else:
-                return 1.0  # Default learning rate scaling after warmup
+                return 1.0 
         
         scheduler_warmup = torch.optim.lr_scheduler.LambdaLR(model_optimizer, lr_lambda=warmup_lr_lambda)
                 
@@ -92,234 +268,159 @@ def fit_with_metaopt(
 
     loss_fn = nn.CrossEntropyLoss()
     
-    # Define some maybe useless variables
+    # Define convergence variables
     convergence_value = 1
     last_loss = 1
     recency_factor = 0.5
+
+    # Inititalize losses and histories for logging/plotting
     train_loss = torch.tensor(0.)
     val_loss = torch.tensor(0.)
-    save_at_epoch = warmup_steps
 
-    # Initialize hypergrad if we use update freq
-    hypergrad = torch.tensor(0.)
+    meta_grad = torch.tensor(0.)
+    avg_meta_grad = torch.tensor(0.)
 
-    # Histories for plotting
+    theta_init_snapshot = [p.clone().detach() for p in model.parameters()]
+    theta_drift = torch.tensor(0.)
+    drift_ratio = torch.tensor(0.)
+
     history_train_loss = []
     history_val_loss = []
-    history_log_lambda = []
-    history_hypergrad = []
+    history_theta_drift = []
+    history_metagrad = []
 
-    # Set up meta-optimization
-    update_freq = 5
-    initial_log_lambda = -9.0  # Initial value for log_lambda, make sure its float
-    lr_log_lambda = 1  # Learning rate for log_lambda
-    momentum_log_lambda = 0.0  # Momentum for log_lambda TODO: Try out some
-    # I am also clipping the hypergrads, its in the loop
-    ema_smoothing = 0.9 # Lower values weight previous values more
-
-    # Lookahead number of steps
-    num_inner_steps = 5 # 3 is usually min
-
-    # Conjugate gradient hyperparams
-    cgh_damping = 1e-1
-    cgh_n_steps = 5 # Should be enough as stated in Rajeswaran et al.
-
-    log_lambda = torch.tensor(initial_log_lambda, requires_grad=True, device=model.device)
-    lambda_optimizer = optim.SGD([log_lambda], lr=lr_log_lambda, momentum=momentum_log_lambda)
-
-    # Define inner training function:
-    def inner_train(model, xs, ys, lr, lambda_val, num_inner_steps=num_inner_steps):
-        # Create a copy of the model
-        inner = deepcopy(model)
-        # Create a new optimizer for the inner model
-        opt = optim.SGD(inner.parameters(), lr=lr)
-
-        for _ in range(num_inner_steps):
-            # Forward pass
-            inner.train()
-            inner.set_initial_state(batch_size=len(xs))
-            state = inner.get_state(detach=True)
-            preds = inner(xs, state, batch_first=True)[0]
-            preds = apply_mask(preds, xs)
-
-            # Recompute L2 norm
-            params = torch.cat([p.view(-1) for p in inner.parameters()])
-            l2_norm = (params ** 2).mean()
-
-            # Compute inner loss
-            # loss = loss_fn(preds.reshape(-1, model._n_actions),
-            #             torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-            #             ) + lambda_val.detach() * l2_norm
-
-            # Try with neg avg trial LL
-            loss = neg_avg_trial_log_likelihood(preds, ys, xs) + lambda_val.detach() * l2_norm
-
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-        return inner
-    
-    # Method to approximate the inverse Hessian-vector product using conjugate gradients
-    def conjugate_gradients(val_grad, params, damping=cgh_damping, n_steps=cgh_n_steps):
-        x = [torch.zeros_like(p) for p in params]
-
-        for _ in range(n_steps):
-            dot = sum((g * xi).sum() for g, xi in zip(val_grad, x))
-            Hv = torch.autograd.grad(dot, params, retain_graph=True)
-            x = [x_i - damping * x_i + h for x_i, h in zip(x, Hv)]
-
-        return x
-
+    # Set up at which epoch to save
+    save_at_epoch = warmup_steps
 
     # Training loop
     try:
         for epoch in range(epochs):
-            # Meaasure the time
-            t_start = time.time()
+            t_epoch_start = time.time()
 
-            # Set up the data:
-            # Training set
-            xs,ys = next(iter(dataloader_train))
+            # Save initial parameters for implicit differentiation
+            model.initial_params = [p.detach().clone() for p in model.parameters()]
+
+            xs, ys = next(iter(dataloader_train))
             xs, ys = xs.to(model.device), ys.to(model.device)
-            # Validation set
-            xs_val, ys_val = next(iter(dataloader_val))
-            xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
-            # Get real lambda value since we use log_lambda only to optimize 
-            lambda_val = torch.exp(log_lambda)
-
-            # Try this
-            model.set_initial_state(batch_size=len(xs))
-
-            # Inner loop for meta-optimization
-            if (epoch + 1) % update_freq == 0:
-                # Step 1: Train inner model
-                # TODO: Using fixed lr here, adapt to use scheduled one 
-                inner_model = inner_train(model, xs, ys, lr=1e-2, lambda_val=lambda_val)
-
-                # Step 2: Compute training grad w.r.t val loss
-                # First compute val loss
-                inner_model.set_initial_state(batch_size=len(xs_val))
-                state = inner_model.get_state(detach=True)
-                val_preds = inner_model(xs_val, state, batch_first=True)[0]
-                val_preds = apply_mask(val_preds, xs_val)
-                # val_loss = loss_fn(
-                #     val_preds.reshape(-1, model._n_actions),
-                #     torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), ) # No regularization here
-
-                # Try with neg avg trial LL
-                val_loss = neg_avg_trial_log_likelihood(val_preds, ys_val, xs_val)
-
-                # Now compute grads
-                val_grads = torch.autograd.grad(val_loss, inner_model.parameters(), create_graph=True) # Maybe retain graph
-
-                # Step 3: Approximate inverse Hessian-vector product
-                # Using the conjugate gradient method
-                params = [p for p in inner_model.parameters() if p.requires_grad]
-                inv_hvp = conjugate_gradients(val_grads, params, damping=1e-2, n_steps=5) # TODO: Find out how this algo works and what damping and n_steps do
-
-                # Step 4: Compute gradient of log_lambda w.r.t. the reg term that could be applied
-                reg_term = torch.cat([p.view(-1) for p in inner_model.parameters()]) ** 2
-                reg_term = reg_term.mean()  # L2 norm
-                # Compute full regularization
-                reg = lambda_val * reg_term
-                reg = reg.detach() 
-
-                # Step 5: Compute the hypergrad
-                hypergrad = -sum((g * v_i).sum() for g, v_i in zip(val_grads, inv_hvp)) + reg
-                # Normalize hypergrad
-                hypergrad = hypergrad / (hypergrad.norm() + 1e-8)
-
-                # Step 6: Update log_lambda
-                lambda_optimizer.zero_grad()
-                log_lambda.grad = hypergrad
-                lambda_optimizer.step()
-
-            # Normal training step
-            model_optimizer.zero_grad()
-            state = model.get_state(detach=True)
+            # INNER LOOP, normal training step
             model.train()
+            model.set_initial_state(batch_size=len(xs))
+            state = model.get_state(detach=True)
             outputs = model(xs, state, batch_first=True)[0]
-            params = torch.cat([p.view(-1) for p in model.parameters()])
-            l2_norm = (params ** 2).mean()
             outputs = apply_mask(outputs, xs)
-            # Detach lambda_val from this computation graph so this update does not influence hypergrad calculation
-            # train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
-            #                      torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
-            #                      ) + lambda_val.detach() * l2_norm
+            main_loss = loss_fn(outputs.reshape(-1, model._n_actions),
+                                 torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+                                 )
+            
+            reg = 0
+            for p, p0 in zip(model.parameters(), model.initial_params):
+                reg += torch.sum(p - p0) ** 2
+            train_loss = main_loss + 0.5 * imaml_optimizer.l2_lambda * reg
 
-            # Try with neg avg trial LL
-            train_loss = neg_avg_trial_log_likelihood(outputs, ys, xs) + lambda_val.detach() * l2_norm
-
-            # Backprop step
+            model_optimizer.zero_grad()
             train_loss.backward()
             model_optimizer.step()
 
-            # Validation step for non-meta-optimization
-            if (epoch + 1) % update_freq != 0:
-                model.eval()
-                model.set_initial_state(batch_size=len(xs_val))
+            # OUTER LOOP, Meta-update every meta_update_interval
+            xs_val, ys_val = next(iter(dataloader_val))
+            xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
+
+            # Compute validation loss
+            model.set_initial_state(batch_size=len(xs_val))
+            state = model.get_state(detach=True)
+            val_preds = model(xs_val, state, batch_first=True)[0]
+            val_preds = apply_mask(val_preds, xs_val)
+            val_loss = loss_fn(
+                val_preds.reshape(-1, model._n_actions),
+                torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1),
+            )
+
+            if imaml_optimizer is not None and (epoch + 1) % meta_update_interval == 0:
+                # Recompute train loss with grads for meta-grad computation
+                xs,ys = next(iter(dataloader_train))
+                xs, ys = xs.to(model.device), ys.to(model.device)
+
+                model.train()
+                model.set_initial_state(batch_size=len(xs))
                 state = model.get_state(detach=True)
-                val_preds = model(xs_val, state, batch_first=True)[0]
-                val_preds = apply_mask(val_preds, xs_val)
+                outputs = model(xs, state, batch_first=True)[0]
+                outputs = apply_mask(outputs, xs)
 
-                # val_loss = loss_fn(
-                #     val_preds.reshape(-1, model._n_actions),
-                #     torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1), )
+                main_outer_loss = loss_fn(outputs.reshape(-1, model._n_actions),
+                                    torch.argmax(ys.reshape(-1, model._n_actions), dim=1),
+                                    )
+                
+                reg = 0
+                for p, p0 in zip(model.parameters(), model.initial_params):
+                    reg += torch.sum(p - p0) ** 2
+                train_outer_loss = main_outer_loss + 0.5 * imaml_optimizer.l2_lambda * reg
 
-                # Try with neg avg trial LL
-                val_loss = neg_avg_trial_log_likelihood(val_preds, ys_val, xs_val)
+                # Compute meta-gradient for λ
+                # meta_grad = imaml_optimizer.compute_lambda_meta_gradient(
+                #     model, train_outer_loss, val_loss
+                # )
 
-            # Save histories
+                # Update lambda TODO: Find out if I want to update lambda at all in iMAML
+                # imaml_optimizer.update_lambda(meta_grad)
+
+                # Compute meta-gradient for θ
+                meta_grad = imaml_optimizer.compute_theta_meta_grad(
+                    model, train_outer_loss, val_loss
+                )
+
+                # Update theta TODO: Find out if I want to update theta at all in iMAML
+                imaml_optimizer.update_theta(model, meta_grad)
+
+                # Compute theta drift and average meta-gradient norm for logging/plotting
+                theta_drift = sum((p - p0).norm().item() for p, p0 in zip(model.parameters(), theta_init_snapshot))
+                avg_param_norm = np.mean([p.norm().item() for p in model.parameters()])
+                drift_ratio = theta_drift / avg_param_norm
+                avg_meta_grad = torch.mean(torch.stack([g.norm() for g in meta_grad])).item()
+
             history_train_loss.append(train_loss.item())
             history_val_loss.append(val_loss.item())
-            history_log_lambda.append(log_lambda.item())
-            history_hypergrad.append(hypergrad.item())
+            history_theta_drift.append(drift_ratio)
+            history_metagrad.append(avg_meta_grad)
 
-            # Check for convergence
-            # Note taht val_loss here is calculated in the inner loop
             dloss = last_loss - val_loss
             convergence_value += recency_factor * (torch.abs(dloss).item() - convergence_value)
             converged = convergence_value < convergence_threshold
             last_loss = val_loss 
 
-            # Endo of epoch message
             msg = None
             if verbose:
-                # Shortened num decimal points displayed
                 msg = f"Epoch {epoch + 1}/{epochs} --- L(Train): {train_loss:.4f}"
                 msg += f"; L(Val): {val_loss:.4f}"
-                msg += f"; log_lambda: {log_lambda.item():.4f}"
-                msg += f"; hypergrad: {hypergrad.item():.7f}"
-                msg += f"; Time: {time.time()-t_start:.2f}"
+                msg += f"; θ drift ratio: {drift_ratio:.2f}"
+                msg += f"; metagrad: {avg_meta_grad:.6f}"
+                msg += f"; Time: {time.time()-t_epoch_start:.2f}"
 
-                # Just to use convergence_value
                 if converged:
                     msg += " --- Converged!"
-
                 print(msg)
-                # Missing convergence back here - not necessary for my metaopt
-                # Missing scheduler lr info here - not necessary for my metaopt
 
-            # Scheduler update
-            # Only with CosineAnnealingWarmRestarts
             if scheduler is not None:
                 if epoch < warmup_steps:
                     scheduler_warmup.step()
                 else:
                     scheduler.step()
                 
-            # Save checkpoint TODO: Test if this still works on correct epochs
+            # Save checkpoint, also keep optimizer state
             if path_save_checkpoints and (epoch + 1) == save_at_epoch:
-                torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
+                checkpoint = {
+                    'model': model.state_dict(),
+                    'optimizer': model_optimizer.state_dict(),
+                    'epoch': epoch + 1,
+                }
+                torch.save(checkpoint, path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
                 save_at_epoch *= 2
             
     except KeyboardInterrupt:
         msg = "Training interrupted. Continuing with further operations..."
         
-        # Wrap histories 
-        histories = [history_train_loss, history_val_loss, history_log_lambda, history_hypergrad]
+        histories = [history_train_loss, history_val_loss, history_theta_drift, history_metagrad]
         return model, model_optimizer, histories
 
-    histories = [history_train_loss, history_val_loss, history_log_lambda, history_hypergrad]
+    histories = [history_train_loss, history_val_loss, history_theta_drift, history_metagrad]
     return model, model_optimizer, histories
