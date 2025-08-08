@@ -13,7 +13,7 @@ sindy_config = sindy_utils.SindyConfig_eckstein2022
 additional_inputs = None
 
 path_data = 'data/eckstein2022/eckstein2022.csv'
-path_model = 'params/eckstein2022/AWD_8192_022_opt_eckstein2022_rnn.pkl'
+path_model = 'params/eckstein2022/iMAML_8192_05_eckstein2022_rnn.pkl'
 train_test_ratio = 0.8
 
 # class_rnn = rnn.RLRNN_dezfouli2019
@@ -46,7 +46,7 @@ agent_spice, features, loss = pipeline_sindy.main(
     # general recovery parameters
     participant_id=None,
     filter_bad_participants=False,
-    use_optuna=True, # Set to True later
+    use_optuna=False, # Set to True later
     pruning=False,
     
     # sindy parameters

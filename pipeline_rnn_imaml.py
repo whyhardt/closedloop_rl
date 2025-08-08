@@ -32,7 +32,7 @@ def main(
   meta_update_interval: int = 10,
   meta_lr: float = 0.01,
   cg_steps: int = 5,
-  cg_damping: float = 1e-3,
+  cg_damping: float = 1e-2,
   init_lambda: float = 1.0,
 
   # data and training parameters
@@ -223,7 +223,7 @@ def main(
     start_time = time.time()
 
     # Initialize iMAML optimizer if provided
-    imaml_opt = rnn_training_imaml.iMAMLOptimizer(meta_lr=meta_lr, cg_steps=cg_steps, cg_damping=cg_damping, init_lambda=1.0)
+    imaml_opt = rnn_training_imaml.iMAMLOptimizer(meta_lr=meta_lr, cg_steps=cg_steps, cg_damping=cg_damping, init_lambda=init_lambda)
 
     #Fit the RNN
     print('Training the RNN...')

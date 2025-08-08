@@ -22,10 +22,10 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/eckstein2022/iMAML_8192_2_eckstein2022_rnn.pkl'
-path_data = 'data/eckstein2022/eckstein2022.csv'
-train_test_ratio = 0.8
-class_rnn = RLRNN_eckstein2022
+path_model = 'params/dezfouli2019/AWD_8192_lambda022_dezfouli2019_rnn.pkl'
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+train_test_ratio = [3, 6, 9]
+class_rnn = RLRNN_dezfouli2019
 additional_inputs = None
 
 # -------------------------------------------------------------------------------
@@ -37,8 +37,7 @@ seed = 10
 manual_seed(seed)
 np.random.seed(seed)
 
-# model, _, histories = pipeline_rnn_awd.main(
-model, _, histories = pipeline_rnn_imaml.main(
+model, _, histories = pipeline_rnn_awd.main(
     
     dropout=0.25,
     train_test_ratio=train_test_ratio,
@@ -50,13 +49,7 @@ model, _, histories = pipeline_rnn_imaml.main(
     learning_rate=1e-2,
 
     # Meta-optimization parameters
-    meta_update_interval=20,
-    meta_lr=0.1,
-    cg_steps=5,
-    cg_damping=1e-3,
-    init_lambda=5.0,
-
-    # lambda_awd=0.1,  # Default from paper experiments
+    lambda_awd=0.22,
 
     # hand-picked params
     n_steps=-1,
@@ -91,40 +84,32 @@ model, _, histories = pipeline_rnn_imaml.main(
 
 import numpy as np
 
-train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
-# train_loss_history, val_loss_history, log_lambda_history = histories
+train_loss_history, val_loss_history, log_lambda_history = histories
 
 epochs = np.arange(1, len(train_loss_history) + 1)
+tick_step = max(1, len(epochs) // 10) 
 
-# plt.figure(figsize=(18,5))
 plt.figure(figsize=(12,5))
 
 # Subplot 1: Losses
-# plt.subplot(1,2,1)
-plt.subplot(1,3,1)
+plt.subplot(1,2,1)
 plt.plot(epochs, train_loss_history, label="Train Loss")
 plt.plot(epochs, val_loss_history, label="Validation Loss")
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.legend()
+plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 # Subplot 2: log_lambda
-# plt.subplot(1,2,2)
-plt.subplot(1,3,2)
-plt.plot(epochs, log_lambda_history, label='λ_wd')
+plt.subplot(1,2,2)
+plt.plot(epochs, log_lambda_history, label='λ weight decay')
 plt.xlabel('Epoch')
-plt.ylabel('λ_wd')
+plt.ylabel('λ weight decay')
 plt.legend()
+plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-# Subplot 3: hypergrad
-plt.subplot(1,3,3)
-plt.plot(epochs, hypergrad_history, label='Average Meta-Gradient Norm')
-plt.xlabel('Epoch')
-plt.ylabel('Average Meta-Gradient Norm')
-plt.legend()
-plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
 plt.tight_layout()
 plt.show()
