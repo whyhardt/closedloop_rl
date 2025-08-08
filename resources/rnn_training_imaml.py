@@ -422,7 +422,12 @@ def fit_with_metaopt(
             # Save initial parameters for implicit differentiation
             model.initial_params = [p.detach().clone() for p in model.parameters()]
 
-            xs, ys = next(train_iter)
+            try:
+                xs, ys = next(train_iter)
+            except StopIteration:
+                train_iter = iter(dataloader_train)
+                xs, ys = next(train_iter)
+
             xs, ys = xs.to(model.device), ys.to(model.device)
 
             # INNER LOOP, normal training step
@@ -445,7 +450,12 @@ def fit_with_metaopt(
             model_optimizer.step()
 
             # OUTER LOOP, Meta-update every meta_update_interval
-            xs_val, ys_val = next(val_iter)
+            try:
+                xs_val, ys_val = next(val_iter)
+            except StopIteration:
+                val_iter = iter(dataloader_val)
+                xs_val, ys_val = next(val_iter)
+                
             xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
             # Compute validation loss

@@ -108,10 +108,18 @@ def fit_with_metaopt(
         for epoch in range(epochs):
             t_start = time.time()
 
-            xs, ys = next(iter(dataloader_train))
+            try:
+                xs, ys = next(train_iter)
+            except StopIteration:
+                train_iter = iter(dataloader_train)
+                xs, ys = next(train_iter)
             xs, ys = xs.to(model.device), ys.to(model.device)
 
-            xs_val, ys_val = next(iter(dataloader_val))
+            try:
+                xs_val, ys_val = next(val_iter)
+            except StopIteration:
+                val_iter = iter(dataloader_val)
+                xs_val, ys_val = next(val_iter)
             xs_val, ys_val = xs_val.to(model.device), ys_val.to(model.device)
 
             model.train()
