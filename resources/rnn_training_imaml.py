@@ -8,7 +8,11 @@ from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
 def compute_hvp(loss, params, vector, damping=1e-6):
-    """Compute Hessian-vector product"""
+    """
+    Compute Hessian-vector product where H is the 
+    hessian of loss w.r.t. params and v is the input 
+    vector
+    """
     # Compute first-order gradients
     grads = torch.autograd.grad(
         loss, params, 
@@ -17,7 +21,7 @@ def compute_hvp(loss, params, vector, damping=1e-6):
         allow_unused=True
     )
     
-    # Filter valid gradients
+    # Error handling: Filter valid gradients
     valid_grads = [g for g in grads if g is not None]
     valid_params = [p for g, p in zip(grads, params) if g is not None]
     
@@ -27,7 +31,7 @@ def compute_hvp(loss, params, vector, damping=1e-6):
     # Create flat gradient
     flat_grad = torch.cat([g.view(-1) for g in valid_grads])
     
-    # Extract corresponding vector parts
+    # Extract corresponding vector parts since we might have dropped some grads
     valid_vector_parts = []
     vector_idx = 0
     for g, p in zip(grads, params):
@@ -41,15 +45,15 @@ def compute_hvp(loss, params, vector, damping=1e-6):
     # Compute gradient-vector product
     grad_product = flat_grad.dot(valid_vector)
     
-    # Compute second-order gradients (HVP)
+    # Compute second-order gradients
     hvp_grads = torch.autograd.grad(
         grad_product, valid_params, 
         retain_graph=True,
         allow_unused=True
     )
-    
-    # Process HVP gradients
-    valid_hvp_grads = [h if h is not None else torch.zeros_like(p) 
+
+    # Process HVP gradients, fill in missing values with 0
+    valid_hvp_grads = [h if h is not None else torch.zeros_like(p)
                       for h, p in zip(hvp_grads, valid_params)]
     
     # Flatten HVP gradients
@@ -72,21 +76,30 @@ def compute_hvp(loss, params, vector, damping=1e-6):
             valid_idx += 1
         vector_idx += param_size
     
-    # Apply damping
+    # Apply damping to improve numerical stability
     return full_hvp + damping * vector
 
 def conjugate_gradient(Av_func, b, x_init=None, max_iter=10, tol=1e-10, damping=1e-8):
-    """Conjugate gradient solver with essential fallbacks only"""
+    """
+    Conjugate gradient solver with fallbacks
+    """
+
+    # Function to check if tensor is usable or breaks computations
     def _is_healthy(tensor):
         return not (torch.isnan(tensor).any() or torch.isinf(tensor).any())
     
     x = torch.zeros_like(b) if x_init is None else x_init.clone()
+
+    # Define problem scale so CG behaves similarly for different problems
+    # E.g. more damping for larger b, but also smaller learning rate for stabilization
+    # Problem scale is large if meta grads are unstable and small when vanishing
     problem_scale = b.norm().item()
     
     # Early termination if b is very small
     if problem_scale < tol:
         return x
-    
+
+    # Also increase damping for larger problems
     base_damping = damping * max(1.0, problem_scale)
     
     # Try standard CG with progressive damping
@@ -97,12 +110,14 @@ def conjugate_gradient(Av_func, b, x_init=None, max_iter=10, tol=1e-10, damping=
         r = b - Av_func(x_attempt)
         p = r.clone()
         rsold = r.dot(r)
-        
+
+        # Assume it works
         success = True
         
         for i in range(max_iter):
             Ap = Av_func(p)
             
+            # Revert to False if tensor is not usable
             if not _is_healthy(Ap):
                 success = False
                 break
@@ -144,10 +159,11 @@ def conjugate_gradient(Av_func, b, x_init=None, max_iter=10, tol=1e-10, damping=
         
         if success:
             return x_attempt
-    
-    # Fallback: steepest descent
+
+    # Final Fallback: steepest descent to ensure usable return
     print("Conjugate gradient failed, using steepest descent fallback")
     learning_rate = 0.01 / (1.0 + problem_scale)
+    # Retry from initial point
     x_descent = x.clone()
     
     for i in range(min(max_iter, 5)):
@@ -161,6 +177,9 @@ def conjugate_gradient(Av_func, b, x_init=None, max_iter=10, tol=1e-10, damping=
     return x_descent
 
 class iMAMLOptimizer:
+    """
+    iMAML optimizer for meta-learning
+    """
     def __init__(self, meta_lr=0.001, cg_steps=5, cg_damping=1e-2, init_lambda=1.0):
         self.meta_lr = meta_lr
         self.cg_steps = cg_steps
@@ -173,6 +192,7 @@ class iMAMLOptimizer:
 
     @property
     def l2_lambda(self):
+        """Get the L2 weight decay parameter, clamped to avoid numerical issues"""
         return torch.clamp(torch.exp(self.log_l2_lambda), self.min_lambda, self.max_lambda)
     
     def compute_lambda_meta_gradient(self, model, inner_loss, outer_loss):
@@ -197,12 +217,14 @@ class iMAMLOptimizer:
         
         flat_outer_grad = torch.cat([g.view(-1) for g in valid_grads])
         
-        # Define A(v) = v + H*v/λ
+        # Applies linear operator from implicit diff
+        # Identity term plus Hessian-vector product of inner loss
         def Av_func(v):
             hvp = compute_hvp(inner_loss, valid_params, v, damping=self.cg_damping)
             return v + hvp / self.l2_lambda
-        
-        # Solve A*x = outer_grad
+
+        # Then solve A*v = outer_grad using conjugate gradient
+        # This avoids storing the Hessian
         implicit_grad = conjugate_gradient(
             Av_func, 
             flat_outer_grad, 
@@ -212,6 +234,7 @@ class iMAMLOptimizer:
         )
         
         # Compute parameter difference from initial values
+        # Error handling
         param_diff_parts = []
         for i in param_indices:
             if hasattr(model, 'initial_params') and i < len(model.initial_params):
@@ -222,10 +245,10 @@ class iMAMLOptimizer:
         
         param_diff = torch.cat(param_diff_parts)
         
-        # Compute ∂L_val/∂λ = ∂L_val/∂φ * ∂φ/∂λ
+        #  Compute lambda meta-gradient
         dL_dlambda = -implicit_grad.dot(param_diff) / self.l2_lambda
-        
-        # Account for log parameterization
+
+        # Rescale for log space
         meta_grad = dL_dlambda * self.l2_lambda
         
         return meta_grad
@@ -256,12 +279,14 @@ class iMAMLOptimizer:
         
         flat_outer_grad = torch.cat([g.view(-1) for g in valid_grads])
         
-        # Define A(v) = v + H*v/λ
+        # Applies linear operator from implicit diff
+        # Identity term plus Hessian-vector product of inner loss
         def Av_func(v):
             hvp = compute_hvp(inner_loss, valid_params, v, damping=self.cg_damping)
             return v + hvp / self.l2_lambda
         
-        # Solve A*x = outer_grad
+        # Then solve A*v = outer_grad using conjugate gradient
+        # This avoids storing the Hessian
         implicit_grad_flat = conjugate_gradient(
             Av_func, 
             flat_outer_grad, 
@@ -269,8 +294,8 @@ class iMAMLOptimizer:
             tol=1e-8,
             damping=self.cg_damping
         )
-        
-        # Map back to parameter structure
+
+        # Map back to parameter structure since we might have unused parameters
         meta_grad = []
         valid_idx = 0
         
@@ -288,7 +313,8 @@ class iMAMLOptimizer:
                 valid_idx += 1
             else:
                 meta_grad.append(torch.zeros_like(p))
-        
+
+        # Returns list of meta-grad tensors
         return meta_grad
     
     def update_theta(self, model, meta_grad):
@@ -315,8 +341,8 @@ def fit_with_metaopt(
     n_steps: int = -1,
     verbose: bool = True,
     path_save_checkpoints: str = None,
-    meta_update_interval: int = 10,  # <-- NEW: how often to update lambda
-    imaml_optimizer: iMAMLOptimizer = iMAMLOptimizer,  # <-- NEW: pass your optimizer
+    meta_update_interval: int = 20,
+    imaml_optimizer: iMAMLOptimizer = iMAMLOptimizer,
     ):
 
     """
@@ -353,7 +379,8 @@ def fit_with_metaopt(
         sampler = RandomSampler(dataset_train, replacement=True, num_samples=batch_size)
     else:
         raise NotImplementedError("Bagging=False is not implemented in this function.")
-    
+
+    # Leave at 0 for compatibility
     num_workers = 0
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
@@ -486,20 +513,20 @@ def fit_with_metaopt(
                     reg += torch.sum(p - p0) ** 2
                 train_outer_loss = main_outer_loss + 0.5 * imaml_optimizer.l2_lambda * reg
 
-                # Compute meta-gradient for λ
+                # Compute meta-gradient for lambda
                 # meta_grad_lambda = imaml_optimizer.compute_lambda_meta_gradient(
                 #     model, train_outer_loss, val_loss
                 # )
 
-                # # Update lambda TODO: Find out if I want to update lambda at all in iMAML
+                # # Update lambda:
                 # imaml_optimizer.update_lambda(meta_grad_lambda)
 
-                # Compute meta-gradient for θ
+                # Compute meta-gradient for theta
                 meta_grad = imaml_optimizer.compute_theta_meta_grad(
                     model, train_outer_loss, val_loss
                 )
 
-                # Update theta TODO: Find out if I want to update theta at all in iMAML
+                # Update theta:
                 imaml_optimizer.update_theta(model, meta_grad)
 
                 # Log the L2 norm of the meta-gradient
