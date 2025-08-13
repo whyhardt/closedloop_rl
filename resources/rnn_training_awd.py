@@ -8,7 +8,7 @@ import numpy as np
 from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
-# Create Mask TODO: Find out what this does
+# Create Mask
 def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
     return preds * mask
@@ -47,7 +47,8 @@ def fit_with_metaopt(
         sampler = RandomSampler(dataset_train, replacement=True, num_samples=batch_size)
     else:
         raise NotImplementedError("Bagging=False is not implemented in this function.")
-    
+
+    # Leave at 0 for compatibility
     num_workers = 0
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     if dataset_val is not None:
@@ -81,6 +82,7 @@ def fit_with_metaopt(
     if epochs == 0:
         raise ValueError("Epochs must be specified.")
 
+    # Define loss function
     loss_fn = nn.CrossEntropyLoss()
     
     # Define convergence variables
@@ -90,26 +92,29 @@ def fit_with_metaopt(
 
     # Initialize losses and histories for logging/plotting
     train_loss = torch.tensor(0.)
-    val_loss = torch.tensor(0.) # 0 for the first 10 epochs
+    val_loss = torch.tensor(0.)
 
     history_train_loss = []
     history_val_loss = []
     history_lambda_wd = []
 
-    # Step 2: Initialize λ̄_0 ← 0
-    lambda_wd_bar = 0.0  # Exponential weighted average of λ_wd
+    # Step 2 in Algorithm:
+    # Initialize moving average of the lambda we are adapting
+    lambda_wd_bar = 0.0
 
     # Set up at which epoch to save
     save_at_epoch = warmup_steps
 
     # Training loop
     try:
-        # Step 3: Iterate over epochs
+        # Step 3 in Algorithm: 
+        # Iterate over batches in epochs, here just epochs
         for epoch in range(epochs):
             t_start = time.time()
             train_iter = iter(dataloader_train)
             val_iter = iter(dataloader_val)
 
+            # Data loading using iters
             try:
                 xs, ys = next(train_iter)
             except StopIteration:
@@ -133,50 +138,57 @@ def fit_with_metaopt(
             if hasattr(state, 'detach'):
                 state = state.detach()
 
-            # Step 4: Get model predictions
+            # Step 4 in Algorithm: 
+            # Get model predictions
             outputs = model(xs, state, batch_first=True)[0]
             outputs = apply_mask(outputs, xs)
             
-            # Step 5: Calculate the main loss (CrossEntropy)
+            # Step 5 in Algorithm: 
+            # Calculate the main loss (CrossEntropy)
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                torch.argmax(ys.reshape(-1, model._n_actions), dim=1))
 
-            # Step 6: Compute gradients of main loss w.r.t weights
+            # Step 6 in Algorithm:
+            # Compute gradients of main loss w.r.t weights
             train_loss.backward()
 
-            # AWD Section
-            # Step 7: Compute iteration's weight decay hyperparameter
-            # λ_wd(t) = (λ_awd * ||∇_w L||) / ||w||
-            # Compute gradient norm ||∇_w L||
+            # AWD Section:
+            # Step 7 in the Algorithm: 
+            # Compute weight decay hyperparameter
+
+            # Compute L2 gradient norm
             grad_norm = 0.0
             for param in model.parameters():
                 if param.grad is not None:
                     grad_norm += (param.grad ** 2).sum().item()
             grad_norm = np.sqrt(grad_norm)
             
-            # Compute weight norm ||w||
+            # Compute L2 weight norm
             weight_norm = 0.0
             for param in model.parameters():
                 weight_norm += (param.data ** 2).sum().item()
             weight_norm = np.sqrt(weight_norm)
             
-            # Compute current iteration's weight decay parameter
-            if weight_norm > 1e-8:  # Avoid division by zero
+            # Compute weight decay parameter
+            if weight_norm > 1e-8:  # Error handling: Avoid division by zero
                 lambda_wd_current = (lambda_awd * grad_norm) / weight_norm
             else:
                 lambda_wd_current = 0.0
-            
-            # Step 8: Compute exponential weighted average (using paper's coefficients)
+
+            # Step 8 in Algorithm: 
+            # Compute exponential weighted/moving average (EMA) (using papers coefficients)
             lambda_wd_bar = 0.1 * lambda_wd_bar + 0.9 * lambda_wd_current
 
-            # Step 9: Update network parameters with adaptive weight decay
-            # w = w - lr * (∇_w L + λ_wd_bar * w)
-            # Manually add weight decay to gradients (following paper's approach)
+            # Step 9 in Algorithm: 
+            # Update network parameters with adaptive weight decay
+            # Manually add weight decay directly to gradients
+            # This is equivalent to applying weight decay in the optimizer
             for param in model.parameters():
                 if param.grad is not None:
                     param.grad.add_(param.data, alpha=lambda_wd_bar)
-            
-            
+
+            # Step 10 in Algorithm: 
+            # Update model parameters, with weight decay included in the gradients
             model_optimizer.step()
 
             model.eval()
@@ -217,7 +229,7 @@ def fit_with_metaopt(
                 else:
                     scheduler.step()
                 
-            # Save checkpoint TODO: Test if loading from these checkpoints works
+            # Save checkpoint
             if path_save_checkpoints and (epoch + 1) == save_at_epoch:
                 torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
                 save_at_epoch *= 2
