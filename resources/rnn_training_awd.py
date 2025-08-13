@@ -107,6 +107,8 @@ def fit_with_metaopt(
         # Step 3: Iterate over epochs
         for epoch in range(epochs):
             t_start = time.time()
+            train_iter = iter(dataloader_train)
+            val_iter = iter(dataloader_val)
 
             try:
                 xs, ys = next(train_iter)

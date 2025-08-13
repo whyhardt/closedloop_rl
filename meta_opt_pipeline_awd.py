@@ -22,7 +22,7 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/dezfouli2019/AWD_8192_lambda022_dezfouli2019_rnn.pkl'
+path_model = 'params/dezfouli2019/AWD_8192_lambda1_dezfouli2019_rnn.pkl'
 path_data = 'data/dezfouli2019/dezfouli2019.csv'
 train_test_ratio = [3, 6, 9]
 class_rnn = RLRNN_dezfouli2019
@@ -49,7 +49,7 @@ model, _, histories = pipeline_rnn_awd.main(
     learning_rate=1e-2,
 
     # Meta-optimization parameters
-    lambda_awd=0.22,
+    lambda_awd=1.0,
 
     # hand-picked params
     n_steps=-1,

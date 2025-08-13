@@ -20,10 +20,10 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/eckstein2022/iMAML_8192_lambda10_eckstein2022_rnn.pkl'
-path_data = 'data/eckstein2022/eckstein2022.csv'
-train_test_ratio = 0.8
-class_rnn = RLRNN_eckstein2022
+path_model = 'params/dezfouli2019/iMAML_8192_lambda10_dezfouli2019_rnn.pkl'
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+train_test_ratio = [3, 6, 9]
+class_rnn = RLRNN_dezfouli2019
 additional_inputs = None
 
 # -------------------------------------------------------------------------------
@@ -51,7 +51,7 @@ model, _, histories = pipeline_rnn_imaml.main(
     meta_lr=1e-1,
     cg_steps=5,
     cg_damping=1e-5, # Increase up to 3 times if NaN occurs
-    init_lambda=5.0,
+    init_lambda=10.0,
 
     # hand-picked params
     n_steps=-1,
