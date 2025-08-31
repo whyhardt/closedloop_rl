@@ -13,17 +13,17 @@ cudnn.enabled = False
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pipeline_rnn_imaml
-from resources.rnn_training_imaml import apply_mask
+from resources.rnn_training_imaml2 import apply_mask
 from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, RLRNN_eckstein2022#, RLRNN_meta_eckstein2022, RLRNN_eckstein2022_FC
 
 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/dezfouli2019/iMAML_8192_lambda10_dezfouli2019_rnn.pkl'
-path_data = 'data/dezfouli2019/dezfouli2019.csv'
-train_test_ratio = [3, 6, 9]
-class_rnn = RLRNN_dezfouli2019
+path_model = 'params/eckstein2022/NewiMAML.pkl'
+path_data = 'data/eckstein2022/eckstein2022.csv'
+train_test_ratio = 0.8
+class_rnn = RLRNN_eckstein2022
 additional_inputs = None
 
 # -------------------------------------------------------------------------------
@@ -47,11 +47,10 @@ model, _, histories = pipeline_rnn_imaml.main(
     learning_rate=1e-2,
 
     # Meta-optimization parameters
-    meta_update_interval=20,
-    meta_lr=1e-1,
-    cg_steps=5,
-    cg_damping=1e-5, # Increase up to 3 times if NaN occurs
-    init_lambda=10.0,
+    meta_update_interval=5,
+    inner_steps=5,
+    outer_lr=1e-1,
+    hypergradient_steps=5,
 
     # hand-picked params
     n_steps=-1,
@@ -86,7 +85,7 @@ model, _, histories = pipeline_rnn_imaml.main(
 
 import numpy as np
 
-train_loss_history, val_loss_history, log_lambda_history, hypergrad_history = histories
+train_loss_history, val_loss_history, hparam_history = histories
 
 epochs = np.arange(1, len(train_loss_history) + 1)
 tick_step = max(1, len(epochs) // 10) 
@@ -103,23 +102,28 @@ plt.legend()
 plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-# Subplot 2: Average Parameter Norm
+# Subplot 2: Regularization Weights (λ summary)
+hparam_means = [h.mean() for h in hparam_history]
+hparam_mins = [h.min() for h in hparam_history]
+hparam_maxs = [h.max() for h in hparam_history]
+
 plt.subplot(1,3,2)
-plt.plot(epochs, log_lambda_history, label='Average Parameter Norm')
-plt.xlabel('Epoch')
-plt.ylabel('Average Parameter Norm')
+plt.plot(epochs, hparam_means, label="Mean λ")
+plt.plot(epochs, hparam_mins, label="Min λ", linestyle="--")
+plt.plot(epochs, hparam_maxs, label="Max λ", linestyle="--")
+plt.xlabel("Epoch")
+plt.ylabel("Regularization Weights (λ)")
 plt.legend()
 plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
 plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-# Subplot 3: L2 Meta-Gradient Norm
+# Subplot 3: Distribution of λ’s (last epoch)
 plt.subplot(1,3,3)
-plt.plot(epochs, hypergrad_history, label='L2 Meta-Gradient Norm')
-plt.xlabel('Epoch')
-plt.ylabel('Average Meta-Gradient Norm')
-plt.legend()
-plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
-plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+plt.hist(hparam_history[-1], bins=50, alpha=0.7)
+plt.xlabel("λ value")
+plt.ylabel("Frequency")
+plt.title("Distribution of λ’s at final epoch")
+plt.xticks(rotation=45)
 
 plt.tight_layout()
 plt.show()
