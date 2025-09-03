@@ -74,8 +74,8 @@ baseline_file = f'gql_{study}_PhiBeta.pkl'
 use_test = True
 
 path_data = f'data/{study}/{study}.csv'
-path_model_rnn = f'params/{study}/iMAML_8192_lambda05_dezfouli2019_rnn.pkl'
-path_model_spice = f'params/{study}/iMAML_8192_lambda05_dezfouli2019_spice.pkl'
+path_model_rnn = f'params/{study}/iMAMLPP_8192_lr0001_in0001_dezfouli2019_rnn.pkl'
+path_model_spice = f'params/{study}/iMAMLPP_8192_lr0001_in0001_dezfouli2019_spice.pkl'
 path_model_baseline = None#os.path.join(f'params/{study}/', baseline_file)
 path_model_benchmark = None#os.path.join(f'params/{study}', benchmark_file) if len(models_benchmark) > 0 else None
 path_model_benchmark_lstm = None#f'params/{study}/lstm_{study}.pkl'

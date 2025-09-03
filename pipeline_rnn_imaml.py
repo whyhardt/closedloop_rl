@@ -29,11 +29,11 @@ def main(
   dropout = 0.5,
 
   # Meta-optimization parameters
-  meta_update_interval: int = 10,
-  inner_steps: int = 5,
-  outer_lr: float = 1e-3,
+  meta_update_interval: int = 20,
+  inner_steps: int = 3,
+  outer_lr: float = 1e-2,
   hypergradient_steps: int = 5,
-  hypergradient_method: str = 'CG',
+  initial_reg_param: float = 1e-1,
 
   # data and training parameters
   epochs = 128,
@@ -241,6 +241,7 @@ def main(
         inner_steps=inner_steps,
         hypergradient_steps=hypergradient_steps,
         outer_lr=outer_lr,
+        initial_reg_param=initial_reg_param,
 
     )
         

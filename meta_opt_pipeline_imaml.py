@@ -20,10 +20,10 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/eckstein2022/NewiMAML.pkl'
-path_data = 'data/eckstein2022/eckstein2022.csv'
-train_test_ratio = 0.8
-class_rnn = RLRNN_eckstein2022
+path_model = 'params/dezfouli2019/iMAMLPP_8192_dezfouli2019_rnn.pkl'
+path_data = 'data/dezfouli2019/dezfouli2019.csv'
+train_test_ratio = [3, 6, 9]
+class_rnn = RLRNN_dezfouli2019
 additional_inputs = None
 
 # -------------------------------------------------------------------------------
@@ -47,10 +47,11 @@ model, _, histories = pipeline_rnn_imaml.main(
     learning_rate=1e-2,
 
     # Meta-optimization parameters
-    meta_update_interval=5,
-    inner_steps=5,
-    outer_lr=1e-1,
-    hypergradient_steps=5,
+    meta_update_interval=50,
+    inner_steps=3,
+    outer_lr=1e-3,
+    hypergradient_steps=3,
+    initial_reg_param=1e-3,
 
     # hand-picked params
     n_steps=-1,

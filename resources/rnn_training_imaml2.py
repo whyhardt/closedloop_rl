@@ -7,11 +7,9 @@ import numpy as np
 from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
-try:
-    import higher
-    import hypergrad as hg
-except ImportError:
-    raise ImportError("Please install 'higher' and 'hypergrad' packages for iMAML functionality")
+# higher and hypergrad libs
+import higher
+import hypergrad as hg
     
 def apply_mask(preds, ss):
     mask = ss[..., :1] > -1
@@ -36,24 +34,28 @@ class iMAMLTask:
         self.val_loss_value = None
         self.train_loss_value = None
         
-    def bias_reg_f(self, bias_params, task_params):
-        """L2 biased regularization between meta-parameters (bias) and task parameters"""
+    def meta_reg_f(self, meta_params, task_params):
+        """
+        L2 biased regularization between meta-parameters (bias) and task parameters
+        """
         reg_loss = 0.0
         param_idx = 0
+        damping = 1e-3
         
-        for bias_p, task_p in zip(bias_params, task_params):
-            if bias_p.requires_grad and task_p.requires_grad:
+        for meta_p, task_p in zip(meta_params, task_params):
+            if meta_p.requires_grad and task_p.requires_grad:
                 # Get corresponding regularization parameter
                 if param_idx < len(self.reg_params):
-                    reg_strength = self.reg_params[param_idx]
+                    reg_strength = self.reg_params[param_idx] + damping
                     # L2 distance between bias and task parameters
-                    reg_loss += reg_strength * ((bias_p - task_p) ** 2).sum()
+                    reg_loss += reg_strength * ((meta_p - task_p) ** 2).sum()
                     param_idx += 1
-                
         return reg_loss
     
     def train_loss_f(self, task_params, meta_params):
-        """Training loss with biased regularization"""
+        """
+        Training loss with regularization
+        """
         # Forward pass with task-specific parameters
         self.model.set_initial_state(batch_size=len(self.train_xs))
         state = self.model.get_state(detach=True)
@@ -67,8 +69,8 @@ class iMAMLTask:
             torch.argmax(self.train_ys.reshape(-1, self.model._n_actions), dim=1)
         )
         
-        # Add biased regularization
-        reg_loss = self.bias_reg_f(meta_params, task_params)
+        # Add regularization
+        reg_loss = self.meta_reg_f(meta_params, task_params)
         
         total_loss = ce_loss + reg_loss
         self.train_loss_value = total_loss.item()
@@ -76,7 +78,9 @@ class iMAMLTask:
         return total_loss
     
     def val_loss_f(self, task_params, meta_params):
-        """Validation loss (no regularization)"""
+        """
+        Validation loss (no regularization)
+        """
         # Forward pass with task-specific parameters
         self.model.set_initial_state(batch_size=len(self.val_xs))
         state = self.model.get_state(detach=True)
@@ -84,6 +88,7 @@ class iMAMLTask:
         val_outputs = self.fmodel(self.val_xs, state, batch_first=True, params=task_params)[0]
         val_outputs = apply_mask(val_outputs, self.val_xs)
         
+        # Val loss with no regularization
         val_loss = self.loss_fn(
             val_outputs.reshape(-1, self.model._n_actions),
             torch.argmax(self.val_ys.reshape(-1, self.model._n_actions), dim=1)
@@ -106,39 +111,15 @@ def fit_with_metaopt(
     verbose: bool = True,
     path_save_checkpoints: str = None,
     
-    meta_update_interval=5,
+    meta_update_interval=20,
     inner_steps=3,
-    hypergradient_steps=5,
-    outer_lr=0.1,
-    initial_reg_param=0.01,
+    hypergradient_steps=3,
+    outer_lr=1e-3,
+    initial_reg_param=1e-1,
     ):
 
     """
     Fit the model with iMAML meta-optimization and per-parameter regularization
-
-    Args:
-        model: the model to train
-        dataset_train: training dataset
-        dataset_val: validation dataset (required for meta-optimization)
-        model_optimizer: optimizer for the model parameters
-        convergence_threshold: threshold for convergence
-        epochs: number of training epochs
-        batch_size: size of each training batch, -1 for full dataset (-1 used for thesis)
-        bagging: whether to use bagging
-        scheduler: whether to use a learning rate scheduler (CosineAnnealingWarmRestarts used in thesis)
-        n_steps: number of steps for training, -1 for full dataset
-        verbose: whether to print training progress
-        path_save_checkpoints: path to save model checkpoints
-        meta_update_interval: At which frequency to run an iMAML meta-update step
-        inner_steps: Number of inner optimization steps
-        hypergradient_steps: Number of CG steps for hypergradient computation
-        outer_lr: Learning rate for outer optimization
-        initial_reg_param: Initial regularization parameter value
-
-    Returns:
-        model: trained model
-        model_optimizer: optimizer used for training
-        histories: list of training and validation losses, regularization parameters stats
     """ 
     if dataset_val is None:
         raise ValueError("Validation dataset is required for training with meta-optimization.")
@@ -158,14 +139,6 @@ def fit_with_metaopt(
     num_workers = 0
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     dataloader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
-    # Initialize per-parameter regularization parameters
-    n_params = sum(1 for p in model.parameters() if p.requires_grad)
-    reg_params = torch.full((n_params,), initial_reg_param, 
-                           device=model.device, requires_grad=True)
-    
-    # Optimizer for regularization parameters
-    reg_optimizer = torch.optim.Adam([reg_params], lr=outer_lr)
 
     # Set up learning rate scheduler
     warmup_steps = 1024 if epochs > 1024 else 1
@@ -200,24 +173,30 @@ def fit_with_metaopt(
     last_loss = 1
     recency_factor = 0.5
 
+    # Metaopt setup
+    # Initialize per-parameter regularization parameters
+    # IMPORTANT: These are kept separate and will NOT be saved with the model
+    n_params = sum(1 for p in model.parameters() if p.requires_grad)
+    reg_params = torch.full((n_params,), initial_reg_param, 
+                           device=model.device, requires_grad=True)
+    
+    # Optimizer for regularization parameters (also not saved)
+    reg_optimizer = torch.optim.Adam([reg_params], lr=outer_lr)
+
     # Initialize losses and histories for logging/plotting
     train_loss = torch.tensor(0.)
     val_loss = torch.tensor(0.)
 
-    meta_grad_norm = 0.0
-    avg_param_norm = torch.tensor(0.)
-
     history_train_loss = []
     history_val_loss = []
     history_hparams = []  # Store complete regularization parameter tensors
-    history_meta_grad_norm = []
 
     # Set up at which epoch to save
     save_at_epoch = warmup_steps
 
     # Inner optimizer setup
     inner_opt_class = hg.GradientDescent
-    inner_lr = 0.1
+    inner_lr = 1e-3
     inner_opt_kwargs = {'step_size': inner_lr}
 
     def get_inner_opt(train_loss_f):
@@ -244,15 +223,18 @@ def fit_with_metaopt(
             state = model.get_state(detach=True)
             outputs = model(xs, state, batch_first=True)[0]
             outputs = apply_mask(outputs, xs)
+            outputs = torch.nan_to_num(outputs, nan=0.0, posinf=0.0, neginf=0.0)
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                 torch.argmax(ys.reshape(-1, model._n_actions), dim=1))
             
             train_loss.backward()
+            # Add gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             model_optimizer.step()
             model_optimizer.zero_grad()
 
             # Meta-update every meta_update_interval epochs
-            if (epoch + 1) % meta_update_interval == 0:  # Fixed timing: +1 so we get epochs 5, 10, 15...
+            if (epoch + 1) % meta_update_interval == 0:
                 # Get validation data
                 try:
                     xs_val, ys_val = next(val_iter)
@@ -279,30 +261,23 @@ def fit_with_metaopt(
                 # Run inner loop
                 params_history = [task_params]
                 for inner_step in range(inner_steps):
-                    try:
-                        new_params = inner_opt(params_history[-1], list(model.parameters()))
-                        params_history.append(new_params)
-                    except Exception as e:
-                        print(f"Inner optimization failed at step {inner_step}: {e}")
-                        break
+                    new_params = inner_opt(params_history[-1], list(model.parameters()))
+                    # Gradient clipping for inner loop parameters
+                    torch.nn.utils.clip_grad_norm_(new_params, max_norm=1.0)
+                    params_history.append(new_params)
                 
-                if len(params_history) > 1:  # Only proceed if inner optimization worked
+                # Only proceed if inner optimization worked
+                if len(params_history) > 1:
                     final_task_params = params_history[-1]
                     
                     # Clear gradients before hypergradient computation
                     reg_optimizer.zero_grad()
                     
-                    print(f"\n=== META-UPDATE at epoch {epoch+1} ===")
-                    print(f"Reg params before update: min={reg_params.min().item():.6f}, mean={reg_params.mean().item():.6f}, max={reg_params.max().item():.6f}")
-                    
-                    try:
-                        # The issue: CG doesn't know about reg_params! 
-                        # We need to include reg_params in the outer parameters for CG
-                        print("Starting CG computation...")
-                        
+                    try:          
                         # Create a combined list of outer parameters including reg_params
                         outer_params = list(model.parameters()) + [reg_params]
                         
+                        # Define fixed point map
                         cg_fp_map = hg.GradientDescent(loss_f=task.train_loss_f, step_size=inner_lr)
                         
                         # Now CG should handle reg_params too
@@ -314,61 +289,25 @@ def fit_with_metaopt(
                             outer_loss=task.val_loss_f
                         )
                         
-                        print("CG computation completed successfully")
-                        
                         # Check if reg_params got gradients from CG
                         if reg_params.grad is not None:
-                            print(f"SUCCESS: CG provided gradients! Grad norm: {reg_params.grad.norm().item():.6f}")
-                            print(f"CG grad stats: min={reg_params.grad.min().item():.6f}, mean={reg_params.grad.mean().item():.6f}, max={reg_params.grad.max().item():.6f}")
-                            meta_grad_norm = reg_params.grad.norm().item()
-                            
-                            # Instead of minimizing (which drives params to zero), maybe we should maximize
-                            # or use a different update rule. Let's see what happens with normal updates first.
-                            reg_optimizer.step()
-                            print("Reg params updated via CG gradients")
-                            
-                        else:
-                            print("CG still did not provide gradients, trying manual computation...")
-                            # Manual gradient computation 
-                            val_loss_value = task.val_loss_f(final_task_params, list(model.parameters()))
-                            val_loss_value.backward(retain_graph=True)
-                            
-                            if reg_params.grad is not None:
-                                print(f"Manual gradients obtained! Grad norm: {reg_params.grad.norm().item():.6f}")
-                                print(f"Manual grad stats: min={reg_params.grad.min().item():.6f}, mean={reg_params.grad.mean().item():.6f}, max={reg_params.grad.max().item():.6f}")
-                                meta_grad_norm = reg_params.grad.norm().item()
-                                
-                                # The gradients are negative because lower validation loss is better,
-                                # and apparently less regularization leads to better validation performance.
-                                # This might actually be correct! But let's try a smaller learning rate.
-                                with torch.no_grad():
-                                    # Manual update with smaller step size to prevent collapse
-                                    reg_params -= 0.001 * reg_params.grad  # Much smaller step
-                                print("Reg params updated via manual gradients (small step)")
+                            if torch.isnan(reg_params.grad).any():
+                                print("WARNING: NaN gradients detected for reg_params. Skipping meta-update this epoch.")
                             else:
-                                print(f"ERROR: Still no gradients for reg_params at epoch {epoch+1}")
-                                meta_grad_norm = 0.0
-                        
+                                torch.nn.utils.clip_grad_norm_([reg_params], max_norm=0.5)
+                                reg_optimizer.step()
+                        else:
+                            print("WARNING: reg_params did not receive gradients from CG. Skipping meta-update this epoch.")
                         # Clamp regularization parameters to prevent negative/extreme values
-                        old_params = reg_params.clone()
                         with torch.no_grad():
-                            reg_params.clamp_(min=1e-6, max=1.0)  # More reasonable upper bound
-                        
-                        if not torch.equal(old_params, reg_params):
-                            print(f"Clamped reg params from range [{old_params.min().item():.6f}, {old_params.max().item():.6f}]")
-                        
-                        print(f"Reg params after update: min={reg_params.min().item():.6f}, mean={reg_params.mean().item():.6f}, max={reg_params.max().item():.6f}")
-                                
+                            reg_params.clamp_(min=1e-4, max=5.0)
+                        # Zero out model parameter gradients after metaoptimization
+                        for param in model.parameters():
+                            if param.grad is not None:
+                                param.grad.zero_()
                     except Exception as e:
-                        print(f"ERROR: CG computation failed at epoch {epoch}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        meta_grad_norm = 0.0
-                    
-                    print("=== END META-UPDATE ===\n")
-                else:
-                    meta_grad_norm = 0.0
-                    print(f"Warning: Inner optimization failed at epoch {epoch}")
+                        print(f"ERROR: CG computation failed at epoch {epoch+1}: {e}")
+                        print("Skipping meta-update this epoch due to CG failure.")
 
             else:
                 # Compute validation loss for logging without meta-update
@@ -391,16 +330,10 @@ def fit_with_metaopt(
                         torch.argmax(ys_val.reshape(-1, model._n_actions), dim=1)
                     )
 
-            # Compute average parameter norm
-            with torch.no_grad():
-                param_norms = [p.norm() for p in model.parameters() if p.requires_grad]
-                avg_param_norm = torch.stack(param_norms).mean()
-
             # Update histories
             history_train_loss.append(train_loss.item())
             history_val_loss.append(val_loss.item())
             history_hparams.append(reg_params.detach().cpu().clone())  # Store complete tensor
-            history_meta_grad_norm.append(meta_grad_norm)
 
             # Convergence check
             dloss = last_loss - val_loss
@@ -412,8 +345,6 @@ def fit_with_metaopt(
             if verbose:
                 msg = f"Epoch {epoch + 1}/{epochs} --- L(Train): {train_loss:.4f}"
                 msg += f"; L(Val): {val_loss:.4f}"
-                msg += f"; Avg Param Norm: {avg_param_norm:.2f}"
-                msg += f"; Meta-Grad Norm: {meta_grad_norm:.4f}"
                 msg += f"; Reg Params (min/mean/max): {reg_params.min().item():.4f}/{reg_params.mean().item():.4f}/{reg_params.max().item():.4f}"
                 msg += f"; Time: {time.time()-t_epoch_start:.2f}"
 
@@ -428,24 +359,16 @@ def fit_with_metaopt(
                 else:
                     scheduler.step()
                 
-            # Save checkpoint
+            # Save checkpoint - ONLY model state_dict, NO reg_params
             if path_save_checkpoints and (epoch + 1) == save_at_epoch:
-                checkpoint = {
-                    'model': model.state_dict(),
-                    'optimizer': model_optimizer.state_dict(),
-                    'reg_params': reg_params,
-                    'reg_optimizer': reg_optimizer.state_dict(),
-                    'epoch': epoch + 1,
-                }
-                torch.save(checkpoint, path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
+                torch.save(model.state_dict(), path_save_checkpoints.replace(".", f"_ep{epoch + 1}."))
                 save_at_epoch *= 2
             
     except KeyboardInterrupt:
         print("Training interrupted. Continuing with further operations...")
 
-    histories = [
-        history_train_loss, 
-        history_val_loss, 
-        history_hparams  # Complete regularization parameter tensors for plotting
-    ]
+        histories = [history_train_loss, history_val_loss, history_hparams]
+        return model, model_optimizer, histories
+
+    histories = [history_train_loss, history_val_loss, history_hparams]
     return model, model_optimizer, histories

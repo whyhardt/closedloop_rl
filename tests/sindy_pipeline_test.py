@@ -13,7 +13,7 @@ from resources import rnn, sindy_utils
 # additional_inputs = None
 
 # path_data = 'data/eckstein2022/eckstein2022.csv'
-# path_model = 'params/eckstein2022/iMAML_8192_lambda10_eckstein2022_rnn.pkl'
+# path_model = 'params/eckstein2022/iMAMLPP_8192_eckstein2022_rnn.pkl'
 # train_test_ratio = 0.8
 
 #########
@@ -23,7 +23,7 @@ sindy_config = sindy_utils.SindyConfig_dezfouli2019
 additional_inputs = None
 
 path_data = 'data/dezfouli2019/dezfouli2019.csv'
-path_model = 'params/dezfouli2019/AWD_8192_lambda1_dezfouli2019_rnn.pkl'
+path_model = 'params/dezfouli2019/iMAMLPP_8192_lr0001_in0001_dezfouli2019_rnn.pkl'
 train_test_ratio = [3, 6, 9]
 
 # Set seed for torch and np
@@ -53,14 +53,14 @@ agent_spice, features, loss = pipeline_sindy.main(
     
     # sindy parameters
     train_test_ratio=train_test_ratio,
-    polynomial_degree=3,
-    optimizer_alpha=0.1,
-    optimizer_threshold=0.05,
+    polynomial_degree=2,
+    optimizer_alpha=0.1, # 0.1
+    optimizer_threshold=0.05, # 0.05
     n_trials_off_policy=1000,
     n_sessions_off_policy=1,
     n_trials_same_action_off_policy=5,
     optuna_threshold=0.1,
-    optuna_n_trials=50,
+    optuna_n_trials=50, # 50
     optimizer_type='SR3_weighted_l1',
     # optimizer_type='SR3_L1',
     verbose=False,
