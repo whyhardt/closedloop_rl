@@ -18,6 +18,7 @@ def apply_mask(preds, ss):
 class iMAMLTask:
     """
     Handles the train and validation loss for a single task with iMAML regularization
+    Code used from On the Iteration Complexity of Hypergradient Computation (Grazzi et al., 2020)
     """
     def __init__(self, model: BaseRNN, reg_params, train_data, val_data, loss_fn):
         device = model.device
@@ -25,12 +26,13 @@ class iMAMLTask:
         # Create stateless version of model for higher-order gradients
         self.fmodel = higher.monkeypatch(model, device=device, copy_initial_weights=True)
         
-        self.reg_params = reg_params  # Per-parameter regularization strengths
         self.train_xs, self.train_ys = train_data
         self.val_xs, self.val_ys = val_data
         self.loss_fn = loss_fn
         self.model = model
-        
+        # Per-parameter regularization strengths
+        self.reg_params = reg_params
+
         self.val_loss_value = None
         self.train_loss_value = None
         
@@ -40,8 +42,10 @@ class iMAMLTask:
         """
         reg_loss = 0.0
         param_idx = 0
+        # Damping value to help with numerical instability in CG solving
         damping = 1e-3
-        
+
+        # Compute regularization loss
         for meta_p, task_p in zip(meta_params, task_params):
             if meta_p.requires_grad and task_p.requires_grad:
                 # Get corresponding regularization parameter
@@ -119,7 +123,7 @@ def fit_with_metaopt(
     ):
 
     """
-    Fit the model with iMAML meta-optimization and per-parameter regularization
+    Fit RNN with iMAML meta-optimization and per-parameter regularization
     """ 
     if dataset_val is None:
         raise ValueError("Validation dataset is required for training with meta-optimization.")
@@ -175,12 +179,11 @@ def fit_with_metaopt(
 
     # Metaopt setup
     # Initialize per-parameter regularization parameters
-    # IMPORTANT: These are kept separate and will NOT be saved with the model
     n_params = sum(1 for p in model.parameters() if p.requires_grad)
     reg_params = torch.full((n_params,), initial_reg_param, 
                            device=model.device, requires_grad=True)
     
-    # Optimizer for regularization parameters (also not saved)
+    # Optimizer for regularization parameters
     reg_optimizer = torch.optim.Adam([reg_params], lr=outer_lr)
 
     # Initialize losses and histories for logging/plotting
@@ -189,14 +192,14 @@ def fit_with_metaopt(
 
     history_train_loss = []
     history_val_loss = []
-    history_hparams = []  # Store complete regularization parameter tensors
+    history_hparams = []
 
-    # Set up at which epoch to save
+    # Set up saving
     save_at_epoch = warmup_steps
 
-    # Inner optimizer setup
+    # Inner optimizer setup use original model lr
     inner_opt_class = hg.GradientDescent
-    inner_lr = 1e-3
+    inner_lr = model_optimizer.param_groups[0]['lr'] if model_optimizer is not None else 1e-2
     inner_opt_kwargs = {'step_size': inner_lr}
 
     def get_inner_opt(train_loss_f):
@@ -223,6 +226,7 @@ def fit_with_metaopt(
             state = model.get_state(detach=True)
             outputs = model(xs, state, batch_first=True)[0]
             outputs = apply_mask(outputs, xs)
+            # Handle NaNs/Infs in outputs for numerical stability
             outputs = torch.nan_to_num(outputs, nan=0.0, posinf=0.0, neginf=0.0)
             train_loss = loss_fn(outputs.reshape(-1, model._n_actions),
                                 torch.argmax(ys.reshape(-1, model._n_actions), dim=1))
@@ -233,9 +237,8 @@ def fit_with_metaopt(
             model_optimizer.step()
             model_optimizer.zero_grad()
 
-            # Meta-update every meta_update_interval epochs
+            # Meta-update every meta_update_interval epoch
             if (epoch + 1) % meta_update_interval == 0:
-                # Get validation data
                 try:
                     xs_val, ys_val = next(val_iter)
                 except StopIteration:
@@ -251,10 +254,11 @@ def fit_with_metaopt(
                     loss_fn
                 )
                 
-                # Inner optimization
+                # Inner optimization, using stateless model
                 inner_opt = get_inner_opt(task.train_loss_f)
                 
-                # Initialize task-specific parameters - must be fresh copies
+                # Initialize task-specific parameters
+                # Use fresh copies to break computational graph
                 task_params = [p.detach().clone().requires_grad_(True) 
                               for p in model.parameters() if p.requires_grad]
                 
@@ -277,13 +281,14 @@ def fit_with_metaopt(
                         # Create a combined list of outer parameters including reg_params
                         outer_params = list(model.parameters()) + [reg_params]
                         
-                        # Define fixed point map
+                        # Fixed point map for CG: defines one gradient descent step for the inner optimization.
+                        # CG uses this to efficiently compute hypergradients without storing full Hessian matrices.
                         cg_fp_map = hg.GradientDescent(loss_f=task.train_loss_f, step_size=inner_lr)
                         
-                        # Now CG should handle reg_params too
+                        # Solve using CG
                         hg_result = hg.CG(
                             final_task_params, 
-                            outer_params,  # Include reg_params here!
+                            outer_params,
                             K=hypergradient_steps, 
                             fp_map=cg_fp_map, 
                             outer_loss=task.val_loss_f
@@ -294,6 +299,7 @@ def fit_with_metaopt(
                             if torch.isnan(reg_params.grad).any():
                                 print("WARNING: NaN gradients detected for reg_params. Skipping meta-update this epoch.")
                             else:
+                                # Clipping gradients to ensure steady changes
                                 torch.nn.utils.clip_grad_norm_([reg_params], max_norm=0.5)
                                 reg_optimizer.step()
                         else:
@@ -306,7 +312,7 @@ def fit_with_metaopt(
                             if param.grad is not None:
                                 param.grad.zero_()
                     except Exception as e:
-                        print(f"ERROR: CG computation failed at epoch {epoch+1}: {e}")
+                        print(f"ERROR: CG computation failed at epoch {epoch + 1}: {e}")
                         print("Skipping meta-update this epoch due to CG failure.")
 
             else:
@@ -333,7 +339,7 @@ def fit_with_metaopt(
             # Update histories
             history_train_loss.append(train_loss.item())
             history_val_loss.append(val_loss.item())
-            history_hparams.append(reg_params.detach().cpu().clone())  # Store complete tensor
+            history_hparams.append(reg_params.detach().cpu().clone())
 
             # Convergence check
             dloss = last_loss - val_loss
