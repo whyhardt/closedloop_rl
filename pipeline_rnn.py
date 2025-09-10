@@ -42,10 +42,10 @@ def main(
   additional_inputs_data: List[str] = None,
   
   # sparsity parameters
-  lambda_l1 = 0.05,  # L1 penalty coefficient for sparsity
-  lambda_l2 = 0.01,  # L2 penalty coefficient for weight control
+  lambda_l1 = 0.001,  # L1 penalty coefficient for sparsity
+  lambda_l2 = 0.001,  # L2 penalty coefficient for weight control
   progressive_sparsity = False,  # whether to use progressive sparsity schedule
-
+  
   # ground truth parameters
   n_trials = 200,
   n_sessions = 256,
@@ -304,8 +304,8 @@ if __name__=='__main__':
   parser.add_argument('--train_test_ratio', type=str, default="1.0", help='Ratio of training data; Can also be a comma-separated list of integeres to indicate testing sessions.')
   
   # sparsity parameters
-  parser.add_argument('--lambda_l1', type=float, default=0.05, help='L1 penalty coefficient for sparsity')
-  parser.add_argument('--lambda_l2', type=float, default=0.01, help='L2 penalty coefficient for weight control')
+  parser.add_argument('--lambda_l1', type=float, default=0.0001, help='L1 penalty coefficient for sparsity')
+  parser.add_argument('--lambda_l2', type=float, default=0.0001, help='L2 penalty coefficient for weight control')
   parser.add_argument('--progressive_sparsity', action='store_true', help='Whether to use progressive sparsity schedule')
   
   # Ground truth parameters

@@ -32,6 +32,33 @@ def elastic_net_penalty(model: BaseRNN, lambda_l1: float = 0.0, lambda_l2: float
     return lambda_l1 * l1_penalty + lambda_l2 * l2_penalty
 
 
+def count_effective_parameters(model: BaseRNN, threshold: float = 1e-4):
+    """
+    Count the number of effective (non-negligible) parameters in the model.
+    
+    Args:
+        model: The RNN model
+        threshold: Parameters below this absolute value are considered negligible
+    
+    Returns:
+        tuple: (total_params, effective_params, sparsity_ratio)
+    """
+    total_params = 0
+    effective_params = 0
+    
+    for param in model.parameters():
+        if param.requires_grad:
+            param_count = param.numel()
+            effective_count = (param.abs() > threshold).sum().item()
+            
+            total_params += param_count
+            effective_params += effective_count
+    
+    sparsity_ratio = 1.0 - (effective_params / max(total_params, 1))
+    
+    return total_params, effective_params, sparsity_ratio
+
+
 def gradient_penalty(f: nn.Module, e_i: torch.Tensor, e_j: torch.Tensor, factor=1.0):
     
     # one-hot encode
@@ -362,9 +389,13 @@ def fit_model(
             
             msg = None
             if verbose:
+                # Count effective parameters
+                total_params, effective_params, sparsity_ratio = count_effective_parameters(model)
+                
                 msg = f'Epoch {n_calls_to_train_model}/{epochs} --- L(Train): {loss_train:.7f}'                
                 if dataset_test is not None:
                     msg += f'; L(Val): {loss_test:.7f}'
+                msg += f'; Params: {effective_params}/{total_params} ({sparsity_ratio*100:.1f}% sparse)'
                 msg += f'; Time: {time.time()-t_start:.2f}s; Convergence: {convergence_value:.2e}'
                 if scheduler is not None:
                     msg += f'; LR: {scheduler_warmup.get_last_lr()[-1] if n_calls_to_train_model < warmup_steps else scheduler.get_last_lr()[-1]:.2e}'

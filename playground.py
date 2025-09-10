@@ -19,64 +19,56 @@ from resources.model_evaluation import log_likelihood
 from benchmarking.benchmarking_lstm import setup_agent_lstm
 from benchmarking import benchmarking_eckstein2022, benchmarking_dezfouli2019
 
+# -------------------------------------------------------------------------------------------------
+# eckstein_data
 
-# \toprule
-# &$n_\text{parameters}$&$(\sigma)$&$\bar{\mathcal{L}}$&($\sigma$)&NLL&AIC&BIC\\
-# \midrule
-# Baseline&2&0&0.67622&0.12087&0.39124&0.81364&0.86432\\
-# Benchmark&4&0&0.70341&0.13075&0.35182&0.74656&0.84791\\
-# LSTM&1442&0&0.69989&0.12470&0.35684&28.30485&64.84373\\
-# \midrule
-# $l_2=0$&&&&&&&\\
-# RNN&547&0&0.69346&0.14281&0.36606&11.10921&24.96966\\
-# SPICE&13.31&3.67&0.61740&0.16760&0.48224&1.09541&1.43259\\
-# \midrule
-# $l_2=0.00001$&&&&&&&\\
-# RNN&547&0&0.69620&0.14050&0.36211&11.07344&24.93389\\
-# SPICE&14.43&2.96&0.68266&0.14289&0.38176&&0.95644&1.32211\\
-# \midrule
-# $l_2=0.00005$&&&&&&&\\
-# RNN&547&0&0.70280&0.13696&0.35269&11.09775&24.95819\\
-# SPICE&15.17&2.19&0.70148&0.13659&0.35457&0.93909&1.32360\\
-# \midrule
-# $l_2=0.0001$&&&&&&&\\
-# RNN&547&0&0.70560&0.13410&0.34870&11.09763&24.95808\\
-# SPICE&14.82&1.36&0.70348&0.13228&0.35172&0.93633&1.31191\\
-# \midrule
-# $l_2=0.0005$&&&&&&&\\
-# RNN&547&0&0.70459&0.12051&0.35014&11.15791&25.01836\\
-# SPICE&12.83&1.96&0.70288&0.12018&0.35257&0.94384&1.26878\\
-# \midrule
-# $l_2=0.001$&&&&&&&\\
-# RNN&547&0&0.69702&0.11429&0.36093&11.18507&25.04551\\
-# SPICE&11.41&0.59&0.69577&0.11442&0.36273&0.94101&1.23005\\
-# \bottomrule
+# L_baseline, NLL_baseline, AIC_baseline, BIC_baseline = 0.67622, 0.39124, 0.81364, 0.86432
+# L_benchmark, NLL_benchmark, AIC_benchmark, BIC_benchmark = 0.70341, 0.35182, 0.74656, 0.84791
+# L_LSTM, NLL_LSTM, AIC_LSTM, BIC_LSTM = 0.69989, 0.35684, 28.30485, 64.84373
 
+# # L̄ (L_bar) values
+# L_RNN = [0.69346, 0.69620, 0.70280, 0.70560, 0.70459, 0.69702]
+# L_SPICE = [0.61740, 0.68266, 0.70148, 0.70348, 0.70288, 0.69577]
 
-L_baseline, NLL_baseline, AIC_baseline, BIC_baseline = 0.67622, 0.39124, 0.81364, 0.86432
-L_benchmark, NLL_benchmark, AIC_benchmark, BIC_benchmark = 0.70341, 0.35182, 0.74656, 0.84791
-L_LSTM, NLL_LSTM, AIC_LSTM, BIC_LSTM = 0.69989, 0.35684, 28.30485, 64.84373
+# # NLL (Negative Log-Likelihood) values
+# NLL_RNN = [0.36606, 0.36211, 0.35269, 0.34870, 0.35014, 0.36093]
+# NLL_SPICE = [0.48224, 0.38176, 0.35457, 0.35172, 0.35257, 0.36273]
 
-# L̄ (L_bar) values
-L_RNN = [0.69346, 0.69620, 0.70280, 0.70560, 0.70459, 0.69702]
-L_SPICE = [0.61740, 0.68266, 0.70148, 0.70348, 0.70288, 0.69577]
+# # AIC (Akaike Information Criterion) values
+# AIC_RNN = [11.10921, 11.07344, 11.09775, 11.09763, 11.15791, 11.18507]
+# AIC_SPICE = [1.09541, 0.95644, 0.93909, 0.93633, 0.94384, 0.94101]
 
-# NLL (Negative Log-Likelihood) values
-NLL_RNN = [0.36606, 0.36211, 0.35269, 0.34870, 0.35014, 0.36093]
-NLL_SPICE = [0.48224, 0.38176, 0.35457, 0.35172, 0.35257, 0.36273]
+# # BIC (Bayesian Information Criterion) values
+# BIC_RNN = [24.96966, 24.93389, 24.95819, 24.95808, 25.01836, 25.04551]
+# BIC_SPICE = [1.43259, 1.32211, 1.32360, 1.31191, 1.26878, 1.23005]
 
-# AIC (Akaike Information Criterion) values
-AIC_RNN = [11.10921, 11.07344, 11.09775, 11.09763, 11.15791, 11.18507]
-AIC_SPICE = [1.09541, 0.95644, 0.93909, 0.93633, 0.94384, 0.94101]
+# # L2 regularization values (for reference)
+# l2_values = [0, 0.00001, 0.00005, 0.0001, 0.0005, 0.001]
 
-# BIC (Bayesian Information Criterion) values
-BIC_RNN = [24.96966, 24.93389, 24.95819, 24.95808, 25.01836, 25.04551]
-BIC_SPICE = [1.43259, 1.32211, 1.32360, 1.31191, 1.26878, 1.23005]
+# -------------------------------------------------------------------------------------------------
+
+# dezfouli data
+L_baseline, NLL_baseline, AIC_baseline, BIC_baseline = 0.56217, 0.57595, 1.17127, 1.21979
+L_benchmark, NLL_benchmark, AIC_benchmark, BIC_benchmark = 0.71490, 0.33561, 0.88018, 1.17128
+L_LSTM, NLL_LSTM, AIC_LSTM, BIC_LSTM = 0.75937, 0.27526, 91.95339, 211.54895
+
+# RNN values across L2 regularization settings
+# Using TEST data for L̄ and NLL, TRAIN data for AIC and BIC
+L_RNN = [0.73610, 0.74707, 0.75640, 0.74964, 0.71958, 0.71773]  # Test data
+NLL_RNN = [0.30639, 0.29159, 0.27919, 0.28816, 0.32909, 0.33166]  # Test data
+AIC_RNN = [10.74813, 10.71415, 10.69861, 10.71672, 10.80658, 10.81131]  # Train data
+BIC_RNN = [24.01766, 23.98367, 23.96814, 23.98625, 24.07611, 24.08083]  # Train data
+
+# SPICE values across L2 regularization settings
+# Using TEST data for L̄ and NLL, TRAIN data for AIC and BIC
+L_SPICE = [0.67465, 0.62257, 0.58965, 0.54715, 0.71943, 0.71656]  # Test data
+NLL_SPICE = [0.39355, 0.47391, 0.52823, 0.60302, 0.32930, 0.33329]  # Test data
+AIC_SPICE = [0.99608, 1.17383, 1.24381, 1.47696, 0.82499, 0.82255]  # Train data
+BIC_SPICE = [1.30331, 1.61884, 1.64611, 1.82962, 1.03512, 1.01700]  # Train data
 
 # L2 regularization values (for reference)
 l2_values = [0, 0.00001, 0.00005, 0.0001, 0.0005, 0.001]
-
-
+# -------------------------------------------------------------------------------------------------
 
 # Colors
 orange = '#FF8C00'
