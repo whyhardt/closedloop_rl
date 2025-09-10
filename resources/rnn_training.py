@@ -8,6 +8,30 @@ from resources.rnn import BaseRNN, CustomEmbedding
 from resources.rnn_utils import DatasetRNN
 
 
+def elastic_net_penalty(model: BaseRNN, lambda_l1: float = 0.0, lambda_l2: float = 0.0):
+    """
+    Compute Elastic Net regularization penalty (L1 + L2) for model parameters.
+    
+    Args:
+        model: The RNN model
+        lambda_l1: L1 penalty coefficient (promotes sparsity)
+        lambda_l2: L2 penalty coefficient (prevents large weights)
+    
+    Returns:
+        Combined L1 and L2 penalty term
+    """
+    l1_penalty = 0.0
+    l2_penalty = 0.0
+    
+    # Apply penalties to all model parameters
+    for param in model.parameters():
+        if param.requires_grad:
+            l1_penalty += torch.norm(param, 1)
+            l2_penalty += torch.norm(param, 2) ** 2
+    
+    return lambda_l1 * l1_penalty + lambda_l2 * l2_penalty
+
+
 def gradient_penalty(f: nn.Module, e_i: torch.Tensor, e_j: torch.Tensor, factor=1.0):
     
     # one-hot encode
@@ -120,6 +144,10 @@ def batch_train(
     optimizer: torch.optim.Optimizer = None,
     n_steps: int = -1,
     loss_fn: nn.modules.loss._Loss = nn.CrossEntropyLoss(),
+    lambda_l1: float = 0.0,
+    lambda_l2: float = 0.0,
+    progressive_sparsity: bool = False,
+    epoch: int = 0,
     ):
 
     """
@@ -147,10 +175,21 @@ def batch_train(
         ys_pred = ys_pred * mask
         ys_step = ys_step * mask
         
-        loss_step = loss_fn(
+        cross_entropy_loss = loss_fn(
             ys_pred.reshape(-1, model._n_actions), 
             torch.argmax(ys_step.reshape(-1, model._n_actions), dim=1),
             )
+        
+        # Apply progressive sparsity schedule if enabled
+        current_l1 = lambda_l1
+        current_l2 = lambda_l2
+        if progressive_sparsity and epoch > 0:
+            # Gradually increase L1 penalty over training
+            current_l1 = min(lambda_l1 * 10, lambda_l1 * (1 + epoch/500))
+        
+        # Add ElasticNet regularization penalty
+        sparsity_penalty = elastic_net_penalty(model, current_l1, current_l2)
+        loss_step = cross_entropy_loss + sparsity_penalty
         
         loss_batch += loss_step
         iterations += 1
@@ -178,6 +217,9 @@ def fit_model(
     n_steps: int = -1,
     verbose: bool = True,
     path_save_checkpoints: str = None,
+    lambda_l1: float = 0.0,
+    lambda_l2: float = 0.0,
+    progressive_sparsity: bool = False,
     ):
     """_summary_
 
@@ -282,6 +324,10 @@ def fit_model(
                     ys=ys,
                     optimizer=optimizer,
                     n_steps=n_steps,
+                    lambda_l1=lambda_l1,
+                    lambda_l2=lambda_l2,
+                    progressive_sparsity=progressive_sparsity,
+                    epoch=n_calls_to_train_model,
                 )
                 loss_train += loss_i
             loss_train /= iterations_per_epoch
@@ -299,6 +345,10 @@ def fit_model(
                         xs=xs,
                         ys=ys,
                         optimizer=optimizer,
+                        lambda_l1=lambda_l1,
+                        lambda_l2=lambda_l2,
+                        progressive_sparsity=progressive_sparsity,
+                        epoch=n_calls_to_train_model,
                     )
                 model.train()
             

@@ -31,7 +31,7 @@ def main(
   # data and training parameters
   epochs = 128,
   train_test_ratio = 1.,
-  l2_weight_decay=0,
+  l2_weight_decay=0,  # deprecated - kept for compatibility
   bagging = False,
   sequence_length = -1, # -1 for full sequence
   n_steps = -1,  # -1 for full sequence
@@ -40,6 +40,11 @@ def main(
   convergence_threshold = 0,
   scheduler = False,
   additional_inputs_data: List[str] = None,
+  
+  # sparsity parameters
+  lambda_l1 = 0.05,  # L1 penalty coefficient for sparsity
+  lambda_l2 = 0.01,  # L2 penalty coefficient for weight control
+  progressive_sparsity = False,  # whether to use progressive sparsity schedule
 
   # ground truth parameters
   n_trials = 200,
@@ -192,7 +197,7 @@ def main(
       n_participants=n_participants,
       ).to(device)
   
-  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=l2_weight_decay)
+  optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate)
   
   print('Setup of the RNN model complete.')
 
@@ -220,6 +225,9 @@ def main(
         n_steps=n_steps,
         scheduler=scheduler,
         path_save_checkpoints=params_path if save_checkpoints else None,
+        lambda_l1=lambda_l1,
+        lambda_l2=lambda_l2,
+        progressive_sparsity=progressive_sparsity,
     )
         
     # save trained parameters
@@ -291,9 +299,14 @@ if __name__=='__main__':
   parser.add_argument('--batch_size', type=int, default=-1, help='Batch size; -1: Use whole dataset at once;')
   parser.add_argument('--sequence_length', type=int, default=-1, help='Length of training sequences; -1: Use whole sequence at once;')
   parser.add_argument('--learning_rate', type=float, default=1e-2, help='Learning rate of the RNN')
-  parser.add_argument('--l2_weight_decay', type=float, default=0, help='Learning rate of the RNN')
+  parser.add_argument('--l2_weight_decay', type=float, default=0, help='Deprecated: L2 weight decay (use --lambda_l2 instead)')
   parser.add_argument('--convergence_threshold', type=float, default=0, help='Convergence threshold to early-stop training')
   parser.add_argument('--train_test_ratio', type=str, default="1.0", help='Ratio of training data; Can also be a comma-separated list of integeres to indicate testing sessions.')
+  
+  # sparsity parameters
+  parser.add_argument('--lambda_l1', type=float, default=0.05, help='L1 penalty coefficient for sparsity')
+  parser.add_argument('--lambda_l2', type=float, default=0.01, help='L2 penalty coefficient for weight control')
+  parser.add_argument('--progressive_sparsity', action='store_true', help='Whether to use progressive sparsity schedule')
   
   # Ground truth parameters
   parser.add_argument('--n_trials', type=int, default=200, help='Number of trials per session')
@@ -350,7 +363,10 @@ if __name__=='__main__':
     learning_rate = args.learning_rate,
     convergence_threshold = args.convergence_threshold,
     scheduler = args.scheduler,
-    l2_weight_decay=args.l2_weight_decay,
+    l2_weight_decay=args.l2_weight_decay,  # deprecated but kept for compatibility
+    lambda_l1=args.lambda_l1,
+    lambda_l2=args.lambda_l2,
+    progressive_sparsity=args.progressive_sparsity,
     
     # ground truth parameters
     beta_reward = args.beta_reward,
