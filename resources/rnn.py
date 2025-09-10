@@ -290,6 +290,9 @@ class BaseRNN(nn.Module):
             inputs = torch.concat([inputs_i.unsqueeze(-1) for inputs_i in inputs], dim=-1)
         elif inputs.dim()==2:
             inputs = inputs.unsqueeze(-1)
+            
+        # if self.training:
+        #     inputs = torch.nn.functional.dropout(inputs, p=0.5)  # Random input masking
         
         if key_module in self.submodules_sindy.keys():                
             # sindy module

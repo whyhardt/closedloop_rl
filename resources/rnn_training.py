@@ -59,6 +59,7 @@ def count_effective_parameters(model: BaseRNN, threshold: float = 1e-4):
     return total_params, effective_params, sparsity_ratio
 
 
+
 def gradient_penalty(f: nn.Module, e_i: torch.Tensor, e_j: torch.Tensor, factor=1.0):
     
     # one-hot encode
@@ -216,6 +217,7 @@ def batch_train(
         
         # Add ElasticNet regularization penalty
         sparsity_penalty = elastic_net_penalty(model, current_l1, current_l2)
+        
         loss_step = cross_entropy_loss + sparsity_penalty
         
         loss_batch += loss_step

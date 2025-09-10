@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 # Run example
-path_model_fit = 'params/eckstein2022/mcmc_eckstein2022_benchmark.nc'
+path_model_fit = 'benchmarking/params/mcmc_eckstein2022_sim_baseline_fit_benchmark.nc'
 # path_model_sim = 'params/eckstein2022/mcmc_eckstein2022_benchmark.nc'
 # path_model_fit = 'params/eckstein2022/mcmc_eckstein2022_sim_benchmark_fit_benchmark.nc'
 

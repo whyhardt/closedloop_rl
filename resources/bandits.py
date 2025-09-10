@@ -163,7 +163,7 @@ class Agent:
   
   @property
   def q_reward(self):
-    return (self._state['x_value_reward']*self._beta_reward).reshape(self._n_actions)
+    return (self._state['x_value_reward'])#*self._beta_reward).reshape(self._n_actions)
   
   @property
   def q_choice(self):
@@ -343,11 +343,11 @@ class AgentQ(Agent):
   
   @property
   def q_reward(self):
-    return (self._state['x_value_reward']*self._beta_reward).reshape(self._n_actions)
+    return (self._state['x_value_reward']).reshape(self._n_actions)#*self._beta_reward).reshape(self._n_actions)
   
   @property
   def q_choice(self):
-    return (self._state['x_value_reward']*self._beta_choice).reshape(self._n_actions)
+    return (self._state['x_value_reward']).reshape(self._n_actions)#*self._beta_choice).reshape(self._n_actions)
   
   @property
   def learning_rate_reward(self):
