@@ -14,7 +14,7 @@ from typing import List
 
 # RL libraries
 sys.path.append('resources')  # add source directoy to path
-from resources import rnn, rnn_training, bandits, rnn_training_imaml2, rnn_utils
+from resources import rnn, rnn_training, bandits, rnn_training_imaml3, rnn_utils
 from utils import convert_dataset, plotting
 
 def main(
@@ -70,6 +70,9 @@ def main(
   analysis: bool = False,
   participant_id: int = 0,
   save_checkpoints: bool = False,
+
+  # Pass SINDy config
+  **sindy_config,
   ):
   
   # print cuda devices available
@@ -211,7 +214,10 @@ def main(
       ).to(device)
   
   optimizer_rnn = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=l2_weight_decay)
-  
+
+  # Extract SINDy config
+  sindy_config_dict = dict(sindy_config)
+
   print('Setup of the RNN model complete.')
 
   if checkpoint:
@@ -224,10 +230,13 @@ def main(
 
     #Fit the RNN
     print('Training the RNN...')
-    model, optimizer_rnn, histories = rnn_training_imaml2.fit_with_metaopt(
+    model, optimizer_rnn, histories = rnn_training_imaml3.fit_with_metaopt_sindy(
         model=model,
         dataset_train=dataset_train,
         dataset_val=dataset_val,
+
+        sindy_config=sindy_config_dict,
+
         model_optimizer=optimizer_rnn,
         convergence_threshold=convergence_threshold,
         epochs=epochs,
@@ -242,7 +251,6 @@ def main(
         hypergradient_steps=hypergradient_steps,
         outer_lr=outer_lr,
         initial_reg_param=initial_reg_param,
-
     )
         
     # save trained parameters

@@ -20,7 +20,7 @@ from resources.rnn import RLRNN, RLRNN_dezfouli2019, RLRNN_dezfouli2019_blocks, 
 # -------------------------------------------------------------------------------
 # SPICE CONFIGURATIONS
 # -------------------------------------------------------------------------------
-path_model = 'params/dezfouli2019/iMAMLPP_8192_dezfouli2019_rnn.pkl'
+path_model = 'params/dezfouli2019/iMAMLNEW_8192_mlr1e-1_in1e-4_dezfouli2019_rnn.pkl'
 path_data = 'data/dezfouli2019/dezfouli2019.csv'
 train_test_ratio = [3, 6, 9]
 class_rnn = RLRNN_dezfouli2019
@@ -44,14 +44,14 @@ model, _, histories = pipeline_rnn_imaml.main(
     checkpoint=False,
     epochs=8192, # <- 2^16
     scheduler=True,
-    learning_rate=1e-2,
+    learning_rate=1e-2, # 1e-2
 
     # Meta-optimization parameters
-    meta_update_interval=50,
+    meta_update_interval=100,
     inner_steps=3,
-    outer_lr=1e-3,
+    outer_lr=1e-1,
     hypergradient_steps=3,
-    initial_reg_param=1e-3,
+    initial_reg_param=1e-4,
 
     # hand-picked params
     n_steps=-1,
@@ -87,44 +87,26 @@ model, _, histories = pipeline_rnn_imaml.main(
 import numpy as np
 
 train_loss_history, val_loss_history, hparam_history = histories
-
 epochs = np.arange(1, len(train_loss_history) + 1)
-tick_step = max(1, len(epochs) // 10) 
 
-plt.figure(figsize=(18,5))
+plt.figure(figsize=(12, 4))
 
-# Subplot 1: Losses
-plt.subplot(1,3,1)
-plt.plot(epochs, train_loss_history, label="Train Loss")
-plt.plot(epochs, val_loss_history, label="Validation Loss")
+# Plot 1: Losses
+plt.subplot(1, 2, 1)
+plt.plot(epochs, train_loss_history, label="Train Loss", linewidth=2)
+plt.plot(epochs, val_loss_history, label="Validation Loss", linewidth=2)
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.legend()
-plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
-plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+plt.grid(True, alpha=0.3)
 
-# Subplot 2: Regularization Weights (λ summary)
-hparam_means = [h.mean() for h in hparam_history]
-hparam_mins = [h.min() for h in hparam_history]
-hparam_maxs = [h.max() for h in hparam_history]
-
-plt.subplot(1,3,2)
-plt.plot(epochs, hparam_means, label="Mean λ")
-plt.plot(epochs, hparam_mins, label="Min λ", linestyle="--")
-plt.plot(epochs, hparam_maxs, label="Max λ", linestyle="--")
-plt.xlabel("Epoch")
-plt.ylabel("Regularization Weights (λ)")
+# Plot 2: Regularization parameter
+plt.subplot(1, 2, 2)
+plt.plot(epochs, hparam_history, label="λ (Regularization)", linewidth=2, color='red')
+plt.xlabel('Epoch')
+plt.ylabel('Regularization Parameter')
 plt.legend()
-plt.xticks(np.arange(0, len(epochs) + 1, tick_step))
-plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-# Subplot 3: Distribution of λ’s (last epoch)
-plt.subplot(1,3,3)
-plt.hist(hparam_history[-1], bins=50, alpha=0.7)
-plt.xlabel("λ value")
-plt.ylabel("Frequency")
-plt.title("Distribution of λ’s at final epoch")
-plt.xticks(rotation=45)
+plt.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.show()
