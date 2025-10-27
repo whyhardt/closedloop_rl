@@ -45,7 +45,7 @@ def analyze(df, diagnosis_col='diagnosis_group', out_dir='sindy_magnitude_analys
                  [c for c in EXTRA_COEFFS if c in df.columns]
 
     keep = [c for c in coeff_cols
-            if (nz := df.loc[df[c] != 0, c]).size > 10 and nz.std() > 1e-10]
+            if (nz := df.loc[df[c] != 0, c]).size > 3 and nz.std() > 1e-10]
     if not keep:
         raise ValueError('No variable coefficients found.')
 
@@ -60,7 +60,7 @@ def analyze(df, diagnosis_col='diagnosis_group', out_dir='sindy_magnitude_analys
         vals, diagnoses = df.loc[nz_mask, c], df.loc[nz_mask, diagnosis_col]
         grp_stats, g = describe_groups(vals, diagnoses)
 
-        rho, p_s     = spearmanr(diagnoses, vals) if vals.size > 10 else (np.nan, np.nan)
+        rho, p_s     = spearmanr(diagnoses, vals) if vals.size > 3 else (np.nan, np.nan)
         valid_groups = [x for x in g if x.size and x.std() > 1e-10]
         kw,  p_kw    = kruskal(*valid_groups) if len(valid_groups) >= 3 else (np.nan, np.nan)
         z,   p_jt    = jonckheere_terpstra(g)
@@ -111,7 +111,7 @@ def _make_plots(res_df, df, diagnosis_col, out):
     n_coeffs = len(all_coeffs)
     
     # Calculate grid dimensions to accommodate all coefficients
-    n_cols = 3  # Keep 3 columns for readability
+    n_cols = 4  # Keep 3 columns for readability
     n_rows = math.ceil(n_coeffs / n_cols)
     
     print(f"Creating plots for {n_coeffs} coefficients in {n_rows}x{n_cols} grid")
@@ -155,7 +155,7 @@ def _make_plots(res_df, df, diagnosis_col, out):
         axs_v[ax_row, ax_col].axis('off')
     
     fig_v.tight_layout()
-    fig_v.savefig(out/'sindy_coefficient_diagnosis_trends_all.png', dpi=300, bbox_inches='tight')
+    fig_v.savefig(out/'sindy_coefficient_diagnosis_trends_all.png', dpi=500, bbox_inches='tight')
     plt.close(fig_v)
 
     # BOX PLOTS - ALL COEFFICIENTS
@@ -203,11 +203,11 @@ def _make_plots(res_df, df, diagnosis_col, out):
         axs_b[ax_row, ax_col].axis('off')
     
     fig_b.tight_layout()
-    fig_b.savefig(out/'sindy_coefficient_diagnosis_trends_box_all.png', dpi=300, bbox_inches='tight')
+    fig_b.savefig(out/'sindy_coefficient_diagnosis_trends_box_all.png', dpi=500, bbox_inches='tight')
     plt.close(fig_b)
 
     # HEATMAP - Keep top 15 for readability, or use all if ≤15
-    top_for_heatmap = res_df.head(min(15, len(res_df)))
+    top_for_heatmap = res_df.head(min(20, len(res_df)))
     heat = pd.DataFrame({row.coefficient:
                           [g['mean'] for g in row.group_stats]
                           for _, row in top_for_heatmap.iterrows()}).T
@@ -216,10 +216,10 @@ def _make_plots(res_df, df, diagnosis_col, out):
     plt.figure(figsize=(12, max(8, len(top_for_heatmap) * 0.5)))
     sns.heatmap(heat, annot=True, cmap='RdBu_r', center=0,
                 fmt='.3f', cbar_kws={'label': 'Mean Coefficient'})
-    heatmap_title = f'SINDy / beta means by diagnosis group (top-{len(top_for_heatmap)} JT)'
+    heatmap_title = f'SINDy / beta means by diagnosis group'
     plt.title(heatmap_title)
     plt.tight_layout()
-    plt.savefig(out/'sindy_coefficient_heatmap.png', dpi=300, bbox_inches='tight')
+    plt.savefig(out/'sindy_coefficient_heatmap.png', dpi=500, bbox_inches='tight')
     plt.close()
     
     print(f"Generated plots for all {n_coeffs} coefficients")

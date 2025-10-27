@@ -15,7 +15,7 @@ from resources.model_evaluation import log_likelihood, bayesian_information_crit
 from resources.bandits import get_update_dynamics, AgentSpice
 from resources.sindy_utils import load_spice, SindyConfig_eckstein2022
 from utils.setup_agents import setup_agent_rnn
-from resources.rnn import RLRNN_eckstein2022, RLRNN_meta_eckstein2022, ExtendedEmbedding
+from resources.rnn import RLRNN_eckstein2022, ExtendedEmbedding,RLRNN_eckstein2022
 
 # ─── BEHAVIORAL METRICS ─────────────────────────────────────────────────────────────────────────────────
 additional_inputs = None#['age']  # If you want to include age as an additional input
@@ -163,11 +163,10 @@ print(f"Behavioral metrics computed for {len(behavior_df)} participants.")
 
 # ─── SINDy AND RNN MODELS ──────────────────────────────────────────────────────────────────────────────
 
-model_rnn_path = '/Users/martynaplomecka/closedloop_rl/params/new/rnn_eckstein2022_rldm_l1emb_0_001_l2_0_0005.pkl'
-model_spice_path = '/Users/martynaplomecka/closedloop_rl/params/new/spice_eckstein2022_rldm_l1emb_0_001_l2_0_0005.pkl'
+model_rnn_path = '/Users/martynaplomecka/closedloop_rl/data/eckstein2022/rnn_eckstein2022_l2_0_0005.pkl'
+model_spice_path = '/Users/martynaplomecka/closedloop_rl/data/eckstein2022/spice_eckstein2022_l2_0_0005.pkl'
 
-#class_rnn = RLRNN_meta_eckstein2022
-class_rnn = RLRNN_eckstein2022
+class_rnn =  RLRNN_eckstein2022
 
 sindy_config = SindyConfig_eckstein2022
 
@@ -187,7 +186,7 @@ agent_spice = AgentSpice(
 
 list_rnn_modules = SindyConfig_eckstein2022["rnn_modules"]
 
-# Build mappings between “real session ID” and SPICE’s internal index 0..(N-1)
+# Build mappings between "real session ID" and SPICE's internal index 0..(N-1)
 session_to_index = {pid: i for i, pid in enumerate(unique_sessions)}
 index_to_session = {i: pid for i, pid in enumerate(unique_sessions)}
 
@@ -210,6 +209,8 @@ for module in list_rnn_modules:
 # Extract embedding matrix from the SPICE model
 if isinstance(agent_spice._model.participant_embedding, torch.nn.Embedding):
     embedding_matrix = agent_spice._model.participant_embedding.weight.detach().cpu().numpy()
+elif isinstance(agent_spice._model.participant_embedding, torch.nn.Sequential):
+    embedding_matrix = agent_spice._model.participant_embedding[0].weight.detach().cpu().numpy()
 elif isinstance(agent_spice._model.participant_embedding, ExtendedEmbedding):
     embedding_matrix = agent_spice._model.participant_embedding.embedding.weight.detach().cpu().numpy()
 else:
@@ -231,7 +232,7 @@ for index_pid, pid in enumerate(participant_ids):
     internal_idx = session_to_index[pid]
     mask_pid = dataset.xs[:, 0, -1] == index_pid
     additional_embedding_inputs = dataset.xs[mask_pid, 0, 2*agent_spice._n_actions:-3]
-    # Initialize SPICE for this internal index with the participant’s age
+    # Initialize SPICE for this internal index with the participant's diagnosis
     agent_spice.new_sess(participant_id=internal_idx, additional_embedding_inputs=additional_embedding_inputs)
     betas = agent_spice.get_betas()
     features['beta_reward'][internal_idx] = betas.get('x_value_reward', 0.0)
@@ -251,11 +252,13 @@ for internal_idx in tqdm(range(n_participants), desc="Extracting SINDy/RNN param
     param_dict['beta_reward'] = features['beta_reward'].get(internal_idx, 0.0)
     param_dict['beta_choice'] = features['beta_choice'].get(internal_idx, 0.0)
 
-    # Fill in each submodule’s coefficients
+    # Fill in each submodule's coefficients
     for module in list_rnn_modules:
         if internal_idx in agent_spice._model.submodules_sindy[module]:
             model = agent_spice._model.submodules_sindy[module][internal_idx]
-            coefs = model.model.steps[-1][1].coef_.flatten()
+            coefs = model.coefficients().flatten()  # Get coefficients as a flat array
+            #coefs = model.model.steps[-1][1].coef_.flatten()
+
             for i, name in enumerate(model.get_feature_names()):
                 param_dict[f"{module}_{name}"] = coefs[i]
             param_dict[f"params_{module}"] = np.sum(np.abs(coefs) > 1e-10)
@@ -288,72 +291,124 @@ print(f"After inner‐join of SINDy + behavior: {len(merged_df)} participants")
 
 # Reload or reuse the same dataset object for testing
 dataset_test, _, _, _ = convert_dataset(file=data_path, additional_inputs=additional_inputs)
-dataset_test = dataset  # ensure we use the original dataset
 
-metrics_data = []
+# Collect metrics for each session, then average per participant
+session_metrics = []
+
 for internal_idx in tqdm(range(n_participants), desc="Computing model metrics"):
     pid = index_to_session[internal_idx]
-
-    # Only compute metrics if this pid is in the merged_df
+    
     if pid not in set(merged_df['participant_id']):
         continue
+    
+    # Find all sessions for this participant
+    participant_sessions = dataset_test.xs[dataset_test.xs[:, 0, -1] == internal_idx, 0, -3].unique()
+    
+    for sid in participant_sessions:
+        # Mask for selecting trials belonging to this participant and session
+        mask = torch.logical_and(
+            dataset_test.xs[:, 0, -1] == internal_idx, 
+            dataset_test.xs[:, 0, -3] == sid
+        )
+        
+        if not mask.any():
+            continue
 
-    # Mask for selecting trials belonging to this SPICE index
-    mask = (dataset_test.xs[:, 0, -1] == internal_idx)
-    if not mask.any():
-        continue
+        participant_data = DatasetRNN(*dataset_test[mask])
 
-    participant_data = DatasetRNN(*dataset_test[mask])
+        # Reset agents before computing predictions
+        # Get additional embedding inputs for this participant
+        mask_pid = dataset.xs[:, 0, -1] == internal_idx
+        additional_embedding_inputs = dataset.xs[mask_pid, 0, 2*agent_spice._n_actions:-3]
+        
+        agent_spice.new_sess(participant_id=internal_idx, additional_embedding_inputs=additional_embedding_inputs)
+        agent_rnn.new_sess(participant_id=internal_idx)
 
-    # Reset agents before computing predictions
-    agent_spice.new_sess(participant_id=internal_idx)
-    agent_rnn.new_sess(participant_id=internal_idx)
+        # Get predicted probabilities from both models
+        _, probs_spice, _ = get_update_dynamics(
+            experiment=participant_data.xs, agent=agent_spice
+        )
+        _, probs_rnn, _ = get_update_dynamics(
+            experiment=participant_data.xs, agent=agent_rnn
+        )
 
-    # Get predicted probabilities from both models
-    _, probs_spice, _ = get_update_dynamics(
-        experiment=participant_data.xs, agent=agent_spice
-    )
-    _, probs_rnn, _ = get_update_dynamics(
-        experiment=participant_data.xs, agent=agent_rnn
-    )
+        n_trials_test = len(probs_spice)
+        if n_trials_test == 0:
+            continue
 
-    n_trials_test = len(probs_spice)
-    if n_trials_test == 0:
-        continue
+        true_actions = participant_data.ys[0, :n_trials_test].cpu().numpy()
+        ll_spice = log_likelihood(data=true_actions, probs=probs_spice)
+        ll_rnn = log_likelihood(data=true_actions, probs=probs_rnn)
 
-    true_actions = participant_data.ys[0, :n_trials_test].cpu().numpy()
-    ll_spice = log_likelihood(data=true_actions, probs=probs_spice)
-    ll_rnn = log_likelihood(data=true_actions, probs=probs_rnn)
+        spice_per_trial_like = np.exp(ll_spice / (n_trials_test * agent_rnn._n_actions))
+        rnn_per_trial_like = np.exp(ll_rnn / (n_trials_test * agent_rnn._n_actions))
 
-    spice_per_trial_like = np.exp(ll_spice / (n_trials_test * agent_rnn._n_actions))
-    rnn_per_trial_like = np.exp(ll_rnn / (n_trials_test * agent_rnn._n_actions))
+        n_params_dict = agent_spice.count_parameters()
+        if internal_idx not in n_params_dict:
+            continue
+        n_parameters_spice = n_params_dict[internal_idx]
 
-    n_params_dict = agent_spice.count_parameters()
-    if internal_idx not in n_params_dict:
-        continue
-    n_parameters_spice = n_params_dict[internal_idx]
+        bic_spice = bayesian_information_criterion(
+            data=true_actions,
+            probs=probs_spice,
+            n_parameters=n_parameters_spice
+        )
+        aic_spice = 2 * n_parameters_spice - 2 * ll_spice
 
-    bic_spice = bayesian_information_criterion(
-        data=true_actions,
-        probs=probs_spice,
-        n_parameters=n_parameters_spice
-    )
-    aic_spice = 2 * n_parameters_spice - 2 * ll_spice
+        session_metrics.append({
+            'participant_id': pid,
+            'session_id': sid.item(),  # Convert tensor to scalar
+            'nll_spice': -ll_spice,
+            'nll_rnn': -ll_rnn,
+            'trial_likelihood_spice': spice_per_trial_like,
+            'trial_likelihood_rnn': rnn_per_trial_like,
+            'bic_spice': bic_spice,
+            'aic_spice': aic_spice,
+            'n_parameters_spice': n_parameters_spice,
+            'metric_n_trials': n_trials_test
+        })
 
+session_metrics_df = pd.DataFrame(session_metrics)
+
+# Now average metrics per participant
+metrics_data = []
+for pid in session_metrics_df['participant_id'].unique():
+    participant_sessions = session_metrics_df[session_metrics_df['participant_id'] == pid]
+    
+    # Calculate weighted averages (weighted by number of trials in each session)
+    total_trials = participant_sessions['metric_n_trials'].sum()
+    weights = participant_sessions['metric_n_trials'] / total_trials
+    
+    # For likelihood-based metrics, we want to sum log-likelihoods and then compute final metrics
+    total_nll_spice = participant_sessions['nll_spice'].sum()
+    total_nll_rnn = participant_sessions['nll_rnn'].sum()
+    
+    # Weighted averages for per-trial metrics
+    avg_trial_likelihood_spice = (participant_sessions['trial_likelihood_spice'] * weights).sum()
+    avg_trial_likelihood_rnn = (participant_sessions['trial_likelihood_rnn'] * weights).sum()
+    
+    # For BIC/AIC, sum the log-likelihoods and use total trials
+    total_ll_spice = -total_nll_spice
+    avg_bic_spice = -2 * total_ll_spice + participant_sessions['n_parameters_spice'].iloc[0] * np.log(total_trials)
+    avg_aic_spice = 2 * participant_sessions['n_parameters_spice'].iloc[0] - 2 * total_ll_spice
+    
     metrics_data.append({
         'participant_id': pid,
-        'nll_spice': -ll_spice,
-        'nll_rnn': -ll_rnn,
-        'trial_likelihood_spice': spice_per_trial_like,
-        'trial_likelihood_rnn': rnn_per_trial_like,
-        'bic_spice': bic_spice,
-        'aic_spice': aic_spice,
-        'n_parameters_spice': n_parameters_spice,
-        'metric_n_trials': n_trials_test
+        'nll_spice': total_nll_spice,
+        'nll_rnn': total_nll_rnn,
+        'trial_likelihood_spice': avg_trial_likelihood_spice,
+        'trial_likelihood_rnn': avg_trial_likelihood_rnn,
+        'bic_spice': avg_bic_spice,
+        'aic_spice': avg_aic_spice,
+        'n_parameters_spice': participant_sessions['n_parameters_spice'].iloc[0],  # Same for all sessions
+        'metric_n_trials': total_trials,
+        'n_sessions': len(participant_sessions)
     })
 
 metrics_df = pd.DataFrame(metrics_data)
 print(f"Number of participants with model metrics: {len(metrics_df)}")
+print(f"Average number of sessions per participant: {session_metrics_df.groupby('participant_id').size().mean():.2f}")
+
 
 # ─── MERGE 2: KEEP ONLY PARTICIPANTS WHO ALSO HAVE METRICS ───────────────────────────────────────────────
 final_df = pd.merge(merged_df, metrics_df, on='participant_id', how='inner')

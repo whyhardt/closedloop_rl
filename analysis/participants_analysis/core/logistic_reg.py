@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2
+from statsmodels.stats.multitest import multipletests
+import textwrap
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -21,18 +23,33 @@ def load_and_prepare_data(csv_path='final_df_sindy_analysis_with_metrics.csv'):
     for extra in ('beta_reward', 'beta_choice'):
         if extra in df.columns:
             sindy_cols.append(extra)
-
     return df, sindy_cols
 
 
 def clean_coefficient_name(col):
-    return (col.replace('x_', '').replace('_', ' ').title())[:50]
+    # allow much longer names so we don't truncate content here
+    return (col.replace('x_', '').replace('_', ' ').title())[:200]
+
+
+def _wrap_text_list(strings, width=18):
+    """
+    Wrap a list of strings to given width with newlines.
+    """
+    wrapped = []
+    for s in strings:
+        if not isinstance(s, str):
+            wrapped.append(s)
+        else:
+            w = "\n".join(textwrap.wrap(s, width=width)) if len(s) > width else s
+            wrapped.append(w)
+    return wrapped
 
 
 def perform_logistic_regression_analysis(df, cols, output_dir):
     """
     Runs logistic regression on each coefficient vs age, prints never/always present,
-    then plots only the middle group sorted by |β|.
+    then plots only the middle group sorted by |β|, with both raw and FDR‐corrected p‐values.
+    Also emits wrapped-label variants to avoid cut-off.
     """
     # 1) filter missing ages
     df_clean = df[df['Age'].notna()].copy()
@@ -68,7 +85,6 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
                 n_nonzero=int(y.sum()),
                 n_total=int(len(y)),
                 coefficient_clean=clean_coefficient_name(col),
-                significance='ns',
                 note='always present'
             ))
             continue
@@ -83,21 +99,12 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
         # LRT
         p_hat = model.predict_proba(age_std[mask].reshape(-1, 1))[:, 1]
         eps = 1e-15
-        ll = np.sum(y * np.log(np.clip(p_hat, eps, 1 - eps)) + (1 - y) * np.log(np.clip(1 - p_hat, eps, 1 - eps)))
+        ll = np.sum(y * np.log(np.clip(p_hat, eps, 1 - eps)) +
+                    (1 - y) * np.log(np.clip(1 - p_hat, eps, 1 - eps)))
         p0 = y.mean()
         ll0 = np.sum(y * np.log(p0) + (1 - y) * np.log(1 - p0))
         lr = -2 * (ll0 - ll)
         pval = 1 - chi2.cdf(max(0, lr), df=1)
-
-        # stars
-        if pval < 1e-3:
-            star = '***'
-        elif pval < 1e-2:
-            star = '**'
-        elif pval < 5e-2:
-            star = '*'
-        else:
-            star = 'ns'
 
         results.append(dict(
             coefficient=col,
@@ -105,8 +112,7 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
             p_value=pval,
             n_nonzero=int(y.sum()),
             n_total=int(len(y)),
-            coefficient_clean=clean_coefficient_name(col),
-            significance=star
+            coefficient_clean=clean_coefficient_name(col)
         ))
 
     if skipped:
@@ -116,11 +122,11 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
     if df_res.empty:
         raise ValueError("No valid regressions run.")
 
-    # only those with a real regression (note is NaN)
-    mask_reg = df_res['note'].isna()
+    # only those with a real regression (i.e., not always-present)
+    mask_reg = ~df_res.get('note', '').eq('always present')
     print("\nLogistic regressions (0 < rate < 1):")
     for _, r in df_res[mask_reg].iterrows():
-        print(f" - {r['coefficient_clean']}: p={r['p_value']:.4f}, sig={r['significance']}")
+        print(f" - {r['coefficient_clean']}: p={r['p_value']:.4f}")
 
     os.makedirs(output_dir, exist_ok=True)
     all_csv = os.path.join(output_dir, 'sindy_age_logistic_regression_all.csv')
@@ -129,7 +135,7 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
 
     # never / always
     never = [clean_coefficient_name(c) for c, n in skipped if n == 'all zero']
-    always = df_res.loc[df_res['note'] == 'always present', 'coefficient_clean'].tolist()
+    always = df_res.loc[df_res.get('note', '') == 'always present', 'coefficient_clean'].tolist()
     print("\nNever-present:\n ", "\n  ".join(never))
     print("\nAlways-present:\n ", "\n  ".join(always))
 
@@ -149,52 +155,98 @@ def perform_logistic_regression_analysis(df, cols, output_dir):
     else:
         print(f"\nPlotting {len(df_rem)} remaining (sorted by |β|)…")
         create_beta_bar_plot(df_rem, output_dir)
+        create_beta_bar_plot_wrapped(df_rem, output_dir)          # NEW
         create_logistic_regression_plot(df_rem, output_dir, age_min, age_max)
+        create_beta_bar_plot_fdr(df_rem, output_dir)
+        create_beta_bar_plot_fdr_wrapped(df_rem, output_dir)      # NEW
+        create_logistic_regression_plot_fdr(df_rem, output_dir, age_min, age_max)
 
     return df_res
 
 
+def _dynamic_fig_width(n_labels, base=10, per_label=0.35, max_w=30):
+    return max(base, min(max_w, base + per_label * max(0, n_labels - 12)))
+
+
 def create_beta_bar_plot(df, output_dir):
     """
-    Bar‑plot of β sorted by magnitude.
+    Bar-plot of β sorted by magnitude, all bars in light grey,
+    annotated with exact p-values.
     """
-    cmap = {'***': '#FF0000', '**': '#FFA500', '*': '#FFD700', 'ns': '#999999'}
-    colors = df['significance'].map(cmap)
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(df['coefficient_clean'], df['beta_age'], color=colors, edgecolor='black')
+    fig_width = _dynamic_fig_width(len(df))
+    fig, ax = plt.subplots(figsize=(fig_width, 5))
+    bars = ax.bar(df['coefficient_clean'], df['beta_age'],
+                  color='lightgrey', edgecolor='black')
     ax.axhline(0, linestyle='--', color='black')
     ax.set_ylabel('Age Effect (β)')
-    ax.set_title('Age Effect (β) by Coefficient (remaining)')
-    ax.set_xticklabels(df['coefficient_clean'], rotation=45, ha='right', fontsize=8)
+    ax.set_title('Age Effect (β) by Coefficient (raw p-values)')
+    ax.tick_params(axis='x', labelsize=9)
+    plt.xticks(rotation=30, ha='right')
 
-    # legend
-    handles = [plt.Rectangle((0, 0), 1, 1, facecolor=cmap[s], edgecolor='black') for s in ['***', '**', '*', 'ns']]
-    ax.legend(handles, ['***', '**', '*', 'ns'], title='Significance', loc='best')
+    # annotate p-values above each bar
+    for bar, p in zip(bars, df['p_value']):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                height + np.sign(height) * 0.02,
+                f"p={p:.3f}",
+                ha='center', va='bottom', fontsize=8)
 
-    plt.tight_layout()
+    # more room for rotated labels
+    plt.subplots_adjust(bottom=0.28)
     out = os.path.join(output_dir, 'beta_vs_coefficient_remaining_sorted.png')
     plt.savefig(out, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"  • β-bar plot → {out}")
+    print(f"  • β-bar (raw) → {out}")
+
+
+def create_beta_bar_plot_wrapped(df, output_dir):
+    """
+    Same as create_beta_bar_plot but with wrapped, multi-line x tick labels to avoid truncation.
+    """
+    labels = df['coefficient_clean'].tolist()
+    wrapped = _wrap_text_list(labels, width=18)
+
+    fig_width = _dynamic_fig_width(len(wrapped))
+    fig, ax = plt.subplots(figsize=(fig_width, 6))
+    x = np.arange(len(df))
+    bars = ax.bar(x, df['beta_age'].values, color='lightgrey', edgecolor='black')
+    ax.axhline(0, linestyle='--', color='black')
+    ax.set_ylabel('Age Effect (β)')
+    ax.set_title('Age Effect (β) by Coefficient (raw p-values, wrapped labels)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(wrapped, rotation=15, ha='right', fontsize=9)
+
+    for bar, p in zip(bars, df['p_value']):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                height + np.sign(height) * 0.02,
+                f"p={p:.3f}",
+                ha='center', va='bottom', fontsize=8)
+
+    plt.subplots_adjust(bottom=0.35)  # extra space for multi-line labels
+    out = os.path.join(output_dir, 'beta_vs_coefficient_remaining_sorted_wrapped.png')
+    plt.savefig(out, dpi=400, bbox_inches='tight')
+    plt.close()
+    print(f"  • β-bar (raw, wrapped) → {out}")
 
 
 def create_logistic_regression_plot(df, output_dir, age_min, age_max):
     """
-    Curve‑plot for the remaining sorted coefficients.
+    Curve-plot for the remaining sorted coefficients, all curves in light grey,
+    subplot titles annotated with exact p-values.
     """
-    cmap = {'***': '#FF0000', '**': '#FFA500', '*': '#FFD700', 'ns': '#999999'}
     ages = np.linspace(age_min, age_max, 200)
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-    fig.suptitle('Age-Dependent Presence (remaining)', y=0.98)
+    fig.suptitle('Age-Dependent Presence (raw p-values)', y=0.98)
 
     for ax, (_, row) in zip(axes.flatten(), df.iterrows()):
         beta_age = row['beta_age']
-        # logistic curve
-        age_std = (ages - ages.mean()) / ages.std()
-        p = 1 / (1 + np.exp(-beta_age * age_std))
-        ax.plot(ages, p, color=cmap[row['significance']])
-        ax.set_title(row['coefficient_clean'], fontsize=10)
+        # visual-only standardization over the plotted grid
+        p = 1 / (1 + np.exp(-beta_age * ((ages - ages.mean()) / ages.std())))
+        title = f"{row['coefficient_clean']} (p={row['p_value']:.3f})"
+        # wrap long titles
+        ax.set_title("\n".join(textwrap.wrap(title, width=45)), fontsize=10)
+        ax.plot(ages, p, color='lightgrey')
         ax.set_ylim(0, 1)
         ax.set_xlabel('Age')
         ax.set_ylabel('Prob.')
@@ -203,7 +255,108 @@ def create_logistic_regression_plot(df, output_dir, age_min, age_max):
     out = os.path.join(output_dir, 'logistic_curves_remaining_sorted.png')
     plt.savefig(out, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"  • curves plot → {out}")
+    print(f"  • curves (raw) → {out}")
+
+
+def create_beta_bar_plot_fdr(df, output_dir):
+    """
+    Bar-plot of β sorted by magnitude, annotated with FDR-corrected p-values.
+    """
+    # apply FDR correction
+    p_raw = df['p_value'].values
+    _, p_fdr, _, _ = multipletests(p_raw, alpha=0.05, method='fdr_bh')
+    df2 = df.copy()
+    df2['p_fdr'] = p_fdr
+
+    fig_width = _dynamic_fig_width(len(df2))
+    fig, ax = plt.subplots(figsize=(fig_width, 5))
+    bars = ax.bar(df2['coefficient_clean'], df2['beta_age'],
+                  color='lightgrey', edgecolor='black')
+    ax.axhline(0, linestyle='--', color='black')
+    ax.set_ylabel('Age Effect (β)')
+    ax.set_title('Age Effect (β) by Coefficient (FDR p-values)')
+    ax.tick_params(axis='x', labelsize=9)
+    plt.xticks(rotation=30, ha='right')
+
+    for bar, p in zip(bars, df2['p_fdr']):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                height + np.sign(height) * 0.02,
+                f"p={p:.3f}",
+                ha='center', va='bottom', fontsize=8)
+
+    plt.subplots_adjust(bottom=0.28)
+    out = os.path.join(output_dir, 'new_beta_vs_coefficient_remaining_sorted_fdr.png')
+    plt.savefig(out, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  • β-bar (FDR) → {out}")
+
+
+def create_beta_bar_plot_fdr_wrapped(df, output_dir):
+    """
+    FDR version with wrapped, multi-line x tick labels to avoid truncation.
+    """
+    p_raw = df['p_value'].values
+    _, p_fdr, _, _ = multipletests(p_raw, alpha=0.05, method='fdr_bh')
+    df2 = df.copy()
+    df2['p_fdr'] = p_fdr
+
+    labels = df2['coefficient_clean'].tolist()
+    wrapped = _wrap_text_list(labels, width=18)
+    x = np.arange(len(df2))
+
+    fig_width = _dynamic_fig_width(len(wrapped))
+    fig, ax = plt.subplots(figsize=(fig_width, 6))
+    bars = ax.bar(x, df2['beta_age'].values, color='lightgrey', edgecolor='black')
+    ax.axhline(0, linestyle='--', color='black')
+    ax.set_ylabel('Age Effect (β)')
+    ax.set_title('Age Effect (β) by Coefficient (FDR p-values, wrapped labels)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(wrapped, rotation=45, ha='right', fontsize=9)
+
+    for bar, p in zip(bars, df2['p_fdr']):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                height + np.sign(height) * 0.02,
+                f"p={p:.3f}",
+                ha='center', va='bottom', fontsize=8)
+
+    plt.subplots_adjust(bottom=0.35)
+    out = os.path.join(output_dir, 'new_beta_vs_coefficient_remaining_sorted_fdr_wrapped.png')
+    plt.savefig(out, dpi=500, bbox_inches='tight')
+    plt.close()
+    print(f"  • β-bar (FDR, wrapped) → {out}")
+
+
+def create_logistic_regression_plot_fdr(df, output_dir, age_min, age_max):
+    """
+    Curve-plot for the remaining sorted coefficients, annotated with FDR-corrected p-values.
+    """
+    ages = np.linspace(age_min, age_max, 200)
+    # apply FDR correction
+    p_raw = df['p_value'].values
+    _, p_fdr, _, _ = multipletests(p_raw, alpha=0.05, method='fdr_bh')
+    df2 = df.copy()
+    df2['p_fdr'] = p_fdr
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    fig.suptitle('Age-Dependent Presence (FDR p-values)', y=0.98)
+
+    for ax, (_, row) in zip(axes.flatten(), df2.iterrows()):
+        beta_age = row['beta_age']
+        p = 1 / (1 + np.exp(-beta_age * ((ages - ages.mean()) / ages.std())))
+        title = f"{row['coefficient_clean']} (q={row['p_fdr']:.3f})"
+        ax.set_title("\n".join(textwrap.wrap(title, width=45)), fontsize=10)
+        ax.plot(ages, p, color='lightgrey')
+        ax.set_ylim(0, 1)
+        ax.set_xlabel('Age')
+        ax.set_ylabel('Prob.')
+
+    plt.tight_layout()
+    out = os.path.join(output_dir, 'logistic_curves_remaining_sorted_fdr.png')
+    plt.savefig(out, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  • curves (FDR) → {out}")
 
 
 def main(

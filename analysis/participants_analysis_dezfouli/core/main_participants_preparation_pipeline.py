@@ -15,7 +15,7 @@ from resources.model_evaluation import log_likelihood, bayesian_information_crit
 from resources.bandits import get_update_dynamics, AgentSpice
 from resources.sindy_utils import load_spice, SindyConfig_dezfouli2019
 from utils.setup_agents import setup_agent_rnn
-from resources.rnn import RLRNN_dezfouli2019, ExtendedEmbedding
+from resources.rnn import RLRNN_dezfouli2019, ExtendedEmbedding, RLRNN_eckstein2022
 
 # ─── BEHAVIORAL METRICS ─────────────────────────────────────────────────────────────────────────────────
 additional_inputs = ['diag']  # include diagnosis as an additional input
@@ -138,11 +138,11 @@ print(f"Behavioral metrics computed for {len(behavior_df)} participants.")
 
 # ─── SINDy AND RNN MODELS ──────────────────────────────────────────────────────────────────────────────
 
-model_rnn_path = '/Users/martynaplomecka/closedloop_rl/data/dezfouli2019/rnn_dezfouli2019_no_l1_l2_0.pkl'
-model_spice_path = '/Users/martynaplomecka/closedloop_rl/data/dezfouli2019/spice_dezfouli2019_no_l1_l2_0.pkl'
+model_rnn_path = '/Users/martynaplomecka/closedloop_rl/data/dezfouli2019/rnn_dezfouli2019_l2_0_001up.pkl'
+model_spice_path = '/Users/martynaplomecka/closedloop_rl/data/dezfouli2019/spice_dezfouli2019_l2_0_001up.pkl'
 
 #class_rnn = RLRNN_meta_dezfouli2019
-class_rnn = RLRNN_dezfouli2019
+class_rnn =  RLRNN_eckstein2022
 
 sindy_config = SindyConfig_dezfouli2019
 
@@ -185,6 +185,8 @@ for module in list_rnn_modules:
 # Extract embedding matrix from the SPICE model
 if isinstance(agent_spice._model.participant_embedding, torch.nn.Embedding):
     embedding_matrix = agent_spice._model.participant_embedding.weight.detach().cpu().numpy()
+elif isinstance(agent_spice._model.participant_embedding, torch.nn.Sequential):
+    embedding_matrix = agent_spice._model.participant_embedding[0].weight.detach().cpu().numpy()
 elif isinstance(agent_spice._model.participant_embedding, ExtendedEmbedding):
     embedding_matrix = agent_spice._model.participant_embedding.embedding.weight.detach().cpu().numpy()
 else:
@@ -230,7 +232,9 @@ for internal_idx in tqdm(range(n_participants), desc="Extracting SINDy/RNN param
     for module in list_rnn_modules:
         if internal_idx in agent_spice._model.submodules_sindy[module]:
             model = agent_spice._model.submodules_sindy[module][internal_idx]
-            coefs = model.model.steps[-1][1].coef_.flatten()
+            coefs = model.coefficients().flatten()  # Get coefficients as a flat array
+            #coefs = model.model.steps[-1][1].coef_.flatten()
+
             for i, name in enumerate(model.get_feature_names()):
                 param_dict[f"{module}_{name}"] = coefs[i]
             param_dict[f"params_{module}"] = np.sum(np.abs(coefs) > 1e-10)
